@@ -308,6 +308,12 @@ func (c *Client) do(ctx context.Context, rawURL, referer string, mode requestMod
 				delay *= 2
 			}
 			if err := sleepCtx(ctx, delay); err != nil {
+				// The overall deadline expired mid-backoff: report the real
+				// cause (usually a timeout) rather than the backoff itself.
+				var we *Error
+				if lastErr != nil && errors.As(lastErr, &we) && we.Code == CodeTimeout {
+					return nil, we.Status, "", lastErr
+				}
 				return nil, 0, "", timeoutError(ctx, "during retry backoff")
 			}
 		}

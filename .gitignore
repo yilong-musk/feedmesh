@@ -1,2 +1,3 @@
 weibo-rss
 *.test
+.cache*/

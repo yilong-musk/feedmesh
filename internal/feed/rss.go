@@ -93,22 +93,12 @@ func RenderRSS(f *Feed) []byte {
 		b.WriteString(cdata(it.HTML))
 		b.WriteString("</description>\n")
 		writeElem(&b, "      ", "pubDate", rfc822(it.CreatedAt))
-		if it.BID != "" {
-			writeElem(&b, "      ", "author", "@"+authorHandle(f, it))
-		}
 		b.WriteString("    </item>\n")
 	}
 
 	b.WriteString("  </channel>\n")
 	b.WriteString("</rss>\n")
 	return []byte(b.String())
-}
-
-func authorHandle(f *Feed, _ *Item) string {
-	if f.ScreenName != "" {
-		return f.ScreenName
-	}
-	return f.UID
 }
 
 func writeElem(b *strings.Builder, indent, name, value string) {
