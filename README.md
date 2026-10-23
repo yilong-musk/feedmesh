@@ -1,6 +1,6 @@
 # weibo-rss-pro
 
-把指定微博账号的时间线转成 RSS。单二进制、零第三方依赖、对 agent 友好（stdout 只放数据、机器可读退出码、`--json` 一行 JSON）。
+把指定微博账号的时间线，以及微博实时热搜榜，转成 RSS。单二进制、零第三方依赖、对 agent 友好（stdout 只放数据、机器可读退出码、`--json` 一行 JSON）。
 
 Go 重写自 [zgq354/weibo-rss](https://github.com/zgq354/weibo-rss)（Node/TS + Koa + LevelDB）。原版被 `leveldown` 这个原生模块锁死在 Node 20；本实现只有标准库，`go.mod` 里没有任何 `require`。
 
@@ -213,6 +213,28 @@ curl -s http://127.0.0.1:3000/rss/user/2803301701 | head -8
 ### `GET /rss/domain/{name}`
 
 个性域名（如 `rmrb`）先解析成 uid，再返回同一格式。
+
+### `GET /rss/hot` 与 `/rss/hot.xml`
+
+实时热搜榜，一题一条 item（`title` 带名次，`guid` 用搜索 URL，名次变化不会重复推送）。
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/hot?limit=10'
+curl -s 'http://127.0.0.1:3000/rss/hot?refresh=1'   # 绕过 5 分钟缓存
+```
+
+- `limit`：1–50，默认 20。
+- 每条 `description` 含「热度 148.9 万 · 标签 · 分类」与跳转链接。
+- 上游缓存 5 分钟；HTTP `Cache-Control: max-age=60`。
+
+### `GET /api/v1/hot?limit=N`
+
+```json
+{"title":"微博热搜","description":"微博实时热搜榜","fetched_at":"2026-10-23T08:00:00Z",
+ "cached":true,
+ "items":[{"id":"hot-1","title":"1. 小城良方 剧情硬伤","text":"小城良方 剧情硬伤",
+           "url":"https://s.weibo.com/weibo?q=…","images":[]}]}
+```
 
 ### `GET /api/v1/feed?uid=<uid>&limit=N`
 

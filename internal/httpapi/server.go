@@ -59,7 +59,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/healthz", s.getOnly(s.handleHealth))
 	mux.HandleFunc("/rss/user/{uid}", s.getOnly(s.handleUser))
 	mux.HandleFunc("/rss/domain/{name}", s.getOnly(s.handleDomain))
+	mux.HandleFunc("/rss/hot", s.getOnly(s.handleHot))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
+	mux.HandleFunc("/api/v1/hot", s.getOnly(s.handleAPIHot))
 	mux.HandleFunc("/", s.handleNotFound)
 	return mux
 }
@@ -191,6 +193,46 @@ func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, feedResponse{
 		UID:         f.UID,
 		ScreenName:  f.ScreenName,
+		Description: f.Description,
+		FetchedAt:   f.FetchedAt,
+		Cached:      f.Cached,
+		Items:       f.Items,
+	})
+}
+
+type hotResponse struct {
+	Title       string      `json:"title"`
+	Description string      `json:"description"`
+	FetchedAt   time.Time   `json:"fetched_at"`
+	Cached      bool        `json:"cached"`
+	Items       []feed.Item `json:"items"`
+}
+
+func (s *Server) handleHot(w http.ResponseWriter, r *http.Request) {
+	limit := atoiDefault(r.URL.Query().Get("limit"), feed.DefaultHotLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetHot(r.Context(), limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=60")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
+	limit := atoiDefault(r.URL.Query().Get("limit"), feed.DefaultHotLimit)
+
+	f, err := s.cfg.Service.GetHot(r.Context(), limit, false)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, hotResponse{
+		Title:       f.Title(),
 		Description: f.Description,
 		FetchedAt:   f.FetchedAt,
 		Cached:      f.Cached,

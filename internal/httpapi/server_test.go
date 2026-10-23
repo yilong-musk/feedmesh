@@ -50,6 +50,11 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 			fmt.Fprint(w, `{"ok":1,"data":{"longTextContent":"<p>第二条 完整正文</p>"}}`)
 		case r.URL.Path == "/statuses/show":
 			fmt.Fprint(w, `{"ok":1,"data":{"id":"1002","text":"<p>第二条 回退正文</p>"}}`)
+		case r.URL.Path == "/hot":
+			fmt.Fprint(w, `{"ok":1,"data":{"realtime":[
+				{"word":"小城良方 剧情硬伤","word_scheme":"小城良方 剧情硬伤","num":1488601,"label_name":"新","flag_desc":"剧集","topic_flag":0},
+				{"word":"晋江式演技正在毁掉长剧演员","word_scheme":"#晋江式演技正在毁掉长剧演员#","num":116836,"label_name":"热","flag_desc":"综艺","topic_flag":1}
+			]}}`)
 		case r.URL.Path == "/rmrb":
 			http.Redirect(w, r, "/u/2803301701", http.StatusFound)
 		case r.URL.Path == "/u/2803301701":
@@ -73,6 +78,7 @@ func newTestServer(t *testing.T) http.Handler {
 	client := weibo.New(weibo.Config{
 		BaseURL:    upstream.URL,
 		VisitorURL: upstream.URL + "/visitor",
+		HotURL:     upstream.URL + "/hot",
 		Timeout:    2 * time.Second,
 		Backoff:    time.Millisecond,
 		Breaker:    breaker,
@@ -296,5 +302,42 @@ func TestWrongMethodRejected(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
+func TestHotRoutes(t *testing.T) {
+	h := newTestServer(t)
+
+	rec := get(t, h, "/rss/hot?limit=2")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/rss/hot status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/rss+xml") {
+		t.Fatalf("/rss/hot content-type = %q", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "<title>微博热搜</title>") {
+		t.Fatalf("/rss/hot missing channel title:\n%s", body)
+	}
+	if !strings.Contains(body, "热度 148.9 万") {
+		t.Fatalf("/rss/hot missing heat line:\n%s", body)
+	}
+
+	rec = get(t, h, "/api/v1/hot?limit=2")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/v1/hot status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Title string `json:"title"`
+		Items []struct {
+			Title string `json:"id"`
+			URL   string `json:"url"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode /api/v1/hot: %v", err)
+	}
+	if out.Title != "微博热搜" || len(out.Items) != 2 {
+		t.Fatalf("/api/v1/hot = %+v", out)
 	}
 }

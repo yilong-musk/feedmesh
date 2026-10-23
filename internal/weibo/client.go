@@ -52,6 +52,7 @@ type Config struct {
 	// upstream. Production always leaves them empty.
 	BaseURL    string
 	VisitorURL string
+	HotURL     string
 }
 
 // Client talks to weibo. All upstream traffic funnels through one semaphore, so
@@ -90,6 +91,9 @@ func New(cfg Config) *Client {
 	}
 	if cfg.VisitorURL == "" {
 		cfg.VisitorURL = visitorURL
+	}
+	if cfg.HotURL == "" {
+		cfg.HotURL = hotSearchURL
 	}
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,

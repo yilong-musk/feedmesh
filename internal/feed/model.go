@@ -28,6 +28,10 @@ type Feed struct {
 	FetchedAt   time.Time `json:"fetched_at"`
 	Cached      bool      `json:"cached"`
 	Items       []Item    `json:"items"`
+	// TitleText/LinkText override the account-derived channel title and link;
+	// the hot search feed uses them because it has no account behind it.
+	TitleText string `json:"-"`
+	LinkText  string `json:"-"`
 }
 
 // Title returns the human-facing feed title.
@@ -35,16 +39,22 @@ func (f *Feed) Title() string {
 	if f == nil {
 		return ""
 	}
+	if f.TitleText != "" {
+		return f.TitleText
+	}
 	if f.ScreenName == "" {
 		return "微博 " + f.UID
 	}
 	return f.ScreenName + " 的微博"
 }
 
-// Link returns the canonical mobile profile URL.
+// Link returns the canonical channel link.
 func (f *Feed) Link() string {
 	if f == nil {
 		return ""
+	}
+	if f.LinkText != "" {
+		return f.LinkText
 	}
 	return "https://m.weibo.cn/u/" + f.UID
 }
