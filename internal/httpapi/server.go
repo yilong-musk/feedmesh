@@ -218,7 +218,7 @@ type hotResponse struct {
 }
 
 func (s *Server) handleHot(w http.ResponseWriter, r *http.Request) {
-	limit := atoiDefault(r.URL.Query().Get("limit"), feed.DefaultHotLimit)
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultHotLimit, feed.MaxHotLimit)
 	refresh := r.URL.Query().Get("refresh") == "1"
 
 	f, err := s.cfg.Service.GetHot(r.Context(), limit, refresh)
@@ -233,7 +233,7 @@ func (s *Server) handleHot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
-	limit := atoiDefault(r.URL.Query().Get("limit"), feed.DefaultHotLimit)
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultHotLimit, feed.MaxHotLimit)
 
 	f, err := s.cfg.Service.GetHot(r.Context(), limit, false)
 	if err != nil {
@@ -262,6 +262,11 @@ func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 }
 
 func atoiDefault(raw string, def int) int {
+	return atoiClamp(raw, def, feed.MaxLimit)
+}
+
+// atoiClamp parses a positive integer, falling back to def and capping at max.
+func atoiClamp(raw string, def, max int) int {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return def
@@ -270,8 +275,8 @@ func atoiDefault(raw string, def int) int {
 	if err != nil || n <= 0 {
 		return def
 	}
-	if n > feed.MaxLimit {
-		return feed.MaxLimit
+	if n > max {
+		return max
 	}
 	return n
 }
