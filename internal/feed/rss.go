@@ -62,6 +62,21 @@ func formatDuration(seconds float64) string {
 	return fmt.Sprintf("%d:%02d", total/60, total%60)
 }
 
+// cardText picks the card headline and the secondary line. Weibo often puts the
+// publisher name in page_title ("蓝鲸新闻") and the real headline in content1,
+// so a very short heading swaps with a longer summary.
+func cardText(p *weibo.PageInfo) (heading, summary string) {
+	heading = p.Heading()
+	summary = strings.TrimSpace(p.Content1)
+	if summary == heading {
+		return heading, ""
+	}
+	if len([]rune(heading)) <= 8 && len([]rune(summary)) > len([]rune(heading)) {
+		return summary, heading
+	}
+	return heading, summary
+}
+
 // writeMediaCard renders a video or link card as a clickable cover plus a
 // title/summary block. The cover keeps the dimensions weibo reports so readers
 // that honour width/height don't blow the image up to full width.
@@ -70,7 +85,7 @@ func writeMediaCard(b *strings.Builder, p *weibo.PageInfo) {
 		return
 	}
 	link := p.Link()
-	heading := p.Heading()
+	heading, summary := cardText(p)
 	cover := ""
 	width, height := "", ""
 	if p.PagePic != nil {
@@ -130,7 +145,7 @@ func writeMediaCard(b *strings.Builder, p *weibo.PageInfo) {
 		b.WriteString(`<p><strong>`)
 		b.WriteString(EscapeXML(heading))
 		b.WriteString(`</strong>`)
-		if summary := strings.TrimSpace(p.Content1); summary != "" && summary != heading {
+		if summary != "" && summary != heading {
 			b.WriteString(`<br />`)
 			b.WriteString(EscapeXML(summary))
 		}

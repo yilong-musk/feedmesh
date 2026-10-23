@@ -305,3 +305,21 @@ func TestRenderRSSEmitsMediaAndEnclosure(t *testing.T) {
 	}
 	parseRSS(t, []byte(raw))
 }
+
+func TestBuildDescriptionLinkCardSwapsShortPublisher(t *testing.T) {
+	// Real shape from an article card: page_title carries the publisher, the
+	// headline lives in content1. The headline must be the bold line.
+	m := mblog(t, `{
+		"id":"5","text":"<p>x</p>",
+		"page_info":{"type":"webpage","page_title":"蓝鲸新闻",
+			"content1":"记者实探开售首日：有人加价转卖",
+			"page_url":"https://example.com/a"}
+	}`)
+	html := feed.BuildDescription(m)
+	if !strings.Contains(html, "<strong>记者实探开售首日：有人加价转卖</strong>") {
+		t.Fatalf("headline should win over the publisher name:\n%s", html)
+	}
+	if !strings.Contains(html, "蓝鲸新闻") {
+		t.Fatalf("publisher should still appear as the secondary line:\n%s", html)
+	}
+}
