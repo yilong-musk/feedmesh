@@ -200,12 +200,21 @@ func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type hotItemResponse struct {
+	Rank      int       `json:"rank"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type hotResponse struct {
-	Title       string      `json:"title"`
-	Description string      `json:"description"`
-	FetchedAt   time.Time   `json:"fetched_at"`
-	Cached      bool        `json:"cached"`
-	Items       []feed.Item `json:"items"`
+	Title       string            `json:"title"`
+	Description string            `json:"description"`
+	FetchedAt   time.Time         `json:"fetched_at"`
+	Cached      bool              `json:"cached"`
+	Items       []hotItemResponse `json:"items"`
 }
 
 func (s *Server) handleHot(w http.ResponseWriter, r *http.Request) {
@@ -231,12 +240,19 @@ func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
+	items := make([]hotItemResponse, 0, len(f.Items))
+	for i, it := range f.Items {
+		items = append(items, hotItemResponse{
+			Rank: i + 1, Title: it.Title, Text: it.Text,
+			URL: it.URL, HTML: it.HTML, CreatedAt: it.CreatedAt,
+		})
+	}
 	writeJSON(w, http.StatusOK, hotResponse{
 		Title:       f.Title(),
 		Description: f.Description,
 		FetchedAt:   f.FetchedAt,
 		Cached:      f.Cached,
-		Items:       f.Items,
+		Items:       items,
 	})
 }
 

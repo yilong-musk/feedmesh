@@ -232,8 +232,8 @@ curl -s 'http://127.0.0.1:3000/rss/hot?refresh=1'   # 绕过 5 分钟缓存
 ```json
 {"title":"微博热搜","description":"微博实时热搜榜","fetched_at":"2026-10-23T08:00:00Z",
  "cached":true,
- "items":[{"id":"hot-1","title":"1. 小城良方 剧情硬伤","text":"小城良方 剧情硬伤",
-           "url":"https://s.weibo.com/weibo?q=…","images":[]}]}
+ "items":[{"rank":1,"title":"1. 小城良方 剧情硬伤","text":"小城良方 剧情硬伤",
+           "url":"https://s.weibo.com/weibo?q=…","html":"<p>热度 …</p>"}]}
 ```
 
 ### `GET /api/v1/feed?uid=<uid>&limit=N`

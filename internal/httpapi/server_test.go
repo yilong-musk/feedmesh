@@ -330,7 +330,8 @@ func TestHotRoutes(t *testing.T) {
 	var out struct {
 		Title string `json:"title"`
 		Items []struct {
-			Title string `json:"id"`
+			Rank  int    `json:"rank"`
+			Title string `json:"title"`
 			URL   string `json:"url"`
 		} `json:"items"`
 	}
@@ -339,5 +340,8 @@ func TestHotRoutes(t *testing.T) {
 	}
 	if out.Title != "微博热搜" || len(out.Items) != 2 {
 		t.Fatalf("/api/v1/hot = %+v", out)
+	}
+	if out.Items[0].Rank != 1 || out.Items[0].Title != "1. 小城良方 剧情硬伤" {
+		t.Fatalf("/api/v1/hot first item = %+v", out.Items[0])
 	}
 }
