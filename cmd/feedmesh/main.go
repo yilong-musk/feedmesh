@@ -693,7 +693,7 @@ func cmdServe(o *options, stdout io.Writer, logger *logx.Logger) int {
 // ------------------------------------------------------------------- help text
 
 func printHelp(w io.Writer) {
-	help := `feedmesh — turn a weibo timeline into RSS (single binary, no dependencies)
+	help := `feedmesh — multi-source content to RSS (single binary, no dependencies)
 
 USAGE
   feedmesh <command> [flags]

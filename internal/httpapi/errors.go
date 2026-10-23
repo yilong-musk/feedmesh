@@ -9,7 +9,11 @@ import (
 )
 
 // ErrorCodeHeader carries the machine-readable error code.
-const ErrorCodeHeader = "X-Weibo-RSS-Code"
+const ErrorCodeHeader = "X-Feedmesh-Code"
+
+// LegacyErrorCodeHeader is the pre-rename header; both are emitted so old
+// clients keep working.
+const LegacyErrorCodeHeader = "X-Weibo-RSS-Code"
 
 type errorBody struct {
 	Code    string `json:"code"`
@@ -56,5 +60,6 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 func (s *Server) writeErrorStatus(w http.ResponseWriter, status int, err error) {
 	code := weibo.CodeOf(err)
 	w.Header().Set(ErrorCodeHeader, code)
+	w.Header().Set(LegacyErrorCodeHeader, code)
 	writeJSON(w, status, errorEnvelope{Error: errorBody{Code: code, Message: err.Error()}})
 }
