@@ -48,7 +48,7 @@ func sspaiService(t *testing.T) *feed.Service {
 	}))
 	t.Cleanup(srv.Close)
 	sp := sspai.New(sspai.Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
-	return feed.NewService(nil, sp, nil, logx.Discard(), feed.DefaultTTLs())
+	return feed.NewService(feed.Clients{Sspai: sp}, nil, logx.Discard(), feed.DefaultTTLs())
 }
 
 func TestGetSspaiFullText(t *testing.T) {

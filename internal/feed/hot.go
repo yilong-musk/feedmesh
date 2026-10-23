@@ -29,7 +29,7 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 	}
 
 	items, hit, err := fetchCached(ctx, s, "hot:top", hotTTL, refresh,
-		func() ([]weibo.HotItem, error) { return s.client.HotSearch(ctx) })
+		func() ([]weibo.HotItem, error) { return s.clients.Weibo.HotSearch(ctx) })
 	if err != nil {
 		return nil, err
 	}

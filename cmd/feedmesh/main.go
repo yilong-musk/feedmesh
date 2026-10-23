@@ -28,6 +28,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
+	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
@@ -311,7 +312,8 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		sspaiTimeout = o.timeout
 	}
 	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
-	svc := feed.NewService(client, sp, c, logger, feed.DefaultTTLs())
+	vx := v2ex.New(v2ex.Config{Timeout: sspaiTimeout})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 

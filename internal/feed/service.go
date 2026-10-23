@@ -10,6 +10,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
+	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
@@ -41,18 +42,24 @@ func DefaultTTLs() TTLs {
 }
 
 // Service coordinates the upstream client and the on-disk cache.
+// Clients bundles the upstream providers a Service can serve.
+type Clients struct {
+	Weibo *weibo.Client
+	Sspai *sspai.Client
+	V2ex  *v2ex.Client
+}
+
 type Service struct {
-	client *weibo.Client
-	sspai  *sspai.Client
-	cache  *cache.Cache
-	log    *logx.Logger
-	group  *guard.Group
-	ttls   TTLs
-	now    func() time.Time
+	clients Clients
+	cache   *cache.Cache
+	log     *logx.Logger
+	group   *guard.Group
+	ttls    TTLs
+	now     func() time.Time
 }
 
 // NewService wires a Service.
-func NewService(client *weibo.Client, sp *sspai.Client, c *cache.Cache, log *logx.Logger, ttls TTLs) *Service {
+func NewService(clients Clients, c *cache.Cache, log *logx.Logger, ttls TTLs) *Service {
 	if log == nil {
 		log = logx.Discard()
 	}
@@ -60,13 +67,12 @@ func NewService(client *weibo.Client, sp *sspai.Client, c *cache.Cache, log *log
 		ttls = DefaultTTLs()
 	}
 	return &Service{
-		client: client,
-		sspai:  sp,
-		cache:  c,
-		log:    log,
-		group:  guard.NewGroup(),
-		ttls:   ttls,
-		now:    time.Now,
+		clients: clients,
+		cache:   c,
+		log:     log,
+		group:   guard.NewGroup(),
+		ttls:    ttls,
+		now:     time.Now,
 	}
 }
 
@@ -92,7 +98,7 @@ func (s *Service) ResolveUID(ctx context.Context, target string, refresh bool) (
 
 func (s *Service) resolveDomain(ctx context.Context, domain string, refresh bool) (string, error) {
 	uid, _, err := fetchCached(ctx, s, "domain:"+strings.ToLower(domain), s.ttls.Domain, refresh,
-		func() (string, error) { return s.client.ResolveDomain(ctx, domain) })
+		func() (string, error) { return s.clients.Weibo.ResolveDomain(ctx, domain) })
 	return uid, err
 }
 
@@ -110,14 +116,14 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 	}
 
 	profile, profileHit, err := fetchCached(ctx, s, "profile:"+uid, s.ttls.Profile, refresh,
-		func() (*weibo.Profile, error) { return s.client.Profile(ctx, uid) })
+		func() (*weibo.Profile, error) { return s.clients.Weibo.Profile(ctx, uid) })
 	if err != nil {
 		return nil, err
 	}
 
 	timeline, timelineHit, err := fetchCached(ctx, s, "timeline:"+uid, s.ttls.Timeline, refresh,
 		func() (*weibo.Timeline, error) {
-			return s.client.Timeline(ctx, uid, profile.ContainerID, 0)
+			return s.clients.Weibo.Timeline(ctx, uid, profile.ContainerID, 0)
 		})
 	if err != nil {
 		return nil, err
@@ -153,12 +159,12 @@ func (s *Service) hydrate(ctx context.Context, m *weibo.MBlog, refresh bool, dep
 		id := m.IDString()
 		if id != "" {
 			text, _, err := fetchCached(ctx, s, "longtext:"+id, s.ttls.LongText, refresh,
-				func() (string, error) { return s.client.LongText(ctx, id) })
+				func() (string, error) { return s.clients.Weibo.LongText(ctx, id) })
 			switch {
 			case err == nil && strings.TrimSpace(text) != "":
 				m.Text = text
 			case err != nil:
-				fallback, fbErr := s.client.StatusText(ctx, id)
+				fallback, fbErr := s.clients.Weibo.StatusText(ctx, id)
 				if fbErr == nil && strings.TrimSpace(fallback) != "" {
 					m.Text = fallback
 				} else {

@@ -15,6 +15,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
+	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
@@ -51,6 +52,17 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 			fmt.Fprint(w, `{"ok":1,"data":{"longTextContent":"<p>第二条 完整正文</p>"}}`)
 		case r.URL.Path == "/statuses/show":
 			fmt.Fprint(w, `{"ok":1,"data":{"id":"1002","text":"<p>第二条 回退正文</p>"}}`)
+		case r.URL.Path == "/index.xml":
+			fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom"><entry>
+<title>[分享] V2EX 测试</title><link rel="alternate" href="https://www.v2ex.com/t/9001" />
+<published>2026-10-23T10:00:00Z</published><author><name>bob</name></author>
+<content type="html"><![CDATA[<p>V2EX 正文</p>]]></content></entry></feed>`)
+		case r.URL.Path == "/" && r.URL.Query().Get("tab") == "hot":
+			blocks := ""
+			for i, rep := range []int{1, 30, 5, 9, 2} {
+				blocks += fmt.Sprintf(`<div class="cell item"><a href="/t/%d"></a><span class="item_title"><a href="/t/%d">热帖%d</a></span><a class="node" href="/go/qna">问与答</a><a class="count_livid" href="/t/%d">%d</a></div>`, 9100+i, 9100+i, i, 9100+i, rep)
+			}
+			fmt.Fprint(w, "<html><body>"+blocks+"</body></html>")
 		case r.URL.Path == "/api/v1/article/index/page/get":
 			fmt.Fprint(w, `{"error":0,"data":[{"id":3001,"title":"少数派文章","summary":"摘要文本",
 				"banner":"2026/10/23/a.png","released_time":1792750000,"author":{"nickname":"作者甲"}}]}`)
@@ -91,7 +103,8 @@ func newTestServer(t *testing.T) http.Handler {
 		Log:        logx.Discard(),
 	})
 	sp := sspai.New(sspai.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second})
-	svc := feed.NewService(client, sp, c, logx.Discard(), feed.DefaultTTLs())
+	vx := v2ex.New(v2ex.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,
@@ -391,5 +404,47 @@ func TestSspaiRoutes(t *testing.T) {
 	}
 	if len(out.Items[0].Images) != 1 {
 		t.Fatalf("images = %v", out.Items[0].Images)
+	}
+}
+
+func TestV2exRoutes(t *testing.T) {
+	h := newTestServer(t)
+
+	rec := get(t, h, "/rss/v2ex?limit=5")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/rss/v2ex status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "<title>V2EX 最新</title>") || !strings.Contains(body, "V2EX 正文") {
+		t.Fatalf("/rss/v2ex body unexpected:\n%s", body)
+	}
+
+	rec = get(t, h, "/rss/v2ex/hot?limit=5")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/rss/v2ex/hot status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	body = rec.Body.String()
+	if !strings.Contains(body, "<title>V2EX 最热</title>") || !strings.Contains(body, "热帖1") {
+		t.Fatalf("/rss/v2ex/hot body unexpected:\n%s", body)
+	}
+	if strings.Index(body, "热帖1") > strings.Index(body, "热帖3") {
+		t.Fatalf("hot feed is not sorted by replies")
+	}
+
+	rec = get(t, h, "/api/v1/v2ex?section=hot&limit=2")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/v1/v2ex status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Title string `json:"title"`
+		Items []struct {
+			Title string `json:"title"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Title != "V2EX 最热" || len(out.Items) != 2 {
+		t.Fatalf("api = %+v", out)
 	}
 }

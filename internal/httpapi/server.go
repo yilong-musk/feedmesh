@@ -61,9 +61,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/domain/{name}", s.getOnly(s.handleDomain))
 	mux.HandleFunc("/rss/hot", s.getOnly(s.handleHot))
 	mux.HandleFunc("/rss/sspai", s.getOnly(s.handleSspai))
+	mux.HandleFunc("/rss/v2ex", s.getOnly(s.handleV2exLatest))
+	mux.HandleFunc("/rss/v2ex/hot", s.getOnly(s.handleV2exHot))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
 	mux.HandleFunc("/api/v1/hot", s.getOnly(s.handleAPIHot))
 	mux.HandleFunc("/api/v1/sspai", s.getOnly(s.handleAPISspai))
+	mux.HandleFunc("/api/v1/v2ex", s.getOnly(s.handleAPIV2ex))
 	mux.HandleFunc("/", s.handleNotFound)
 	return mux
 }
@@ -309,6 +312,67 @@ func (s *Server) handleAPISspai(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, sspaiResponse{
+		Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
+	})
+}
+
+type v2exItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type v2exResponse struct {
+	Title       string             `json:"title"`
+	Description string             `json:"description"`
+	FetchedAt   time.Time          `json:"fetched_at"`
+	Cached      bool               `json:"cached"`
+	Items       []v2exItemResponse `json:"items"`
+}
+
+func (s *Server) serveV2ex(w http.ResponseWriter, r *http.Request, section string) {
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultV2exLimit, feed.MaxV2exLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	f, err := s.cfg.Service.GetV2ex(r.Context(), section, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+func (s *Server) handleV2exLatest(w http.ResponseWriter, r *http.Request) {
+	s.serveV2ex(w, r, "latest")
+}
+func (s *Server) handleV2exHot(w http.ResponseWriter, r *http.Request) { s.serveV2ex(w, r, "hot") }
+
+func (s *Server) handleAPIV2ex(w http.ResponseWriter, r *http.Request) {
+	section := r.URL.Query().Get("section")
+	if section == "" {
+		section = "latest"
+	}
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultV2exLimit, feed.MaxV2exLimit)
+	f, err := s.cfg.Service.GetV2ex(r.Context(), section, limit, false)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]v2exItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		items = append(items, v2exItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, v2exResponse{
 		Title: f.Title(), Description: f.Description,
 		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
 	})

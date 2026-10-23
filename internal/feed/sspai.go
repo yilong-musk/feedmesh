@@ -30,7 +30,7 @@ var (
 // GetSspai builds the sspai feed. full controls whether article bodies are
 // fetched (cached 24h per article); without it items carry the summary only.
 func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (*Feed, error) {
-	if s.sspai == nil {
+	if s.clients.Sspai == nil {
 		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "sspai provider is not configured"}
 	}
 	if limit <= 0 {
@@ -41,7 +41,7 @@ func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (
 	}
 
 	articles, hit, err := fetchCached(ctx, s, "sspai:list", sspaiListTTL, refresh,
-		func() ([]sspai.Article, error) { return s.sspai.List(ctx, limit) })
+		func() ([]sspai.Article, error) { return s.clients.Sspai.List(ctx, limit) })
 	if err != nil {
 		return nil, sspaiError(err)
 	}
@@ -74,7 +74,7 @@ func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (
 				defer func() { <-sem }()
 				a := articles[i]
 				d, _, derr := fetchCached(ctx, s, "sspai:detail:"+strconv.Itoa(a.ID), sspaiDetailTTL, refresh,
-					func() (sspai.Article, error) { return s.sspai.Detail(ctx, a.ID) })
+					func() (sspai.Article, error) { return s.clients.Sspai.Detail(ctx, a.ID) })
 				if derr != nil {
 					s.log.Warn("sspai detail unavailable, keeping summary",
 						"id", a.ID, "error", derr.Error())

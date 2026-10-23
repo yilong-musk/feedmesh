@@ -241,6 +241,26 @@ curl -s 'http://127.0.0.1:3000/rss/sspai?limit=5&full=1'   # 抓全文（较慢�
 - 上游 API 从本机访问约 3–7 秒，首次冷启动会明显慢于微博 feed。
 - 会员文章只给摘要，并在描述里标注「会员文章，仅显示摘要」。
 
+### `GET /rss/v2ex` 与 `/rss/v2ex/hot`
+
+- `/rss/v2ex`：V2EX 官方 Atom（`https://www.v2ex.com/index.xml`，50 条），最新主题。
+- `/rss/v2ex/hot`：**官方没有最热板块**，从 `?tab=hot` 页面解析，过滤「推广」节点、按回复数降序；页面解析异常（<5 条）时自动回退到官方 `api/topics/hot.json`。
+- 参数：`limit` 1–50（默认 20）、`refresh=1`；两类都缓存 10 分钟。
+- 实测：本机拉取 0.2 秒级；正文来自 Atom 的 `<content>`，热帖只有元信息 + 链接。
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/v2ex?limit=20'
+curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=20'
+```
+
+### `GET /api/v1/v2ex?section=latest|hot&limit=N`
+
+```json
+{"title":"V2EX 最热","description":"V2EX 最热主题（按回复数排序）","fetched_at":"…","cached":true,
+ "items":[{"id":"1251126","title":"…","text":"…","url":"https://www.v2ex.com/t/1251126",
+           "html":"…","images":[],"created_at":"…"}]}
+```
+
 ### `GET /api/v1/sspai?limit=N&full=1`
 
 ```json
