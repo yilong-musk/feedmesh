@@ -18,6 +18,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/xnitter"
 )
 
 const profileJSON = `{"ok":1,"data":{"userInfo":{"id":2803301701,"screen_name":"人民日报",
@@ -30,6 +31,22 @@ const timelineJSON = `{"ok":1,"data":{"cards":[
  {"mblog":{"id":"1003","bid":"Abc3","created_at":"Fri Oct 23 14:10:00 +0800 2026","text":"<p>第三条</p>",
    "pics":[{"pid":"p1","url":"https://wx1.sinaimg.cn/orj360/p1.jpg","large":{"size":"large","url":"https://wx1.sinaimg.cn/mw2000/p1.jpg"}}]}}
 ]}}`
+
+// xRSS is a two-item Nitter timeline: one plain post with an image, one
+// retweet, both carrying instance-local links that must be rewritten.
+const xRSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+<channel><title>Elon Musk / @elonmusk</title><link>https://nitter.test/elonmusk</link>
+<description>feed</description><ttl>40</ttl>
+<item><title>Hello from X</title><dc:creator>@elonmusk</dc:creator>
+<description><![CDATA[<p>Hello <a href="https://nitter.test/bot">@Bot</a></p><img src="https://pbs.twimg.com/media/a.jpg"/>]]></description>
+<pubDate>Fri, 23 Oct 2026 05:50:22 GMT</pubDate><guid>2113508310267674684</guid>
+<link>https://nitter.test/elonmusk/status/2113508310267674684#m</link></item>
+<item><title>RT by @elonmusk: breaking news</title><dc:creator>@cb_doge</dc:creator>
+<description><![CDATA[<p>breaking news</p>]]></description>
+<pubDate>Thu, 22 Oct 2026 17:15:55 GMT</pubDate><guid>2113318444934562215</guid>
+<link>https://nitter.test/cb_doge/status/2113318444934562215#m</link></item>
+</channel></rss>`
 
 // fakeWeibo serves just enough of weibo for the whole pipeline to run.
 func fakeWeibo(t *testing.T) http.HandlerFunc {
@@ -73,6 +90,11 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 				blocks += fmt.Sprintf(`<div class="cell item"><a href="/t/%d"></a><span class="item_title"><a href="/t/%d">热帖%d</a></span><a class="node" href="/go/qna">问与答</a><a class="count_livid" href="/t/%d">%d</a></div>`, 9100+i, 9100+i, i, 9100+i, rep)
 			}
 			fmt.Fprint(w, "<html><body>"+blocks+"</body></html>")
+		case r.URL.Path == "/elonmusk/rss":
+			w.Header().Set("Content-Type", "application/rss+xml")
+			// Nitter links point at whichever mirror answered, so the fixture
+			// must use this server's own origin for the rewrite to apply.
+			fmt.Fprint(w, strings.ReplaceAll(xRSS, "https://nitter.test", "http://"+r.Host))
 		case r.URL.Path == "/api/v1/article/index/page/get":
 			all := make([]map[string]any, 0, 12)
 			for i := 0; i < 12; i++ {
@@ -132,7 +154,14 @@ func newTestServer(t *testing.T) http.Handler {
 	})
 	sp := sspai.New(sspai.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second})
 	vx := v2ex.New(v2ex.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx}, c, logx.Discard(), feed.DefaultTTLs())
+	xn := xnitter.New(xnitter.Config{
+		Instances: []string{upstream.URL},
+		// The status directory is optional; a 404 makes the client use the
+		// static list above.
+		StatusURL: upstream.URL + "/status",
+		Timeout:   2 * time.Second,
+	})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,

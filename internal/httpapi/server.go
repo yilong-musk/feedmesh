@@ -63,10 +63,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/sspai", s.getOnly(s.handleSspai))
 	mux.HandleFunc("/rss/v2ex", s.getOnly(s.handleV2exLatest))
 	mux.HandleFunc("/rss/v2ex/hot", s.getOnly(s.handleV2exHot))
+	mux.HandleFunc("/rss/x/{handle}", s.getOnly(s.handleX))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
 	mux.HandleFunc("/api/v1/hot", s.getOnly(s.handleAPIHot))
 	mux.HandleFunc("/api/v1/sspai", s.getOnly(s.handleAPISspai))
 	mux.HandleFunc("/api/v1/v2ex", s.getOnly(s.handleAPIV2ex))
+	mux.HandleFunc("/api/v1/x", s.getOnly(s.handleAPIX))
 	mux.HandleFunc("/", s.handleNotFound)
 	return mux
 }
@@ -374,6 +376,62 @@ func (s *Server) handleAPIV2ex(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, v2exResponse{
 		Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
+	})
+}
+
+type xItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type xResponse struct {
+	Handle      string          `json:"handle"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	FetchedAt   time.Time       `json:"fetched_at"`
+	Cached      bool            `json:"cached"`
+	Items       []xItemResponse `json:"items"`
+}
+
+func (s *Server) handleX(w http.ResponseWriter, r *http.Request) {
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultXLimit, feed.MaxXLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	f, err := s.cfg.Service.GetX(r.Context(), r.PathValue("handle"), limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	// Nitter's own <ttl> is 40 minutes; match the cache rather than inviting
+	// readers to hammer volunteer instances.
+	w.Header().Set("Cache-Control", "public, max-age=2400")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+func (s *Server) handleAPIX(w http.ResponseWriter, r *http.Request) {
+	handle := r.URL.Query().Get("handle")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultXLimit, feed.MaxXLimit)
+	f, err := s.cfg.Service.GetX(r.Context(), handle, limit, false)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]xItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		items = append(items, xItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, xResponse{
+		Handle: f.UID, Title: f.Title(), Description: f.Description,
 		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
 	})
 }

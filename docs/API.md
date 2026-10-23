@@ -14,6 +14,7 @@
 | `refresh=1` | 跳过读缓存、强制回源，并覆盖写回缓存 |
 | `full=1` | 仅少数派：抓取正文（默认关闭） |
 | `section=latest\|hot` | 仅 `/api/v1/v2ex`：选择最新或最热 |
+| `handle` | 仅 `/api/v1/x`：X 用户名（可带 `@`，1–15 位字母数字下划线） |
 
 路径后缀 `.xml` 与不带后缀等价（如 `/rss/hot.xml`）。
 
@@ -87,6 +88,19 @@ V2EX 最热：过滤「推广」节点、按回复数降序；页面异常时回
 curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=20'
 ```
 
+### `GET /rss/x/{handle}`
+
+X（Twitter）账号时间线，经公共 Nitter 实例获取；`{handle}` 可带 `@`。
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/x/elonmusk?limit=20'
+```
+
+- 默认 20 条，上限 20（一页大小）；缓存 40 分钟，`Cache-Control: max-age=2400`。
+- 条目 `link`/`guid` 一律是 `https://x.com/{handle}/status/{id}`；正文内的实例链接也会改写。
+- 转发标题前有 `🔁`；图片走 Media RSS。
+- 所有实例都失败时返回 `UPSTREAM_UNAVAILABLE`（502）。
+
 ---
 
 ## JSON 接口
@@ -129,6 +143,19 @@ curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=20'
  "items":[{"id":"1251126","title":"…","text":"…","url":"https://www.v2ex.com/t/1251126",
            "html":"…","images":[],"created_at":"…"}]}
 ```
+
+### `GET /api/v1/x?handle=<handle>&limit=N`
+
+```json
+{"handle":"elonmusk","title":"elonmusk / X","description":"@elonmusk 的最新推文（经 Nitter 实例）",
+ "fetched_at":"…","cached":true,
+ "items":[{"id":"2113508310267674684","title":"Try Grok @Bot","text":"…",
+           "url":"https://x.com/elonmusk/status/2113508310267674684","html":"…",
+           "images":["https://pbs.twimg.com/media/…jpg"],"created_at":"2026-10-23T05:50:22Z"}]}
+```
+
+- `handle` 必填（可带 `@`）；`limit` 默认 20、上限 20。
+- 不支持 `refresh`：强制回源走 `/rss/x/{handle}?refresh=1`。
 
 ---
 
@@ -180,6 +207,7 @@ curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=20'
 | 少数派列表 | `sspai:list` | 10 分钟 |
 | 少数派正文 | `sspai:detail:<id>` | 24 小时 |
 | V2EX 最新/最热 | `v2ex:latest` / `v2ex:hot` | 10 分钟 |
+| X 时间线 | `x:<handle>` | 40 分钟 |
 
 - `refresh=1` 跳过读取并覆盖写回；`/api/v1/feed` 不支持 `refresh`。
 - 缓存条目按请求的 `limit` 记录宽度，小 `limit` 的缓存不会污染大 `limit` 请求（按需回源加宽）。

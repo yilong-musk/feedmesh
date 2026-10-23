@@ -1,6 +1,6 @@
 # 支持的平台
 
-当前接入 **3 个平台、5 类内容**。每个平台下列出它支持的内容与对应接口；新增平台只需加一个 provider，见文末。
+当前接入 **4 个平台、6 类内容**。每个平台下列出它支持的内容与对应接口；新增平台只需加一个 provider，见文末。
 
 | 平台 | 支持的内容 | RSS | JSON |
 |---|---|---|---|
@@ -9,6 +9,7 @@
 | <img src="assets/sspai.png" width="20" height="20" alt="少数派"> **少数派** | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
 | <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
 | <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
+| <img src="assets/x.png" width="20" height="20" alt="X"> **X** | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 
 通用参数：`limit`、`refresh=1`（跳过读缓存、强制回源）；`.xml` 后缀与不带后缀等价。完整契约见 [API.md](API.md)。
 
@@ -76,6 +77,31 @@
 - 官方**没有**最热 feed：解析 `https://www.v2ex.com/?tab=hot`，过滤「推广」节点、按回复数降序。
 - 降级：页面解析不足 5 条时回退 `api/topics/hot.json`（10 条），两条都失败才报错。
 - 参数：`limit` 1–50、`refresh=1`。
+
+---
+
+## <img src="assets/x.png" width="28" height="28" alt="X"> X（Twitter）
+
+官网 <https://x.com> · 数据源：公共 Nitter 实例的 RSS（匿名，无账号、无 API key）
+
+| 内容 | RSS | JSON | 默认 | 上限 | 缓存 |
+|---|---|---|---|---|---|
+| 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` | 20 | 20 | 40 分钟 |
+
+### 账号时间线
+
+- 实例池从 `https://status.d420.de/api/v1/instances` 拉取（筛 `rss=true`、`points ≥ 60`、非 bad host），30 分钟内复用；目录不可用时回退内置列表（kareem.one、meowing.monster、netbub）。
+- 按得分顺序逐个尝试；某个实例超时、5xx、返回 0 条都会换下一个。全部失败返回 `UPSTREAM_UNAVAILABLE`。
+- 部分实例有 Anubis 人机门（`anubis_challenge` / `preact_info`）：客户端自动解 SHA-256 PoW 并缓存 cookie 后重试，不需要浏览器。
+- 正文里的实例链接会改写成 `https://x.com/...`，图片保留 `pbs.twimg.com`，不暴露实际命中的镜像。
+- 转发条目在标题前标 `🔁`，并去掉 Nitter 原始的 `RT by @user:` 前缀。
+- 参数：`limit` 1–20、`refresh=1`。
+
+### 限制
+
+- **依赖第三方公益实例**：池子只有个位数健康节点，随时可能整池失效。服务本身不会挂（其余平台不受影响），但 `/rss/x/*` 会返回上游错误。
+- 请按 `<ttl>40</ttl>` 低频轮询（服务端已缓存 40 分钟）；高频抓取会被实例限流。
+- 只覆盖公开账号；受保护账号、仅登录可见内容无法获取。
 
 ---
 
