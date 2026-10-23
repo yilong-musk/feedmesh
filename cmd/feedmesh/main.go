@@ -30,6 +30,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/xnitter"
 )
 
 // version is injected at build time with -X main.version=...
@@ -313,7 +314,8 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 	}
 	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
 	vx := v2ex.New(v2ex.Config{Timeout: sspaiTimeout})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx}, c, logger, feed.DefaultTTLs())
+	xn := xnitter.New(xnitter.Config{Timeout: sspaiTimeout})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 

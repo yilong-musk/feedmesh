@@ -13,6 +13,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/xnitter"
 )
 
 // Limits and cache lifetimes.
@@ -48,6 +49,7 @@ type Clients struct {
 	Weibo *weibo.Client
 	Sspai *sspai.Client
 	V2ex  *v2ex.Client
+	X     *xnitter.Client
 }
 
 type Service struct {

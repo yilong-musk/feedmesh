@@ -56,6 +56,7 @@ cmd/feedmesh/       CLI：flag 解析、六个子命令、退出码映射
 internal/weibo/     微博 HTTP 与解析（含热搜）
 internal/sspai/     少数派 JSON API
 internal/v2ex/      V2EX Atom + 最热页面
+internal/xnitter/   X 时间线：Nitter 实例池 + Anubis PoW + RSS 解析
 internal/feed/      统一模型、RSS 渲染、缓存编排
 internal/cache/     key-per-file 缓存、TTL、原子写
 internal/httpapi/   HTTP 路由与错误信封
@@ -85,6 +86,9 @@ journalctl --user -u feedmesh -n 50           # 3. 服务侧日志
 | `created_at` 变成抓取时间 | 时间格式变了 | `internal/feed/service.go` 的 `createdLayouts` |
 | 大量 `3` 超时 | 海外机到上游慢 | 调大 `--timeout`（默认 9s） |
 | 退出码 6 | 熔断中，10 分钟自动恢复 | 无需操作 |
+| `/rss/x/*` 全 502 | Nitter 实例池整体失效（status.d420.de 里 `rss=true` 的节点会轮换） | 先跑 `feedmesh` 的 X 路由带 `refresh=1`；持续失败就更新 `internal/xnitter` 的 `defaultInstances`，或换 `StatusURL` |
+| X 时间线返回 0 条但 HTTP 200 | 实例改了 RSS 结构或转成 JS 壳 | `internal/xnitter/client.go` 的 `parseRSS`；对照真实 `/{handle}/rss` 输出 |
+| X 抓取偶发卡在验证页 | 实例换了 Anubis 挑战格式 | `parseChallenge`（`anubis_challenge` / `preact_info`） |
 
 ## 开发
 
