@@ -14,6 +14,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
@@ -50,6 +51,11 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 			fmt.Fprint(w, `{"ok":1,"data":{"longTextContent":"<p>第二条 完整正文</p>"}}`)
 		case r.URL.Path == "/statuses/show":
 			fmt.Fprint(w, `{"ok":1,"data":{"id":"1002","text":"<p>第二条 回退正文</p>"}}`)
+		case r.URL.Path == "/api/v1/article/index/page/get":
+			fmt.Fprint(w, `{"error":0,"data":[{"id":3001,"title":"少数派文章","summary":"摘要文本",
+				"banner":"2026/10/23/a.png","released_time":1792750000,"author":{"nickname":"作者甲"}}]}`)
+		case r.URL.Path == "/api/v1/article/info/get":
+			fmt.Fprint(w, `{"error":0,"data":{"body":"<p>少数派正文</p>","keywords":"效率,工具","is_pay":false,"is_free":true}}`)
 		case r.URL.Path == "/hot":
 			fmt.Fprint(w, `{"ok":1,"data":{"realtime":[
 				{"word":"小城良方 剧情硬伤","word_scheme":"小城良方 剧情硬伤","num":1488601,"label_name":"新","flag_desc":"剧集","topic_flag":0,"realpos":1},
@@ -84,7 +90,8 @@ func newTestServer(t *testing.T) http.Handler {
 		Breaker:    breaker,
 		Log:        logx.Discard(),
 	})
-	svc := feed.NewService(client, c, logx.Discard(), feed.DefaultTTLs())
+	sp := sspai.New(sspai.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second})
+	svc := feed.NewService(client, sp, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,
@@ -343,5 +350,46 @@ func TestHotRoutes(t *testing.T) {
 	}
 	if out.Items[0].Rank != 1 || out.Items[0].Title != "1. 小城良方 剧情硬伤" {
 		t.Fatalf("/api/v1/hot first item = %+v", out.Items[0])
+	}
+}
+
+func TestSspaiRoutes(t *testing.T) {
+	h := newTestServer(t)
+
+	rec := get(t, h, "/rss/sspai?limit=1&full=1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/rss/sspai status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/rss+xml") {
+		t.Fatalf("/rss/sspai content-type = %q", ct)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"<title>少数派</title>", "少数派正文", "https://sspai.com/post/3001"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("/rss/sspai missing %q:\n%s", want, body)
+		}
+	}
+
+	rec = get(t, h, "/api/v1/sspai?limit=1&full=1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/v1/sspai status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Title string `json:"title"`
+		Items []struct {
+			Title  string   `json:"title"`
+			URL    string   `json:"url"`
+			HTML   string   `json:"html"`
+			Images []string `json:"images"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Title != "少数派" || len(out.Items) != 1 || out.Items[0].Title != "少数派文章" {
+		t.Fatalf("api = %+v", out)
+	}
+	if len(out.Items[0].Images) != 1 {
+		t.Fatalf("images = %v", out.Items[0].Images)
 	}
 }

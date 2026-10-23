@@ -9,6 +9,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
@@ -42,6 +43,7 @@ func DefaultTTLs() TTLs {
 // Service coordinates the upstream client and the on-disk cache.
 type Service struct {
 	client *weibo.Client
+	sspai  *sspai.Client
 	cache  *cache.Cache
 	log    *logx.Logger
 	group  *guard.Group
@@ -50,7 +52,7 @@ type Service struct {
 }
 
 // NewService wires a Service.
-func NewService(client *weibo.Client, c *cache.Cache, log *logx.Logger, ttls TTLs) *Service {
+func NewService(client *weibo.Client, sp *sspai.Client, c *cache.Cache, log *logx.Logger, ttls TTLs) *Service {
 	if log == nil {
 		log = logx.Discard()
 	}
@@ -59,6 +61,7 @@ func NewService(client *weibo.Client, c *cache.Cache, log *logx.Logger, ttls TTL
 	}
 	return &Service{
 		client: client,
+		sspai:  sp,
 		cache:  c,
 		log:    log,
 		group:  guard.NewGroup(),

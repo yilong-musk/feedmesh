@@ -60,8 +60,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/user/{uid}", s.getOnly(s.handleUser))
 	mux.HandleFunc("/rss/domain/{name}", s.getOnly(s.handleDomain))
 	mux.HandleFunc("/rss/hot", s.getOnly(s.handleHot))
+	mux.HandleFunc("/rss/sspai", s.getOnly(s.handleSspai))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
 	mux.HandleFunc("/api/v1/hot", s.getOnly(s.handleAPIHot))
+	mux.HandleFunc("/api/v1/sspai", s.getOnly(s.handleAPISspai))
 	mux.HandleFunc("/", s.handleNotFound)
 	return mux
 }
@@ -253,6 +255,62 @@ func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
 		FetchedAt:   f.FetchedAt,
 		Cached:      f.Cached,
 		Items:       items,
+	})
+}
+
+type sspaiItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type sspaiResponse struct {
+	Title       string              `json:"title"`
+	Description string              `json:"description"`
+	FetchedAt   time.Time           `json:"fetched_at"`
+	Cached      bool                `json:"cached"`
+	Items       []sspaiItemResponse `json:"items"`
+}
+
+func (s *Server) handleSspai(w http.ResponseWriter, r *http.Request) {
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSspaiLimit, feed.MaxSspaiLimit)
+	full := r.URL.Query().Get("full") == "1"
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetSspai(r.Context(), limit, full, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+func (s *Server) handleAPISspai(w http.ResponseWriter, r *http.Request) {
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSspaiLimit, feed.MaxSspaiLimit)
+	full := r.URL.Query().Get("full") == "1"
+
+	f, err := s.cfg.Service.GetSspai(r.Context(), limit, full, false)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]sspaiItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		items = append(items, sspaiItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, sspaiResponse{
+		Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
 	})
 }
 

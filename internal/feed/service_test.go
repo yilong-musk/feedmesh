@@ -48,7 +48,7 @@ func TestResolveUIDRefreshBypassesDomainCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cache.New: %v", err)
 	}
-	svc := feed.NewService(client, c, nil, feed.TTLs{})
+	svc := feed.NewService(client, nil, c, nil, feed.TTLs{})
 	ctx := context.Background()
 
 	uid, err := svc.ResolveUID(ctx, "rmrb", false)

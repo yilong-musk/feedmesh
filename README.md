@@ -227,6 +227,28 @@ curl -s 'http://127.0.0.1:3000/rss/hot?refresh=1'   # 绕过 5 分钟缓存
 - 每条 `description` 含「热度 148.9 万 · 标签 · 分类」与跳转链接。
 - 上游缓存 5 分钟，RSS `<ttl>5</ttl>`；HTTP `Cache-Control: max-age=60`。
 
+### `GET /rss/sspai` 与 `/rss/sspai.xml`
+
+少数派最新文章。数据取自 sspai.com 的 JSON API（官方 RSS 只给摘要），默认输出「封面 + 作者/关键词 + 摘要 + 阅读全文」，`full=1` 时抓取正文。
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/sspai?limit=10'
+curl -s 'http://127.0.0.1:3000/rss/sspai?limit=5&full=1'   # 抓全文（较慢）
+```
+
+- `limit`：1–30，默认 10；`full`：`1` 抓正文，默认关闭；`refresh=1` 绕过缓存。
+- 列表缓存 10 分钟，单篇正文缓存 24 小时。
+- 上游 API 从本机访问约 3–7 秒，首次冷启动会明显慢于微博 feed。
+- 会员文章只给摘要，并在描述里标注「会员文章，仅显示摘要」。
+
+### `GET /api/v1/sspai?limit=N&full=1`
+
+```json
+{"title":"少数派","description":"少数派最新文章","fetched_at":"…","cached":true,
+ "items":[{"id":"117169","title":"…","text":"摘要","url":"https://sspai.com/post/117169",
+           "html":"…","images":["https://rssfile.sspai.com/…png"],"created_at":"…"}]}
+```
+
 ### `GET /api/v1/hot?limit=N`
 
 ```json

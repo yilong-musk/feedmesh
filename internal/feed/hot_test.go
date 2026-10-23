@@ -35,7 +35,7 @@ func hotService(t *testing.T) *feed.Service {
 		BaseURL: srv.URL, VisitorURL: srv.URL + "/visitor", HotURL: srv.URL + "/hot",
 		Timeout: 2 * time.Second, Backoff: 5 * time.Millisecond,
 	})
-	return feed.NewService(client, nil, logx.Discard(), feed.DefaultTTLs())
+	return feed.NewService(client, nil, nil, logx.Discard(), feed.DefaultTTLs())
 }
 
 func TestGetHotBuildsFeed(t *testing.T) {
