@@ -4,9 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-把多个平台的内容汇聚成 RSS：微博（账号时间线 + 实时热搜）、少数派、V2EX（最新 + 最热）。
-
-单静态二进制、零第三方依赖（`go.mod` 里没有任何 `require`）、默认只监听 `127.0.0.1`。
+把多个平台的内容汇聚成 RSS —— 自托管、单静态二进制、零第三方依赖（`go.mod` 里没有任何 `require`），默认只监听 `127.0.0.1`。已接入的平台见下方表格与 [docs/PLATFORMS.md](docs/PLATFORMS.md)，新平台按 provider 持续增加。
 
 ## 支持的平台
 
