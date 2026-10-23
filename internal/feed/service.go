@@ -3,6 +3,7 @@ package feed
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -286,4 +287,81 @@ func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Du
 		return zero, false, err
 	}
 	return value, false, nil
+}
+
+// cachedList is the on-disk shape of a paginated list. Want records how many
+// entries the fetch asked upstream for, so a short list reads as "upstream had
+// nothing more" instead of "somebody asked for fewer".
+type cachedList[T any] struct {
+	Items []T `json:"items"`
+	Want  int `json:"want"`
+}
+
+// covers reports whether the entry can answer a request for n entries.
+func (c cachedList[T]) covers(n int) bool {
+	return c.Want >= n || len(c.Items) >= n
+}
+
+// readCachedList returns the entry for key when it can satisfy want.
+func readCachedList[T any](s *Service, key string, want int) (cachedList[T], bool) {
+	if s.cache == nil {
+		return cachedList[T]{}, false
+	}
+	var e cachedList[T]
+	if hit, _, err := s.cache.Get(key, &e); err == nil && hit && e.covers(want) {
+		return e, true
+	}
+	return cachedList[T]{}, false
+}
+
+// fetchCachedList reads a paginated list through the cache and returns at
+// least want entries, or as many as upstream has.
+//
+// A plain read-through entry lets the first caller size the cache: one
+// ?limit=3 request would then truncate every larger request for the whole TTL.
+// So the entry remembers the width it was fetched at (Want) and only answers
+// requests it can actually satisfy; a wider request fetches again and widens
+// the entry. The common small-limit path keeps its single upstream page while
+// a large limit still gets everything available.
+func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl time.Duration, refresh bool, want int,
+	fn func(n int) ([]T, error)) ([]T, bool, error) {
+
+	if want < 1 {
+		want = 1
+	}
+	if !refresh {
+		if e, ok := readCachedList[T](s, key, want); ok {
+			return e.Items, true, nil
+		}
+	}
+
+	// Different widths get their own flight: a narrow request must never
+	// answer (and so silently truncate) a wide one that joins it.
+	flight := key + "#" + strconv.Itoa(want)
+	e, err, _ := guard.Do(s.group, flight, func() (cachedList[T], error) {
+		if !refresh {
+			if cached, ok := readCachedList[T](s, key, want); ok {
+				return cached, nil
+			}
+		}
+		items, ferr := fn(want)
+		if ferr != nil {
+			return cachedList[T]{}, ferr
+		}
+		cur := cachedList[T]{Items: items, Want: want}
+		// Another request may have just stored a wider list; keep the widest.
+		if prev, ok := readCachedList[T](s, key, want); ok && len(prev.Items) > len(cur.Items) {
+			return prev, nil
+		}
+		if s.cache != nil {
+			if cerr := s.cache.Set(key, cur, ttl); cerr != nil {
+				s.log.Warn("cache write failed", "key", key, "error", cerr.Error())
+			}
+		}
+		return cur, nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return e.Items, false, nil
 }

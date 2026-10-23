@@ -41,12 +41,16 @@ func (s *Service) GetV2ex(ctx context.Context, section string, limit int, refres
 		limit = MaxV2exLimit
 	}
 
-	items, hit, err := fetchCached(ctx, s, "v2ex:"+section, v2exTTL, refresh,
-		func() ([]v2ex.Article, error) {
+	// Same cache-shape rule as sspai: the entry holds the list upstream gave
+	// us and is widened on demand, never sized by whichever limit arrived
+	// first. One V2EX request returns the whole list anyway (index.xml carries
+	// 50 entries, the hot tab is a single page).
+	items, hit, err := fetchCachedList(ctx, s, "v2ex:"+section, v2exTTL, refresh, limit,
+		func(n int) ([]v2ex.Article, error) {
 			if section == "hot" {
-				return s.clients.V2ex.Hot(ctx, limit)
+				return s.clients.V2ex.Hot(ctx, n)
 			}
-			return s.clients.V2ex.Latest(ctx, limit)
+			return s.clients.V2ex.Latest(ctx, n)
 		})
 	if err != nil {
 		return nil, sspaiError(err)

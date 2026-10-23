@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -53,19 +54,46 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 		case r.URL.Path == "/statuses/show":
 			fmt.Fprint(w, `{"ok":1,"data":{"id":"1002","text":"<p>第二条 回退正文</p>"}}`)
 		case r.URL.Path == "/index.xml":
-			fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom"><entry>
-<title>[分享] V2EX 测试</title><link rel="alternate" href="https://www.v2ex.com/t/9001" />
+			entries := ""
+			for i := 0; i < 12; i++ {
+				title := fmt.Sprintf("V2EX 帖子%d", i+1)
+				if i == 0 {
+					title = "[分享] V2EX 测试"
+				}
+				entries += fmt.Sprintf(`<entry>
+<title>%s</title><link rel="alternate" href="https://www.v2ex.com/t/%d" />
 <published>2026-10-23T10:00:00Z</published><author><name>bob</name></author>
-<content type="html"><![CDATA[<p>V2EX 正文</p>]]></content></entry></feed>`)
+<content type="html"><![CDATA[<p>V2EX 正文</p>]]></content></entry>`, title, 9001+i)
+			}
+			fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom">%s</feed>`, entries)
 		case r.URL.Path == "/" && r.URL.Query().Get("tab") == "hot":
+			replies := []int{1, 30, 25, 28, 2, 21, 8, 14, 11, 3, 17, 6}
 			blocks := ""
-			for i, rep := range []int{1, 30, 5, 9, 2} {
+			for i, rep := range replies {
 				blocks += fmt.Sprintf(`<div class="cell item"><a href="/t/%d"></a><span class="item_title"><a href="/t/%d">热帖%d</a></span><a class="node" href="/go/qna">问与答</a><a class="count_livid" href="/t/%d">%d</a></div>`, 9100+i, 9100+i, i, 9100+i, rep)
 			}
 			fmt.Fprint(w, "<html><body>"+blocks+"</body></html>")
 		case r.URL.Path == "/api/v1/article/index/page/get":
-			fmt.Fprint(w, `{"error":0,"data":[{"id":3001,"title":"少数派文章","summary":"摘要文本",
-				"banner":"2026/10/23/a.png","released_time":1792750000,"author":{"nickname":"作者甲"}}]}`)
+			all := make([]map[string]any, 0, 12)
+			for i := 0; i < 12; i++ {
+				all = append(all, map[string]any{
+					"id": 3001 + i, "title": fmt.Sprintf("少数派文章%d", i+1), "summary": "摘要文本",
+					"banner": "2026/10/23/a.png", "released_time": 1792750000 - i*1000,
+					"author": map[string]any{"nickname": "作者甲"},
+				})
+			}
+			all[0]["title"] = "少数派文章"
+			offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			if offset > len(all) {
+				offset = len(all)
+			}
+			end := len(all)
+			if limit > 0 && offset+limit < end {
+				end = offset + limit
+			}
+			b, _ := json.Marshal(map[string]any{"error": 0, "data": all[offset:end]})
+			w.Write(b)
 		case r.URL.Path == "/api/v1/article/info/get":
 			fmt.Fprint(w, `{"error":0,"data":{"body":"<p>少数派正文</p>","keywords":"效率,工具","is_pay":false,"is_free":true}}`)
 		case r.URL.Path == "/hot":
@@ -446,5 +474,56 @@ func TestV2exRoutes(t *testing.T) {
 	}
 	if out.Title != "V2EX 最热" || len(out.Items) != 2 {
 		t.Fatalf("api = %+v", out)
+	}
+}
+
+// Regression: the feeds used to cache the caller's already-truncated slice, so
+// one small ?limit request capped every later one for the whole TTL.
+func TestSmallLimitDoesNotTruncateCachedFeeds(t *testing.T) {
+	h := newTestServer(t)
+
+	cases := []struct {
+		name string
+		warm string
+		path string
+	}{
+		{"sspai", "/rss/sspai?limit=3", "/rss/sspai?limit=10"},
+		{"v2ex-latest", "/rss/v2ex?limit=3", "/rss/v2ex?limit=10"},
+		{"v2ex-hot", "/rss/v2ex/hot?limit=3", "/rss/v2ex/hot?limit=10"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if rec := get(t, h, tc.warm); rec.Code != http.StatusOK {
+				t.Fatalf("warm %s status = %d body=%s", tc.warm, rec.Code, rec.Body.String())
+			}
+			rec := get(t, h, tc.path)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s status = %d body=%s", tc.path, rec.Code, rec.Body.String())
+			}
+			if n := strings.Count(rec.Body.String(), "<item>"); n != 10 {
+				t.Fatalf("%s after warm %s returned %d items, want 10", tc.path, tc.warm, n)
+			}
+		})
+	}
+
+	// The JSON view shares the list a wide RSS fetch cached (different limit).
+	if rec := get(t, h, "/rss/sspai?limit=30"); rec.Code != http.StatusOK {
+		t.Fatalf("/rss/sspai?limit=30 status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	rec := get(t, h, "/api/v1/sspai?limit=10")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/v1/sspai status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Cached bool `json:"cached"`
+		Items  []struct {
+			Title string `json:"title"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Items) != 10 || !out.Cached {
+		t.Fatalf("/api/v1/sspai after limit=30 = %d items, cached=%v; want 10 from cache", len(out.Items), out.Cached)
 	}
 }
