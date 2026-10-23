@@ -10,11 +10,11 @@
 
 | 平台 | 内容 | RSS | JSON |
 |---|---|---|---|
-| 微博 | 账号时间线 | `/rss/user/{uid}`、`/rss/domain/{name}` | `/api/v1/feed?uid=` |
-| 微博 | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
-| 少数派 | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
-| V2EX | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
-| V2EX | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
+| <img src="docs/assets/weibo.png" width="18" height="18" alt="微博"> 微博 | 账号时间线 | `/rss/user/{uid}`、`/rss/domain/{name}` | `/api/v1/feed?uid=` |
+| <img src="docs/assets/weibo.png" width="18" height="18" alt="微博"> 微博 | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
+| <img src="docs/assets/sspai.png" width="18" height="18" alt="少数派"> 少数派 | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
+| <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
+| <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
 
 参数、数据源与限制见 **[docs/PLATFORMS.md](docs/PLATFORMS.md)**。
 
