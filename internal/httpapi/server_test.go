@@ -52,8 +52,8 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 			fmt.Fprint(w, `{"ok":1,"data":{"id":"1002","text":"<p>第二条 回退正文</p>"}}`)
 		case r.URL.Path == "/hot":
 			fmt.Fprint(w, `{"ok":1,"data":{"realtime":[
-				{"word":"小城良方 剧情硬伤","word_scheme":"小城良方 剧情硬伤","num":1488601,"label_name":"新","flag_desc":"剧集","topic_flag":0},
-				{"word":"晋江式演技正在毁掉长剧演员","word_scheme":"#晋江式演技正在毁掉长剧演员#","num":116836,"label_name":"热","flag_desc":"综艺","topic_flag":1}
+				{"word":"小城良方 剧情硬伤","word_scheme":"小城良方 剧情硬伤","num":1488601,"label_name":"新","flag_desc":"剧集","topic_flag":0,"realpos":1},
+				{"word":"晋江式演技正在毁掉长剧演员","word_scheme":"#晋江式演技正在毁掉长剧演员#","num":116836,"label_name":"热","flag_desc":"综艺","topic_flag":1,"realpos":2}
 			]}}`)
 		case r.URL.Path == "/rmrb":
 			http.Redirect(w, r, "/u/2803301701", http.StatusFound)

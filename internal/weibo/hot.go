@@ -19,6 +19,7 @@ type HotItem struct {
 	Category   string `json:"flag_desc"`
 	Heat       int64  `json:"num"`
 	TopicFlag  int    `json:"topic_flag"`
+	RealPos    int    `json:"realpos"`
 }
 
 type hotResponse struct {
@@ -43,18 +44,18 @@ func (c *Client) HotSearch(ctx context.Context) ([]HotItem, error) {
 			Message: fmt.Sprintf("hot search endpoint returned ok=%d", hr.OK)}
 	}
 	items := make([]HotItem, 0, len(hr.Data.Realtime))
-	rank := 0
 	for _, it := range hr.Data.Realtime {
 		it.Word = strings.TrimSpace(it.Word)
-		if it.Word == "" {
+		// Entries without realpos are promoted/recommended slots (icon "荐"),
+		// not part of the ranked list; keep them out so ranks stay 1..50.
+		if it.Word == "" || it.RealPos <= 0 {
 			continue
 		}
 		it.WordScheme = strings.TrimSpace(strings.Trim(it.WordScheme, "#"))
 		if it.WordScheme == "" {
 			it.WordScheme = it.Word
 		}
-		rank++
-		it.Rank = rank
+		it.Rank = it.RealPos
 		items = append(items, it)
 	}
 	if len(items) == 0 {
