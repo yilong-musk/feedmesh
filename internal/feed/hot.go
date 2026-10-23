@@ -44,6 +44,7 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 		Description: "微博实时热搜榜",
 		FetchedAt:   now,
 		Cached:      hit,
+		TTL:         5,
 		Items:       make([]Item, 0, len(items)),
 	}
 	for _, h := range items {

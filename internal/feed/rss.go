@@ -210,7 +210,11 @@ func RenderRSS(f *Feed) []byte {
 	b.WriteString(EscapeXML(f.Description))
 	b.WriteString("</description>\n")
 	b.WriteString("    <language>zh-cn</language>\n")
-	b.WriteString("    <ttl>15</ttl>\n")
+	ttl := f.TTL
+	if ttl <= 0 {
+		ttl = 15
+	}
+	fmt.Fprintf(&b, "    <ttl>%d</ttl>\n", ttl)
 	b.WriteString("    <generator>weibo-rss-pro</generator>\n")
 	last := f.FetchedAt
 	if last.IsZero() {

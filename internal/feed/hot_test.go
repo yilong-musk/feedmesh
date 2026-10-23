@@ -67,6 +67,9 @@ func TestGetHotBuildsFeed(t *testing.T) {
 	if !strings.Contains(raw, "<title>微博热搜</title>") || !strings.Contains(raw, "在微博搜索") {
 		t.Fatalf("rendered hot feed is missing expected content:\n%s", raw)
 	}
+	if !strings.Contains(raw, "<ttl>5</ttl>") {
+		t.Fatalf("hot feed should advertise ttl 5:\n%s", raw)
+	}
 }
 
 func TestGetHotRespectsLimit(t *testing.T) {

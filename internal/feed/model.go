@@ -32,6 +32,8 @@ type Feed struct {
 	// the hot search feed uses them because it has no account behind it.
 	TitleText string `json:"-"`
 	LinkText  string `json:"-"`
+	// TTL overrides the channel <ttl> in minutes; zero means the default 15.
+	TTL int `json:"-"`
 }
 
 // Title returns the human-facing feed title.

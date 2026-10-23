@@ -225,7 +225,7 @@ curl -s 'http://127.0.0.1:3000/rss/hot?refresh=1'   # 绕过 5 分钟缓存
 
 - `limit`：1–50，默认 20。
 - 每条 `description` 含「热度 148.9 万 · 标签 · 分类」与跳转链接。
-- 上游缓存 5 分钟；HTTP `Cache-Control: max-age=60`。
+- 上游缓存 5 分钟，RSS `<ttl>5</ttl>`；HTTP `Cache-Control: max-age=60`。
 
 ### `GET /api/v1/hot?limit=N`
 
