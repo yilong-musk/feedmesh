@@ -1,6 +1,6 @@
-# weibo-rss-pro
+# feedmesh
 
-把指定微博账号的时间线，以及微博实时热搜榜，转成 RSS。单二进制、零第三方依赖、对 agent 友好（stdout 只放数据、机器可读退出码、`--json` 一行 JSON）。
+把多个平台的内容汇聚成 RSS。**当前支持微博账号时间线与微博实时热搜**，后续按 provider 扩展其他平台。单二进制、零第三方依赖、对 agent 友好（stdout 只放数据、机器可读退出码、`--json` 一行 JSON）。
 
 Go 重写自 [zgq354/weibo-rss](https://github.com/zgq354/weibo-rss)（Node/TS + Koa + LevelDB）。原版被 `leveldown` 这个原生模块锁死在 Node 20；本实现只有标准库，`go.mod` 里没有任何 `require`。
 
@@ -19,7 +19,7 @@ Go 重写自 [zgq354/weibo-rss](https://github.com/zgq354/weibo-rss)（Node/TS +
 
 ```bash
 export PATH=/home/ubuntu/.hermes/tools/go-1.27.3-linux-x64/bin:$PATH
-cd /home/ubuntu/weibo-rss-pro
+cd /home/ubuntu/feedmesh
 
 make install          # CGO_ENABLED=0 + -trimpath + -s -w，装到 ~/.local/bin
 ```
@@ -29,16 +29,16 @@ make install          # CGO_ENABLED=0 + -trimpath + -s -w，装到 ~/.local/bin
 ```bash
 CGO_ENABLED=0 go build -trimpath \
   -ldflags "-s -w -X main.version=$(git describe --tags --always 2>/dev/null || echo dev)" \
-  -o weibo-rss-pro ./cmd/weibo-rss-pro
-install -m 0755 weibo-rss-pro /home/ubuntu/.local/bin/weibo-rss-pro
+  -o feedmesh ./cmd/feedmesh
+install -m 0755 feedmesh /home/ubuntu/.local/bin/feedmesh
 ```
 
 验证（`file` 应显示 `statically linked`）：
 
 ```bash
-file /home/ubuntu/.local/bin/weibo-rss-pro
-weibo-rss-pro version            # weibo-rss-pro <git sha> (linux/amd64, go1.27.3)
-weibo-rss-pro doctor             # 三项上游探活
+file /home/ubuntu/.local/bin/feedmesh
+feedmesh version            # feedmesh <git sha> (linux/amd64, go1.27.3)
+feedmesh doctor             # 三项上游探活
 ```
 
 ---
@@ -51,7 +51,7 @@ weibo-rss-pro doctor             # 三项上游探活
 - 配置优先级：**flag > 环境变量 > 默认值**。
 
 ```bash
-weibo-rss-pro fetch 2803301701 --json 2>/dev/null | jq '.items[].url'
+feedmesh fetch 2803301701 --json 2>/dev/null | jq '.items[].url'
 ```
 
 ---
@@ -61,7 +61,7 @@ weibo-rss-pro fetch 2803301701 --json 2>/dev/null | jq '.items[].url'
 ### 1. `serve` — 常驻 HTTP 服务
 
 ```bash
-weibo-rss-pro serve --listen 127.0.0.1:3000 --cache-dir ~/.cache/weibo-rss-pro
+feedmesh serve --listen 127.0.0.1:3000 --cache-dir ~/.cache/feedmesh
 ```
 
 启动后向 stdout 打一行并立即 flush，之后 stdout 保持静默（就绪信号，agent 阻塞读这一行即可，不用 `sleep` 猜）：
@@ -75,12 +75,12 @@ weibo-rss-pro serve --listen 127.0.0.1:3000 --cache-dir ~/.cache/weibo-rss-pro
 ### 2. `fetch` — 抓一个账号
 
 ```bash
-weibo-rss-pro fetch 2803301701                    # RSS XML 到 stdout
-weibo-rss-pro fetch 2803301701 --json             # 一行 JSON
-weibo-rss-pro fetch 2803301701 --json --limit 5   # 只要 5 条
-weibo-rss-pro fetch rmrb                          # 个性域名（自动解析成 uid）
-weibo-rss-pro fetch 2803301701 --refresh          # 跳缓存，强制回源
-weibo-rss-pro fetch 2803301701 -o /tmp/rmrb.xml   # 写文件；`-o -` 等于 stdout
+feedmesh fetch 2803301701                    # RSS XML 到 stdout
+feedmesh fetch 2803301701 --json             # 一行 JSON
+feedmesh fetch 2803301701 --json --limit 5   # 只要 5 条
+feedmesh fetch rmrb                          # 个性域名（自动解析成 uid）
+feedmesh fetch 2803301701 --refresh          # 跳缓存，强制回源
+feedmesh fetch 2803301701 -o /tmp/rmrb.xml   # 写文件；`-o -` 等于 stdout
 ```
 
 `--limit` 取值 1–10：微博 `getIndex` 单页最多 10 条，超出部分会被截到 10。
@@ -100,7 +100,7 @@ JSON 形态：
 依次探 `genvisitor`（visitor cookie）、`getIndex`（用户资料）、`statuses`（正文接口），逐项给耗时与 HTTP 状态：
 
 ```bash
-weibo-rss-pro doctor --json
+feedmesh doctor --json
 ```
 
 ```json
@@ -115,15 +115,15 @@ weibo-rss-pro doctor --json
 ### 4. `cache` — 缓存管理
 
 ```bash
-weibo-rss-pro cache stat
-# dir=/home/ubuntu/.cache/weibo-rss-pro entries=5 bytes=29433
+feedmesh cache stat
+# dir=/home/ubuntu/.cache/feedmesh entries=5 bytes=29433
 
-weibo-rss-pro cache purge --all --dry-run --json
+feedmesh cache purge --all --dry-run --json
 # {"dry_run":true,"scope":"all","deleted":0,"entries":5,"bytes":29433}
 
-weibo-rss-pro cache purge --uid 2803301701 --dry-run     # 只看影响面，不删
-weibo-rss-pro cache purge --uid 2803301701 --json        # {"deleted":2,"entries":2,...}
-weibo-rss-pro cache purge --all
+feedmesh cache purge --uid 2803301701 --dry-run     # 只看影响面，不删
+feedmesh cache purge --uid 2803301701 --json        # {"deleted":2,"entries":2,...}
+feedmesh cache purge --all
 ```
 
 **`--dry-run` 只统计、不落盘**——输出将删除的条目数与字节数，`deleted` 恒为 0。写操作/重活一律先给 dry-run。
@@ -133,14 +133,14 @@ weibo-rss-pro cache purge --all
 ### 5. `version`
 
 ```bash
-weibo-rss-pro version          # weibo-rss-pro 16ae5de (linux/amd64, go1.27.3)
-weibo-rss-pro version --json   # {"version":"16ae5de","go":"go1.27.3","os":"linux","arch":"amd64"}
+feedmesh version          # feedmesh 16ae5de (linux/amd64, go1.27.3)
+feedmesh version --json   # {"version":"16ae5de","go":"go1.27.3","os":"linux","arch":"amd64"}
 ```
 
 ### 6. `help`（等同 `-h`）
 
 ```bash
-weibo-rss-pro help    # 退出码 0
+feedmesh help    # 退出码 0
 ```
 
 ---
@@ -152,8 +152,8 @@ weibo-rss-pro help    # 退出码 0
 | `--json` | stdout 输出**一行** JSON（失败也走 JSON 信封） | — |
 | `--quiet`, `-q` | 关掉 stderr 日志，只留数据流 | — |
 | `--timeout <dur>` | 单个上游请求超时，默认 `9s`（海外机 3s 会 ETIMEDOUT） | — |
-| `--cache-dir <dir>` | 缓存目录 | `WEIBO_RSS_PRO_CACHE`（旧名 `WEIBO_RSS_CACHE` 仍兼容） |
-| `--listen <addr>` | `serve` 监听地址，默认 `127.0.0.1:3000` | `WEIBO_RSS_PRO_LISTEN`（旧名 `WEIBO_RSS_LISTEN` 仍兼容） |
+| `--cache-dir <dir>` | 缓存目录 | `FEEDMESH_CACHE`（旧名 `WEIBO_RSS_PRO_CACHE` / `WEIBO_RSS_CACHE` 仍兼容） |
+| `--listen <addr>` | `serve` 监听地址，默认 `127.0.0.1:3000` | `FEEDMESH_LISTEN`（旧名 `WEIBO_RSS_PRO_LISTEN` / `WEIBO_RSS_LISTEN` 仍兼容） |
 | `-h`, `--help` | 帮助，退出码 0 | — |
 
 flag 可以写在子命令前后任意位置。
@@ -285,7 +285,7 @@ curl -s 'http://127.0.0.1:3000/rss/hot?refresh=1'   # 绕过 5 分钟缓存
 
 ## 缓存语义
 
-- 位置：`--cache-dir` / `WEIBO_RSS_PRO_CACHE`（兼容 `WEIBO_RSS_CACHE`），默认 `~/.cache/weibo-rss-pro`。
+- 位置：`--cache-dir` / `FEEDMESH_CACHE`（兼容 `WEIBO_RSS_PRO_CACHE` / `WEIBO_RSS_CACHE`），默认 `~/.cache/feedmesh`。
 - 布局：**一个 key 一个 JSON 文件**，文件名由 key 净化而来（`profile:2803301701` → `profile_2803301701.json`）。
 - 文件格式自带过期时间：
 
@@ -305,7 +305,7 @@ curl -s 'http://127.0.0.1:3000/rss/hot?refresh=1'   # 绕过 5 分钟缓存
   | `longtext:<id>` | 24 小时 | 长文全文 |
   | `domain:<name>` | 24 小时 | 个性域名 → uid |
 
-- `--refresh` / `?refresh=1` 跳过读缓存并覆盖写回，**包括 `domain:<name>` 域名映射**（`weibo-rss-pro fetch rmrb --refresh` 会真的回源解析域名）。
+- `--refresh` / `?refresh=1` 跳过读缓存并覆盖写回，**包括 `domain:<name>` 域名映射**（`feedmesh fetch rmrb --refresh` 会真的回源解析域名）。
 
 ### 上游调用策略
 
@@ -319,22 +319,22 @@ curl -s 'http://127.0.0.1:3000/rss/hot?refresh=1'   # 绕过 5 分钟缓存
 ## 部署（systemd user 单元）
 
 ```bash
-install -m 0644 deploy/weibo-rss-pro.service ~/.config/systemd/user/weibo-rss-pro.service
+install -m 0644 deploy/feedmesh.service ~/.config/systemd/user/feedmesh.service
 systemctl --user daemon-reload
-systemctl --user enable --now weibo-rss-pro
+systemctl --user enable --now feedmesh
 
-systemctl --user is-active weibo-rss-pro     # active
-systemctl --user status weibo-rss-pro        # ready 行 + 日志
-journalctl --user -u weibo-rss-pro -f
+systemctl --user is-active feedmesh     # active
+systemctl --user status feedmesh        # ready 行 + 日志
+journalctl --user -u feedmesh -f
 ```
 
-`deploy/weibo-rss-pro.service` 只做三件事：`Restart=always`、缓存目录走 `Environment`、`NoNewPrivileges`。不碰系统级单元、不碰 Caddy。
+`deploy/feedmesh.service` 只做三件事：`Restart=always`、缓存目录走 `Environment`、`NoNewPrivileges`。不碰系统级单元、不碰 Caddy。
 
 改动后重新部署：
 
 ```bash
-cd /home/ubuntu/weibo-rss-pro && make install   # 或按「安装」一节手动 build + install
-systemctl --user restart weibo-rss-pro
+cd /home/ubuntu/feedmesh && make install   # 或按「安装」一节手动 build + install
+systemctl --user restart feedmesh
 curl -s http://127.0.0.1:3000/healthz | jq -c '{status,version,uptime_s}'
 ```
 
@@ -349,9 +349,9 @@ curl -s http://127.0.0.1:3000/healthz | jq -c '{status,version,uptime_s}'
 诊断顺序：
 
 ```bash
-weibo-rss-pro doctor --json          # 1. 哪一步坏了
-weibo-rss-pro fetch 2803301701 --refresh --json   # 2. 单账号端到端
-journalctl --user -u weibo-rss-pro -n 50          # 3. 服务侧日志（JSON 行）
+feedmesh doctor --json          # 1. 哪一步坏了
+feedmesh fetch 2803301701 --refresh --json   # 2. 单账号端到端
+journalctl --user -u feedmesh -n 50          # 3. 服务侧日志（JSON 行）
 ```
 
 | 症状 | 大概率原因 | 改哪里 |
@@ -378,7 +378,7 @@ go vet ./...
 ## 目录结构
 
 ```
-cmd/weibo-rss-pro/         CLI 入口：flag 解析、六个子命令、退出码映射
+cmd/feedmesh/         CLI 入口：flag 解析、六个子命令、退出码映射
 internal/weibo/        唯一与微博 HTTP 打交道的地方（改接口只改这里）
 internal/feed/         微博 → 统一模型 → RSS 2.0 渲染（纯函数，无网络无磁盘）
 internal/cache/        一个 key 一个文件、原子写、TTL

@@ -1,4 +1,4 @@
-// Command weibo-rss-pro turns a weibo timeline into RSS.
+// Command feedmesh turns a weibo timeline into RSS.
 //
 // Output discipline: stdout carries data only (RSS XML or exactly one line of
 // JSON); stderr carries newline-delimited JSON logs; the process never reads
@@ -22,12 +22,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/cache"
-	"github.com/yilong-musk/weibo-rss-pro/internal/feed"
-	"github.com/yilong-musk/weibo-rss-pro/internal/guard"
-	"github.com/yilong-musk/weibo-rss-pro/internal/httpapi"
-	"github.com/yilong-musk/weibo-rss-pro/internal/logx"
-	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/cache"
+	"github.com/yilong-musk/feedmesh/internal/feed"
+	"github.com/yilong-musk/feedmesh/internal/guard"
+	"github.com/yilong-musk/feedmesh/internal/httpapi"
+	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // version is injected at build time with -X main.version=...
@@ -266,14 +266,14 @@ func envFirst(names ...string) string {
 // applyEnv resolves the flag > env > default precedence.
 func applyEnv(o *options) {
 	if o.cacheDir == "" {
-		// WEIBO_RSS_CACHE is the pre-rename name; keep it working.
-		o.cacheDir = envFirst("WEIBO_RSS_PRO_CACHE", "WEIBO_RSS_CACHE")
+		// Older names keep working: weibo-rss-pro and the original weibo-rss.
+		o.cacheDir = envFirst("FEEDMESH_CACHE", "WEIBO_RSS_PRO_CACHE", "WEIBO_RSS_CACHE")
 	}
 	if o.cacheDir == "" {
 		o.cacheDir = defaultCacheDir()
 	}
 	if o.listen == "" {
-		o.listen = envFirst("WEIBO_RSS_PRO_LISTEN", "WEIBO_RSS_LISTEN")
+		o.listen = envFirst("FEEDMESH_LISTEN", "WEIBO_RSS_PRO_LISTEN", "WEIBO_RSS_LISTEN")
 	}
 	if o.listen == "" {
 		o.listen = defaultListen
@@ -285,9 +285,9 @@ func applyEnv(o *options) {
 
 func defaultCacheDir() string {
 	if dir, err := os.UserCacheDir(); err == nil && dir != "" {
-		return filepath.Join(dir, "weibo-rss-pro")
+		return filepath.Join(dir, "feedmesh")
 	}
-	return filepath.Join(os.TempDir(), "weibo-rss-pro")
+	return filepath.Join(os.TempDir(), "feedmesh")
 }
 
 // ------------------------------------------------------------------- plumbing
@@ -380,7 +380,7 @@ func cmdVersion(o *options, stdout io.Writer) int {
 		}
 		return exitOK
 	}
-	fmt.Fprintf(stdout, "weibo-rss-pro %s (%s/%s, %s)\n", info.Version, info.OS, info.Arch, info.Go)
+	fmt.Fprintf(stdout, "feedmesh %s (%s/%s, %s)\n", info.Version, info.OS, info.Arch, info.Go)
 	return exitOK
 }
 
@@ -685,14 +685,14 @@ func cmdServe(o *options, stdout io.Writer, logger *logx.Logger) int {
 // ------------------------------------------------------------------- help text
 
 func printHelp(w io.Writer) {
-	help := `weibo-rss-pro — turn a weibo timeline into RSS (single binary, no dependencies)
+	help := `feedmesh — turn a weibo timeline into RSS (single binary, no dependencies)
 
 USAGE
-  weibo-rss-pro <command> [flags]
+  feedmesh <command> [flags]
 
 COMMANDS
   serve                     Run the HTTP service
-      --listen <addr>       Listen address (default 127.0.0.1:3000, env WEIBO_RSS_PRO_LISTEN; legacy WEIBO_RSS_LISTEN)
+      --listen <addr>       Listen address (default 127.0.0.1:3000, env FEEDMESH_LISTEN; legacy WEIBO_RSS_PRO_LISTEN / WEIBO_RSS_LISTEN)
   fetch <uid|domain>        Print one account's timeline
       --json                Emit one line of JSON instead of RSS
       --limit <n>           Number of posts, 1-10 (default 10)
@@ -711,7 +711,7 @@ GLOBAL FLAGS
   --json                    Data output as exactly one line of JSON (jq-safe)
   --quiet, -q               Silence stderr logs
   --timeout <duration>      Per-upstream-request timeout (default 9s)
-  --cache-dir <dir>         Cache directory (env WEIBO_RSS_PRO_CACHE; legacy WEIBO_RSS_CACHE)
+  --cache-dir <dir>         Cache directory (env FEEDMESH_CACHE; legacy WEIBO_RSS_PRO_CACHE / WEIBO_RSS_CACHE)
   -h, --help                Print this text
 
 OUTPUT DISCIPLINE
@@ -728,12 +728,12 @@ EXIT CODES
   10  anything else
 
 EXAMPLES
-  weibo-rss-pro fetch 2803301701
-  weibo-rss-pro fetch 2803301701 --json --limit 5 | jq '.items[].text'
-  weibo-rss-pro fetch rmrb --refresh -o rmrb.xml
-  weibo-rss-pro doctor --json
-  weibo-rss-pro cache purge --uid 2803301701 --dry-run --json
-  weibo-rss-pro serve --listen 127.0.0.1:3000
+  feedmesh fetch 2803301701
+  feedmesh fetch 2803301701 --json --limit 5 | jq '.items[].text'
+  feedmesh fetch rmrb --refresh -o rmrb.xml
+  feedmesh doctor --json
+  feedmesh cache purge --uid 2803301701 --dry-run --json
+  feedmesh serve --listen 127.0.0.1:3000
 `
 	fmt.Fprint(w, help)
 }

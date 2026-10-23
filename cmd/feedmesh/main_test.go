@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/cache"
-	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/cache"
+	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 func TestParseArgsAcceptsGlobalFlagsAnywhere(t *testing.T) {

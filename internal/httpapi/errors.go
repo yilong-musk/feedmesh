@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // ErrorCodeHeader carries the machine-readable error code.

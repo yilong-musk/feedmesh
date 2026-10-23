@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/feed"
+	"github.com/yilong-musk/feedmesh/internal/feed"
 )
 
 func TestEscapeXMLCoversAllFiveMetacharacters(t *testing.T) {

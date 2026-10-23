@@ -1,5 +1,5 @@
 GO      ?= go
-BIN     := weibo-rss-pro
+BIN     := feedmesh
 PREFIX  ?= $(HOME)/.local
 # CGO off keeps the binary static (pure-Go resolver), so it runs on any distro.
 CGO_ENABLED ?= 0
@@ -11,7 +11,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 all: check build
 
 build:
-	CGO_ENABLED=$(CGO_ENABLED) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/weibo-rss-pro
+	CGO_ENABLED=$(CGO_ENABLED) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/feedmesh
 
 test:
 	$(GO) test ./...

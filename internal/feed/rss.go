@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // cdata wraps s in a CDATA section, splitting any embedded "]]>" so the
@@ -215,7 +215,7 @@ func RenderRSS(f *Feed) []byte {
 		ttl = 15
 	}
 	fmt.Fprintf(&b, "    <ttl>%d</ttl>\n", ttl)
-	b.WriteString("    <generator>weibo-rss-pro</generator>\n")
+	b.WriteString("    <generator>feedmesh</generator>\n")
 	last := f.FetchedAt
 	if last.IsZero() {
 		last = time.Now()

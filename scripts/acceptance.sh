@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# Acceptance run for the weibo-rss-pro card. Prints labelled evidence; never aborts.
+# Acceptance run for the feedmesh card. Prints labelled evidence; never aborts.
 set -u
 export PATH=/home/ubuntu/.local/bin:$PATH
-export WEIBO_RSS_CACHE=/home/ubuntu/.cache/weibo-rss-pro
+export WEIBO_RSS_CACHE=/home/ubuntu/.cache/feedmesh
 
 hr() { printf '\n----- %s -----\n' "$1"; }
 
 hr "1. build + vet + test"
-cd /home/ubuntu/weibo-rss-pro
+cd /home/ubuntu/feedmesh
 export PATH=/home/ubuntu/.hermes/tools/go-1.27.3-linux-x64/bin:$PATH
 go build ./... && echo "go build: ok"
 go vet ./... && echo "go vet: clean"
 go test ./... 2>&1 | tail -8
 
 hr "2a. stdout purity: fetch --json | jq (logs killed)"
-weibo-rss-pro fetch 2803301701 --refresh --json 2>/dev/null > /tmp/pure.json
+feedmesh fetch 2803301701 --refresh --json 2>/dev/null > /tmp/pure.json
 echo "stdout lines: $(wc -l < /tmp/pure.json)"
 jq -e . /tmp/pure.json > /dev/null && echo "jq parse: OK" || echo "jq parse: FAILED"
 jq -c '{ok,uid,screen_name,count}' /tmp/pure.json
 
 hr "2b. three accounts, >=8 items each"
 for u in 2803301701 2656274875 3937348351; do
-  weibo-rss-pro fetch "$u" --refresh --json 2>/dev/null > /tmp/f_$u.json
+  feedmesh fetch "$u" --refresh --json 2>/dev/null > /tmp/f_$u.json
   jq -r --arg u "$u" '"\(.uid) | \(.screen_name) | items=\(.items|length) | first=\(.items[0].bid) | cached=\(.cached)"' /tmp/f_$u.json
 done
 
 hr "3. doctor --json"
-weibo-rss-pro doctor --json 2>/dev/null | jq -c .
+feedmesh doctor --json 2>/dev/null | jq -c .
 echo "doctor exit: $?"
 
 hr "4. HTTP endpoints (systemd unit on :3000)"
@@ -40,19 +40,19 @@ echo "-- /api/v1/feed?uid=2803301701&limit=3"
 curl -s 'http://127.0.0.1:3000/api/v1/feed?uid=2803301701&limit=3' | jq -c '{uid,screen_name,cached,n:(.items|length),ids:[.items[].bid]}'
 
 hr "5. exit codes"
-weibo-rss-pro fetch 9999999999999999 --json >/tmp/e1.json 2>/dev/null; echo "bad uid   -> exit=$?  $(cat /tmp/e1.json)"
-weibo-rss-pro fetch 2803301701 --timeout 1ms --refresh --json >/tmp/e2.json 2>/dev/null; echo "timeout   -> exit=$?  $(cat /tmp/e2.json)"
-weibo-rss-pro fetch --json >/tmp/e3.json 2>/dev/null; echo "usage     -> exit=$?  $(cat /tmp/e3.json)"
+feedmesh fetch 9999999999999999 --json >/tmp/e1.json 2>/dev/null; echo "bad uid   -> exit=$?  $(cat /tmp/e1.json)"
+feedmesh fetch 2803301701 --timeout 1ms --refresh --json >/tmp/e2.json 2>/dev/null; echo "timeout   -> exit=$?  $(cat /tmp/e2.json)"
+feedmesh fetch --json >/tmp/e3.json 2>/dev/null; echo "usage     -> exit=$?  $(cat /tmp/e3.json)"
 
 hr "6. systemd"
-echo "is-active: $(systemctl --user is-active weibo-rss-pro)"
-systemctl --user restart weibo-rss-pro
+echo "is-active: $(systemctl --user is-active feedmesh)"
+systemctl --user restart feedmesh
 sleep 2
-echo "after restart: $(systemctl --user is-active weibo-rss-pro)"
+echo "after restart: $(systemctl --user is-active feedmesh)"
 curl -s http://127.0.0.1:3000/healthz | jq -c '{status,version,uptime_s}'
-systemctl --user show weibo-rss-pro -p MemoryCurrent --value | awk '{printf "RSS after restart: %.1f MB\n", $1/1048576}'
+systemctl --user show feedmesh -p MemoryCurrent --value | awk '{printf "RSS after restart: %.1f MB\n", $1/1048576}'
 
 hr "7. cache dry-run (nothing deleted)"
-weibo-rss-pro cache stat --json | jq -c .
-weibo-rss-pro cache purge --all --dry-run --json | jq -c .
-weibo-rss-pro cache stat --json | jq -c '{entries,bytes}'
+feedmesh cache stat --json | jq -c .
+feedmesh cache purge --all --dry-run --json | jq -c .
+feedmesh cache stat --json | jq -c '{entries,bytes}'

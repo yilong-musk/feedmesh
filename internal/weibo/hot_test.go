@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 func newHotClient(t *testing.T, base string) *weibo.Client {

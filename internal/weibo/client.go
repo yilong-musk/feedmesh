@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/guard"
-	"github.com/yilong-musk/weibo-rss-pro/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/guard"
+	"github.com/yilong-musk/feedmesh/internal/logx"
 )
 
 // Endpoints and defaults.

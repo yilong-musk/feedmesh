@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/feed"
-	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/feed"
+	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 func mblog(t *testing.T, raw string) *weibo.MBlog {

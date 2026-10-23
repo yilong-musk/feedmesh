@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/feed"
-	"github.com/yilong-musk/weibo-rss-pro/internal/logx"
-	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/feed"
+	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 func hotService(t *testing.T) *feed.Service {

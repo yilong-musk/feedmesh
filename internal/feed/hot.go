@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // Hot list bounds and cache lifetime.
