@@ -1,0 +1,273 @@
+package feed
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/yilong-musk/weibo-rss/internal/cache"
+	"github.com/yilong-musk/weibo-rss/internal/guard"
+	"github.com/yilong-musk/weibo-rss/internal/logx"
+	"github.com/yilong-musk/weibo-rss/internal/weibo"
+)
+
+// Limits and cache lifetimes.
+const (
+	// DefaultLimit is the number of posts returned when the caller is silent.
+	DefaultLimit = 10
+	// MaxLimit is the weibo container page size: one getIndex call cannot
+	// return more than ten posts.
+	MaxLimit = 10
+)
+
+// TTLs configures per-kind cache lifetimes.
+type TTLs struct {
+	Profile  time.Duration
+	Timeline time.Duration
+	LongText time.Duration
+	Domain   time.Duration
+}
+
+// DefaultTTLs returns the shipped cache policy.
+func DefaultTTLs() TTLs {
+	return TTLs{
+		Profile:  time.Hour,
+		Timeline: 5 * time.Minute,
+		LongText: 24 * time.Hour,
+		Domain:   24 * time.Hour,
+	}
+}
+
+// Service coordinates the upstream client and the on-disk cache.
+type Service struct {
+	client *weibo.Client
+	cache  *cache.Cache
+	log    *logx.Logger
+	group  *guard.Group
+	ttls   TTLs
+	now    func() time.Time
+}
+
+// NewService wires a Service.
+func NewService(client *weibo.Client, c *cache.Cache, log *logx.Logger, ttls TTLs) *Service {
+	if log == nil {
+		log = logx.Discard()
+	}
+	if ttls == (TTLs{}) {
+		ttls = DefaultTTLs()
+	}
+	return &Service{
+		client: client,
+		cache:  c,
+		log:    log,
+		group:  guard.NewGroup(),
+		ttls:   ttls,
+		now:    time.Now,
+	}
+}
+
+// ResolveUID accepts either a numeric uid or a vanity domain and returns a uid.
+func (s *Service) ResolveUID(ctx context.Context, target string) (string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", &weibo.Error{Code: weibo.CodeBadRequest, Message: "uid or domain is required"}
+	}
+	if err := weibo.ValidateUID(target); err == nil {
+		return target, nil
+	}
+	if err := weibo.ValidateDomain(target); err != nil {
+		return "", err
+	}
+	uid, err := s.resolveDomain(ctx, target)
+	if err != nil {
+		return "", err
+	}
+	return uid, nil
+}
+
+func (s *Service) resolveDomain(ctx context.Context, domain string) (string, error) {
+	uid, _, err := fetchCached(ctx, s, "domain:"+strings.ToLower(domain), s.ttls.Domain, false,
+		func() (string, error) { return s.client.ResolveDomain(ctx, domain) })
+	return uid, err
+}
+
+// GetFeed builds a feed. refresh bypasses the cache (and overwrites it).
+func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bool) (*Feed, error) {
+	uid = strings.TrimSpace(uid)
+	if err := weibo.ValidateUID(uid); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = DefaultLimit
+	}
+	if limit > MaxLimit {
+		limit = MaxLimit
+	}
+
+	profile, profileHit, err := fetchCached(ctx, s, "profile:"+uid, s.ttls.Profile, refresh,
+		func() (*weibo.Profile, error) { return s.client.Profile(ctx, uid) })
+	if err != nil {
+		return nil, err
+	}
+
+	timeline, timelineHit, err := fetchCached(ctx, s, "timeline:"+uid, s.ttls.Timeline, refresh,
+		func() (*weibo.Timeline, error) {
+			return s.client.Timeline(ctx, uid, profile.ContainerID, 0)
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	posts := timeline.Items
+	if len(posts) > limit {
+		posts = posts[:limit]
+	}
+
+	f := &Feed{
+		UID:         uid,
+		ScreenName:  profile.ScreenName,
+		Description: profile.Description,
+		FetchedAt:   s.now().UTC(),
+		Cached:      profileHit && timelineHit,
+		Items:       make([]Item, 0, len(posts)),
+	}
+	for _, m := range posts {
+		s.hydrate(ctx, m, refresh, 0)
+		f.Items = append(f.Items, s.toItem(uid, m))
+	}
+	return f, nil
+}
+
+// hydrate fills in full text for long posts, recursing into the quoted retweet.
+// Long-text failures are tolerated: the truncated text is still usable.
+func (s *Service) hydrate(ctx context.Context, m *weibo.MBlog, refresh bool, depth int) {
+	if m == nil || depth > 1 {
+		return
+	}
+	if m.IsLongText {
+		id := m.IDString()
+		if id != "" {
+			text, _, err := fetchCached(ctx, s, "longtext:"+id, s.ttls.LongText, refresh,
+				func() (string, error) { return s.client.LongText(ctx, id) })
+			switch {
+			case err == nil && strings.TrimSpace(text) != "":
+				m.Text = text
+			case err != nil:
+				fallback, fbErr := s.client.StatusText(ctx, id)
+				if fbErr == nil && strings.TrimSpace(fallback) != "" {
+					m.Text = fallback
+				} else {
+					s.log.Warn("long text unavailable, keeping truncated text",
+						"id", id, "error", err.Error(), "fallback_error", errorString(fbErr))
+				}
+			}
+		}
+	}
+	s.hydrate(ctx, m.Retweeted, refresh, depth+1)
+}
+
+func (s *Service) toItem(uid string, m *weibo.MBlog) Item {
+	created, ok := ParseCreatedAt(m.CreatedAt)
+	if !ok {
+		created = s.now().UTC()
+		s.log.Debug("unparsable created_at", "id", m.IDString(), "raw", m.CreatedAt)
+	}
+	it := Item{
+		ID:        m.IDString(),
+		BID:       m.BID,
+		CreatedAt: created.UTC(),
+		Text:      HTMLToText(m.Text),
+		HTML:      BuildDescription(m),
+		URL:       ItemURL(uid, m),
+	}
+	for _, p := range m.Pics {
+		if u := p.BestURL(); u != "" {
+			it.Images = append(it.Images, u)
+		}
+	}
+	if it.Images == nil {
+		it.Images = []string{}
+	}
+	it.Title = ItemTitle(m.StatusTitle, it.Text)
+	return it
+}
+
+// ItemURL builds the canonical permalink for a post. weibo.com permalinks need
+// the base-62 bid; without one we fall back to the detail page.
+func ItemURL(uid string, m *weibo.MBlog) string {
+	if m == nil {
+		return ""
+	}
+	if bid := m.BID; bid != "" && !strings.ContainsAny(bid, "/ ") {
+		return fmt.Sprintf("https://weibo.com/%s/%s", uid, bid)
+	}
+	if id := m.IDString(); id != "" {
+		return "https://m.weibo.cn/detail/" + id
+	}
+	return ""
+}
+
+// createdLayouts covers weibo's "Fri Oct 23 14:30:04 +0800 2026" timestamp.
+var createdLayouts = []string{
+	"Mon Jan _2 15:04:05 -0700 2006",
+	"Mon Jan 02 15:04:05 -0700 2006",
+	time.RFC1123Z,
+}
+
+// ParseCreatedAt parses a weibo created_at string.
+func ParseCreatedAt(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range createdLayouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// fetchCached reads through the cache, collapsing concurrent identical fetches.
+func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Duration, refresh bool,
+	fn func() (T, error)) (T, bool, error) {
+
+	if !refresh && s.cache != nil {
+		var v T
+		if hit, _, err := s.cache.Get(key, &v); err == nil && hit {
+			return v, true, nil
+		}
+	}
+
+	var zero T
+	value, err, _ := guard.Do(s.group, key, func() (T, error) {
+		if !refresh && s.cache != nil {
+			var v T
+			if hit, _, err := s.cache.Get(key, &v); err == nil && hit {
+				return v, nil
+			}
+		}
+		val, ferr := fn()
+		if ferr != nil {
+			return zero, ferr
+		}
+		if s.cache != nil {
+			if cerr := s.cache.Set(key, val, ttl); cerr != nil {
+				s.log.Warn("cache write failed", "key", key, "error", cerr.Error())
+			}
+		}
+		return val, nil
+	})
+	if err != nil {
+		return zero, false, err
+	}
+	return value, false, nil
+}
