@@ -1,3 +1,42 @@
+# ---- build artifacts ----
 /feedmesh
+/feedmesh.exe
+/dist/
+/bin/
 *.test
+*.out
+*.prof
+coverage.out
+coverage.html
+
+# ---- local runtime data ----
+/cache/
+/data/
 .cache*/
+*.db
+*.db-shm
+*.db-wal
+*.log
+logs/
+
+# ---- secrets & local config ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+service-account*.json
+
+# ---- editor / OS junk ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- tooling / scratch ----
+.hermes/
+.tmp/
