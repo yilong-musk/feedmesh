@@ -1,0 +1,17 @@
+[Unit]
+Description=weibo-rss-pro — weibo timeline to RSS (single binary)
+Documentation=file:///home/ubuntu/weibo-rss-pro/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/ubuntu/.local/bin/weibo-rss-pro serve --listen 127.0.0.1:3000
+Environment=WEIBO_RSS_PRO_CACHE=/home/ubuntu/.cache/weibo-rss-pro
+Restart=always
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

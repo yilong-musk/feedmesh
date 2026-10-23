@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss/internal/cache"
-	"github.com/yilong-musk/weibo-rss/internal/feed"
-	"github.com/yilong-musk/weibo-rss/internal/guard"
-	"github.com/yilong-musk/weibo-rss/internal/logx"
-	"github.com/yilong-musk/weibo-rss/internal/weibo"
+	"github.com/yilong-musk/weibo-rss-pro/internal/cache"
+	"github.com/yilong-musk/weibo-rss-pro/internal/feed"
+	"github.com/yilong-musk/weibo-rss-pro/internal/guard"
+	"github.com/yilong-musk/weibo-rss-pro/internal/logx"
+	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
 )
 
 // probeFreshness is how long a /healthz?probe=1 result is reused.

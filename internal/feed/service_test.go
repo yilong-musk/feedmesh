@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss/internal/cache"
-	"github.com/yilong-musk/weibo-rss/internal/feed"
-	"github.com/yilong-musk/weibo-rss/internal/weibo"
+	"github.com/yilong-musk/weibo-rss-pro/internal/cache"
+	"github.com/yilong-musk/weibo-rss-pro/internal/feed"
+	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
 )
 
 // domainUpstream serves just enough of weibo for vanity-domain resolution and

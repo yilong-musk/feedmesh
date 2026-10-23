@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yilong-musk/weibo-rss/internal/guard"
-	"github.com/yilong-musk/weibo-rss/internal/weibo"
+	"github.com/yilong-musk/weibo-rss-pro/internal/guard"
+	"github.com/yilong-musk/weibo-rss-pro/internal/weibo"
 )
 
 func TestValidateUID(t *testing.T) {
