@@ -77,10 +77,6 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 - **[支持的平台](docs/PLATFORMS.md)**：每个来源的规则、限制与新增 provider 的步骤
 - **[架构与运维](docs/ARCHITECTURE.md)**：缓存实现、上游策略、目录结构、排错表、开发命令
 
-## 关于
-
-Go 重写自 [zgq354/weibo-rss](https://github.com/zgq354/weibo-rss)（Node/TS + Koa + LevelDB）。原版被 `leveldown` 这个原生模块锁死在 Node 20；本实现只用标准库。
-
 ## License
 
 [MIT](LICENSE)
