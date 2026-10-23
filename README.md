@@ -1,6 +1,10 @@
 # feedmesh
 
-把多个平台的内容汇聚成 RSS。**当前支持微博账号时间线与微博实时热搜**，后续按 provider 扩展其他平台。单二进制、零第三方依赖、对 agent 友好（stdout 只放数据、机器可读退出码、`--json` 一行 JSON）。
+[![CI](https://github.com/yilong-musk/feedmesh/actions/workflows/ci.yml/badge.svg)](https://github.com/yilong-musk/feedmesh/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+把多个平台的内容汇聚成 RSS。**当前支持微博（账号时间线 + 实时热搜）、少数派、V2EX（最新 + 最热）**，后续按 provider 扩展其他平台。单二进制、零第三方依赖、对 agent 友好（stdout 只放数据、机器可读退出码、`--json` 一行 JSON）。
 
 Go 重写自 [zgq354/weibo-rss](https://github.com/zgq354/weibo-rss)（Node/TS + Koa + LevelDB）。原版被 `leveldown` 这个原生模块锁死在 Node 20；本实现只有标准库，`go.mod` 里没有任何 `require`。
 
