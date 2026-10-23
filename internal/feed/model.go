@@ -15,6 +15,8 @@ type Item struct {
 	HTML      string    `json:"html"`
 	URL       string    `json:"url"`
 	Images    []string  `json:"images"`
+	VideoURL  string    `json:"video_url,omitempty"`
+	PageURL   string    `json:"page_url,omitempty"`
 	Title     string    `json:"-"`
 }
 

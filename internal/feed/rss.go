@@ -24,9 +24,122 @@ func rfc822(t time.Time) string {
 	return t.UTC().Format(time.RFC1123Z)
 }
 
-// BuildDescription renders the item body: post HTML, attached images, then the
-// quoted retweet when the post is a repost.
-func BuildDescription(m *weibo.MBlog) string {
+// cardNoise lists page_info types that add nothing to a feed: a topic card just
+// repeats a hashtag that is already a link in the post body.
+func cardNoise(kind string) bool {
+	switch kind {
+	case "", "search_topic":
+		return true
+	}
+	return false
+}
+
+func writeImage(b *strings.Builder, url, width, height string) {
+	if url == "" {
+		return
+	}
+	b.WriteString(`<p><img src="`)
+	b.WriteString(EscapeXML(url))
+	b.WriteString(`" alt=""`)
+	if width != "" && height != "" {
+		b.WriteString(` width="`)
+		b.WriteString(width)
+		b.WriteString(`" height="`)
+		b.WriteString(height)
+		b.WriteString(`"`)
+	}
+	b.WriteString(` style="max-width:100%;height:auto" loading="lazy" /></p>`)
+}
+
+func formatDuration(seconds float64) string {
+	if seconds <= 0 {
+		return ""
+	}
+	if seconds < 60 {
+		return fmt.Sprintf("%.1f 秒", seconds)
+	}
+	total := int(seconds + 0.5)
+	return fmt.Sprintf("%d:%02d", total/60, total%60)
+}
+
+// writeMediaCard renders a video or link card as a clickable cover plus a
+// title/summary block. The cover keeps the dimensions weibo reports so readers
+// that honour width/height don't blow the image up to full width.
+func writeMediaCard(b *strings.Builder, p *weibo.PageInfo) {
+	if p == nil || cardNoise(p.Type) {
+		return
+	}
+	link := p.Link()
+	heading := p.Heading()
+	cover := ""
+	width, height := "", ""
+	if p.PagePic != nil {
+		cover = strings.TrimSpace(p.PagePic.URL)
+		width, height = strings.TrimSpace(string(p.PagePic.Width)), strings.TrimSpace(string(p.PagePic.Height))
+	}
+	if p.IsVideo() {
+		dur := formatDuration(p.MediaInfo.Duration)
+		b.WriteString(`<p><a href="`)
+		b.WriteString(EscapeXML(link))
+		b.WriteString(`">`)
+		if cover != "" {
+			b.WriteString(`<img src="`)
+			b.WriteString(EscapeXML(cover))
+			b.WriteString(`" alt=""`)
+			if width != "" && height != "" {
+				b.WriteString(` width="` + width + `" height="` + height + `"`)
+			}
+			b.WriteString(` style="max-width:100%;height:auto" loading="lazy" />`)
+		} else {
+			b.WriteString("▶ 视频")
+		}
+		b.WriteString(`</a></p><p>▶ 视频`)
+		if dur != "" {
+			b.WriteString(" · " + dur)
+		}
+		b.WriteString(` · <a href="`)
+		b.WriteString(EscapeXML(p.BestVideoURL()))
+		b.WriteString(`">直接播放 MP4</a></p>`)
+		b.WriteString(`<video controls preload="none" src="`)
+		b.WriteString(EscapeXML(p.BestVideoURL()))
+		if cover != "" {
+			b.WriteString(`" poster="` + EscapeXML(cover))
+		}
+		b.WriteString(`" style="max-width:100%"></video>`)
+		return
+	}
+	if link == "" && heading == "" {
+		return
+	}
+	b.WriteString(`<p><a href="`)
+	b.WriteString(EscapeXML(link))
+	b.WriteString(`">`)
+	if cover != "" {
+		b.WriteString(`<img src="`)
+		b.WriteString(EscapeXML(cover))
+		b.WriteString(`" alt=""`)
+		if width != "" && height != "" {
+			b.WriteString(` width="` + width + `" height="` + height + `"`)
+		}
+		b.WriteString(` style="max-width:100%;height:auto" loading="lazy" />`)
+	} else if heading != "" {
+		b.WriteString(EscapeXML(heading))
+	}
+	b.WriteString(`</a></p>`)
+	if heading != "" {
+		b.WriteString(`<p><strong>`)
+		b.WriteString(EscapeXML(heading))
+		b.WriteString(`</strong>`)
+		if summary := strings.TrimSpace(p.Content1); summary != "" && summary != heading {
+			b.WriteString(`<br />`)
+			b.WriteString(EscapeXML(summary))
+		}
+		b.WriteString(`</p>`)
+	}
+}
+
+// renderPost renders one post (and, one level deep, its quoted retweet).
+func renderPost(m *weibo.MBlog, depth int) string {
 	if m == nil {
 		return ""
 	}
@@ -35,13 +148,14 @@ func BuildDescription(m *weibo.MBlog) string {
 
 	for _, p := range m.Pics {
 		if u := p.BestURL(); u != "" {
-			b.WriteString(`<p><img src="`)
-			b.WriteString(EscapeXML(u))
-			b.WriteString(`" alt="" /></p>`)
+			w, h := p.Dimensions()
+			writeImage(&b, u, w, h)
 		}
 	}
 
-	if r := m.Retweeted; r != nil {
+	writeMediaCard(&b, m.PageInfo)
+
+	if r := m.Retweeted; r != nil && depth < 1 {
 		b.WriteString("<blockquote>")
 		author := ""
 		if r.User != nil {
@@ -50,24 +164,28 @@ func BuildDescription(m *weibo.MBlog) string {
 		b.WriteString("<p>@")
 		b.WriteString(EscapeXML(author))
 		b.WriteString("：</p>")
-		b.WriteString(NormalizeHTML(r.Text))
-		for _, p := range r.Pics {
-			if u := p.BestURL(); u != "" {
-				b.WriteString(`<p><img src="`)
-				b.WriteString(EscapeXML(u))
-				b.WriteString(`" alt="" /></p>`)
-			}
-		}
+		b.WriteString(renderPost(r, depth+1))
 		b.WriteString("</blockquote>")
 	}
 	return b.String()
 }
 
-// RenderRSS renders the feed as RSS 2.0.
+// BuildDescription renders the item body: post HTML, attached images, media
+// card (video or link preview) and then the quoted retweet when the post is a
+// repost.
+func BuildDescription(m *weibo.MBlog) string {
+	if m == nil {
+		return ""
+	}
+	return renderPost(m, 0)
+}
+
+// RenderRSS renders the feed as RSS 2.0 with Media RSS and content:encoded so
+// readers can show images, covers and playable video instead of bare text.
 func RenderRSS(f *Feed) []byte {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-	b.WriteString(`<rss version="2.0">` + "\n")
+	b.WriteString(`<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">` + "\n")
 	b.WriteString("  <channel>\n")
 	writeElem(&b, "    ", "title", f.Title())
 	writeElem(&b, "    ", "link", f.Link())
@@ -96,6 +214,27 @@ func RenderRSS(f *Feed) []byte {
 		b.WriteString("      <description>")
 		b.WriteString(cdata(it.HTML))
 		b.WriteString("</description>\n")
+		b.WriteString("      <content:encoded>")
+		b.WriteString(cdata(it.HTML))
+		b.WriteString("</content:encoded>\n")
+		if len(it.Images) > 0 {
+			b.WriteString(`      <media:thumbnail url="`)
+			b.WriteString(EscapeXML(it.Images[0]))
+			b.WriteString("\" />\n")
+			for _, img := range it.Images {
+				b.WriteString(`      <media:content url="`)
+				b.WriteString(EscapeXML(img))
+				b.WriteString(`" medium="image" type="image/jpeg" />` + "\n")
+			}
+		}
+		if it.VideoURL != "" {
+			b.WriteString(`      <enclosure url="`)
+			b.WriteString(EscapeXML(it.VideoURL))
+			b.WriteString(`" type="video/mp4" length="0" />` + "\n")
+			b.WriteString(`      <media:content url="`)
+			b.WriteString(EscapeXML(it.VideoURL))
+			b.WriteString(`" medium="video" type="video/mp4" />` + "\n")
+		}
 		writeElem(&b, "      ", "pubDate", rfc822(it.CreatedAt))
 		b.WriteString("    </item>\n")
 	}

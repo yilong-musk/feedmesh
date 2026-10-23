@@ -196,3 +196,112 @@ func TestItemURLUsesBIDPermalink(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestBuildDescriptionRendersVideoCard(t *testing.T) {
+	m := mblog(t, `{
+		"id":"1","text":"<p>现场画面</p>",
+		"page_info":{
+			"type":"video",
+			"page_title":"人民日报的微博视频",
+			"page_url":"https://video.weibo.com/show?fid=1034%3A1",
+			"page_pic":{"url":"https://wx1.sinaimg.cn/orj480/cover.jpg","width":"480","height":"640"},
+			"media_info":{
+				"stream_url":"https://f.video.weibocdn.com/o0/sd.mp4",
+				"stream_url_hd":"https://f.video.weibocdn.com/o0/hd.mp4",
+				"duration":12.075
+			}
+		}
+	}`)
+
+	html := feed.BuildDescription(m)
+	for _, want := range []string{
+		`<img src="https://wx1.sinaimg.cn/orj480/cover.jpg" alt="" width="480" height="640"`,
+		"直接播放 MP4",
+		"12.1 秒",
+		`<video controls preload="none" src="https://f.video.weibocdn.com/o0/hd.mp4"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("video card missing %q:\n%s", want, html)
+		}
+	}
+}
+
+func TestBuildDescriptionRendersLinkCard(t *testing.T) {
+	m := mblog(t, `{
+		"id":"2","text":"<p>推荐一篇文章</p>",
+		"page_info":{
+			"type":"webpage",
+			"page_title":"如何写好一个 RSS 服务",
+			"content1":"从缓存、熔断到增量抓取，逐层拆解。",
+			"page_url":"https://example.com/article",
+			"page_pic":{"url":"https://wx2.sinaimg.cn/orj480/card.jpg","width":"320","height":"200"}
+		}
+	}`)
+
+	html := feed.BuildDescription(m)
+	for _, want := range []string{
+		`<a href="https://example.com/article">`,
+		`<img src="https://wx2.sinaimg.cn/orj480/card.jpg" alt="" width="320" height="200"`,
+		"<strong>如何写好一个 RSS 服务</strong>",
+		"从缓存、熔断到增量抓取，逐层拆解。",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("link card missing %q:\n%s", want, html)
+		}
+	}
+}
+
+func TestBuildDescriptionSkipsTopicCard(t *testing.T) {
+	m := mblog(t, `{
+		"id":"3","text":"<p>正文</p>",
+		"page_info":{"type":"search_topic","page_title":"#话题#","content1":"0讨论 0阅读",
+			"page_url":"https://m.weibo.cn/search?containerid=1",
+			"page_pic":{"url":"https://wx1.sinaimg.cn/large/topic.jpg"}}
+	}`)
+	html := feed.BuildDescription(m)
+	if strings.Contains(html, "0讨论") || strings.Contains(html, "topic.jpg") {
+		t.Fatalf("topic card should be skipped:\n%s", html)
+	}
+}
+
+func TestBuildDescriptionImageKeepsDimensions(t *testing.T) {
+	m := mblog(t, `{
+		"id":"4","text":"<p>图</p>",
+		"pics":[{"pid":"p1","url":"https://wx1.sinaimg.cn/orj360/p1.jpg",
+		         "large":{"url":"https://wx1.sinaimg.cn/mw2000/p1.jpg",
+		                  "geo":{"width":"875","height":"656"}}}]
+	}`)
+	html := feed.BuildDescription(m)
+	if !strings.Contains(html, `width="875" height="656"`) {
+		t.Fatalf("image dimensions missing:\n%s", html)
+	}
+	if !strings.Contains(html, `loading="lazy"`) {
+		t.Fatalf("lazy attribute missing:\n%s", html)
+	}
+}
+
+func TestRenderRSSEmitsMediaAndEnclosure(t *testing.T) {
+	f := &feed.Feed{
+		UID: "1", ScreenName: "x", FetchedAt: time.Now(),
+		Items: []feed.Item{{
+			Title: "t", HTML: "<p>body</p>", URL: "https://weibo.com/1/a",
+			CreatedAt: time.Now(),
+			Images:    []string{"https://wx1.sinaimg.cn/a.jpg"},
+			VideoURL:  "https://f.video.weibocdn.com/o0/hd.mp4",
+		}},
+	}
+	raw := string(feed.RenderRSS(f))
+	for _, want := range []string{
+		`xmlns:media="http://search.yahoo.com/mrss/"`,
+		`xmlns:content="http://purl.org/rss/1.0/modules/content/"`,
+		`<media:thumbnail url="https://wx1.sinaimg.cn/a.jpg" />`,
+		`<media:content url="https://wx1.sinaimg.cn/a.jpg" medium="image" type="image/jpeg" />`,
+		`<enclosure url="https://f.video.weibocdn.com/o0/hd.mp4" type="video/mp4" length="0" />`,
+		`<content:encoded>`,
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("rendered RSS missing %q:\n%s", want, raw)
+		}
+	}
+	parseRSS(t, []byte(raw))
+}

@@ -246,7 +246,13 @@ curl -s http://127.0.0.1:3000/rss/user/2803301701 | head -8
 ## RSS 细节
 
 - `title`：优先微博自己的 `status_title`，否则纯文本前 25 字（超长截断加 `…`）。
-- `description`：HTML（CDATA），保留话题链接、配图（`<img>`，取 `large` 大图）与转发引用块 `<blockquote>`。
+- `description`：HTML（CDATA），保留话题链接、配图（`<img>`，取 `large` 大图；带 weibo 返回的 `width`/`height` 与 `loading="lazy"`）与转发引用块 `<blockquote>`。
+- `content:encoded`：与 `description` 同一份 HTML，供优先读全文命名空间的阅读器使用（Inoreader、Feedly、NetNewsWire 等）。
+- 配图同时输出 Media RSS：`<media:thumbnail>`（首图）+ 每张 `<media:content medium="image">`。
+- 视频卡片：解析 `page_info.media_info`，取 `stream_url_hd`（回退 `stream_url`，实测是直链 MP4），输出
+  `<enclosure type="video/mp4" length="0">`、`<media:content medium="video">`，并在正文里给封面、时长与「直接播放 MP4」链接。
+  两条实测限制：① 直链是**签名 URL，约 1 小时过期**（`Expires=` 参数），适合当天阅读，长期归档请用 `page_url`；② 直链要求 `Referer: https://weibo.com/`，不带该头的播放器会收到 403。
+- 链接卡片：`page_info` 的 `webpage` / `article` 等类型会展开成「封面 + 标题 + 摘要 + 跳转」，不再只剩一条 `t.cn` 短链；`search_topic`（话题卡）不重复渲染。
 - `link` / `guid`：`https://weibo.com/<uid>/<bid>`；缺 bid 时退到 `https://m.weibo.cn/detail/<id>`。
 - `pubDate`：RFC822（`Fri, 23 Oct 2026 06:45:32 +0000`）。
 - 转义覆盖 `& < > " '`；CDATA 内容里出现 `]]>` 会被安全拆分为 `]]]]><![CDATA[>`，不会提前闭合。

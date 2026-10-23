@@ -167,7 +167,7 @@ func TestRSSUserRoute(t *testing.T) {
 			t.Fatalf("%s content-type = %q", path, ct)
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, `<rss version="2.0">`) {
+		if !strings.Contains(body, `<rss version="2.0"`) {
 			t.Fatalf("%s is not RSS: %s", path, body[:120])
 		}
 		if !strings.Contains(body, "<ttl>15</ttl>") {

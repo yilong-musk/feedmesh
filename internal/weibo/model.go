@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // flexString accepts either a JSON string or a JSON number.
@@ -49,13 +50,22 @@ type User struct {
 	Statuses    flexString `json:"statuses_count"`
 }
 
+// Geo is the pixel size weibo reports for an image rendition.
+type Geo struct {
+	Width  flexString `json:"width"`
+	Height flexString `json:"height"`
+}
+
 // Pic is one image attached to a post.
 type Pic struct {
 	PID   string `json:"pid"`
 	URL   string `json:"url"`
+	Size  string `json:"size"`
+	Geo   *Geo   `json:"geo"`
 	Large *struct {
 		URL  string `json:"url"`
 		Size string `json:"size"`
+		Geo  *Geo   `json:"geo"`
 	} `json:"large"`
 }
 
@@ -65,6 +75,100 @@ func (p Pic) BestURL() string {
 		return p.Large.URL
 	}
 	return p.URL
+}
+
+// Dimensions returns the pixel size of BestURL when weibo reports it. Either
+// value may be empty; callers must tolerate that.
+func (p Pic) Dimensions() (width, height string) {
+	if p.Large != nil && p.Large.Geo != nil {
+		width, height = string(p.Large.Geo.Width), string(p.Large.Geo.Height)
+	}
+	if (width == "" || height == "") && p.Geo != nil {
+		width, height = string(p.Geo.Width), string(p.Geo.Height)
+	}
+	return sanitizeDimension(width), sanitizeDimension(height)
+}
+
+func sanitizeDimension(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 6 {
+		return ""
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return s
+}
+
+// PagePic is the cover image of a link or video card.
+type PagePic struct {
+	URL    string     `json:"url"`
+	Width  flexString `json:"width"`
+	Height flexString `json:"height"`
+}
+
+// MediaInfo carries the playable streams of a video card.
+type MediaInfo struct {
+	StreamURL   string  `json:"stream_url"`
+	StreamURLHD string  `json:"stream_url_hd"`
+	Duration    float64 `json:"duration"`
+}
+
+// PageInfo is the link card, video card or topic card attached to a post.
+type PageInfo struct {
+	Type       string     `json:"type"`
+	ObjectType flexString `json:"object_type"`
+	PageTitle  string     `json:"page_title"`
+	Title      string     `json:"title"`
+	Content1   string     `json:"content1"`
+	Content2   string     `json:"content2"`
+	PageURL    string     `json:"page_url"`
+	URLOri     string     `json:"url_ori"`
+	PlayCount  string     `json:"play_count"`
+	PagePic    *PagePic   `json:"page_pic"`
+	MediaInfo  *MediaInfo `json:"media_info"`
+}
+
+// IsVideo reports whether the card is a video card with a playable stream.
+func (p *PageInfo) IsVideo() bool {
+	return p != nil && p.Type == "video" && p.BestVideoURL() != ""
+}
+
+// BestVideoURL prefers the HD stream, then the standard one.
+func (p *PageInfo) BestVideoURL() string {
+	if p == nil || p.MediaInfo == nil {
+		return ""
+	}
+	if u := strings.TrimSpace(p.MediaInfo.StreamURLHD); u != "" {
+		return u
+	}
+	return strings.TrimSpace(p.MediaInfo.StreamURL)
+}
+
+// Link returns the card's click-through target, falling back to the short URL.
+func (p *PageInfo) Link() string {
+	if p == nil {
+		return ""
+	}
+	if u := strings.TrimSpace(p.PageURL); u != "" {
+		return u
+	}
+	return strings.TrimSpace(p.URLOri)
+}
+
+// Heading returns the most specific title the card carries.
+func (p *PageInfo) Heading() string {
+	if p == nil {
+		return ""
+	}
+	for _, s := range []string{p.PageTitle, p.Title} {
+		if t := strings.TrimSpace(s); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 // MBlog is a single weibo post.
@@ -85,6 +189,7 @@ type MBlog struct {
 	Attitudes     int        `json:"attitudes_count"`
 	User          *User      `json:"user"`
 	Retweeted     *MBlog     `json:"retweeted_status"`
+	PageInfo      *PageInfo  `json:"page_info"`
 }
 
 // tab is one entry of tabsInfo.tabs.

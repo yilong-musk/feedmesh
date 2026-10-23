@@ -190,6 +190,12 @@ func (s *Service) toItem(uid string, m *weibo.MBlog) Item {
 	if it.Images == nil {
 		it.Images = []string{}
 	}
+	if pi := m.PageInfo; pi != nil {
+		if pi.IsVideo() {
+			it.VideoURL = pi.BestVideoURL()
+		}
+		it.PageURL = pi.Link()
+	}
 	it.Title = ItemTitle(m.StatusTitle, it.Text)
 	return it
 }
