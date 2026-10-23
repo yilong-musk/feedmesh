@@ -6,8 +6,8 @@ Go 重写自 [zgq354/weibo-rss](https://github.com/zgq354/weibo-rss)（Node/TS +
 
 | | 原 Node 版 | 本实现 |
 |---|---|---|
-| 运行时 | Node 20 + 原生模块 | 无（静态二进制，7.8 MB） |
-| 常驻内存（实测） | ~70 MB | ~8 MB |
+| 运行时 | Node 20 + 原生模块 | 无（`CGO_ENABLED=0` 静态二进制） |
+| 常驻内存（实测 RSS） | ~70 MB | 稳态 ~15 MB（刚启动 8.8 MB） |
 | 存储 | LevelDB | 一个 key 一个 JSON 文件 |
 | 依赖 | Koa、leveldown 等 | 仅 Go 标准库 |
 
@@ -21,17 +21,23 @@ Go 重写自 [zgq354/weibo-rss](https://github.com/zgq354/weibo-rss)（Node/TS +
 export PATH=/home/ubuntu/.hermes/tools/go-1.27.3-linux-x64/bin:$PATH
 cd /home/ubuntu/weibo-rss
 
-go build -trimpath \
+make install          # CGO_ENABLED=0 + -trimpath + -s -w，装到 ~/.local/bin
+```
+
+自建同样一行（`CGO_ENABLED=0` 不能省，否则会动态链接 glibc）：
+
+```bash
+CGO_ENABLED=0 go build -trimpath \
   -ldflags "-s -w -X main.version=$(git describe --tags --always 2>/dev/null || echo dev)" \
   -o weibo-rss ./cmd/weibo-rss
-
 install -m 0755 weibo-rss /home/ubuntu/.local/bin/weibo-rss
 ```
 
-验证：
+验证（`file` 应显示 `statically linked`）：
 
 ```bash
-weibo-rss version            # weibo-rss 16ae5de (linux/amd64, go1.27.3)
+file /home/ubuntu/.local/bin/weibo-rss
+weibo-rss version            # weibo-rss <git sha> (linux/amd64, go1.27.3)
 weibo-rss doctor             # 三项上游探活
 ```
 
@@ -244,6 +250,7 @@ curl -s http://127.0.0.1:3000/rss/user/2803301701 | head -8
 - `link` / `guid`：`https://weibo.com/<uid>/<bid>`；缺 bid 时退到 `https://m.weibo.cn/detail/<id>`。
 - `pubDate`：RFC822（`Fri, 23 Oct 2026 06:45:32 +0000`）。
 - 转义覆盖 `& < > " '`；CDATA 内容里出现 `]]>` 会被安全拆分为 `]]]]><![CDATA[>`，不会提前闭合。
+- channel 的 `<title>/<link>/<description>` 三者恒存在：账号简介为空时输出 `<description></description>`（RSS 2.0 要求，严格校验器不认缺失）。
 - 微博的表情图 `<span class="url-icon">` 统一转成其 `alt` 文字（`[哈哈]`）。
 
 ---
@@ -270,7 +277,7 @@ curl -s http://127.0.0.1:3000/rss/user/2803301701 | head -8
   | `longtext:<id>` | 24 小时 | 长文全文 |
   | `domain:<name>` | 24 小时 | 个性域名 → uid |
 
-- `--refresh` / `?refresh=1` 跳过读缓存并覆盖写回。
+- `--refresh` / `?refresh=1` 跳过读缓存并覆盖写回，**包括 `domain:<name>` 域名映射**（`weibo-rss fetch rmrb --refresh` 会真的回源解析域名）。
 
 ### 上游调用策略
 
@@ -333,7 +340,8 @@ journalctl --user -u weibo-rss -n 50          # 3. 服务侧日志（JSON 行）
 单测覆盖（改完先跑这个）：
 
 ```bash
-go test ./...    # XML 转义、缓存 TTL/原子写、uid 校验、路由、熔断状态机
+go test ./...         # XML 转义、缓存 TTL/原子写、uid 校验、路由、熔断状态机、--refresh 语义
+go test -race ./...   # 并发面（single-flight + 缓存双检）无数据竞争
 go vet ./...
 ```
 

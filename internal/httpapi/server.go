@@ -143,7 +143,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDomain(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSuffix(r.PathValue("name"), ".xml")
-	uid, err := s.cfg.Service.ResolveUID(r.Context(), name)
+	uid, err := s.cfg.Service.ResolveUID(r.Context(), name, false)
 	if err != nil {
 		s.writeError(w, err)
 		return

@@ -1,0 +1,728 @@
+// Command weibo-rss turns a weibo timeline into RSS.
+//
+// Output discipline: stdout carries data only (RSS XML or exactly one line of
+// JSON); stderr carries newline-delimited JSON logs; the process never reads
+// stdin, never prompts, and never colours its output.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/yilong-musk/weibo-rss/internal/cache"
+	"github.com/yilong-musk/weibo-rss/internal/feed"
+	"github.com/yilong-musk/weibo-rss/internal/guard"
+	"github.com/yilong-musk/weibo-rss/internal/httpapi"
+	"github.com/yilong-musk/weibo-rss/internal/logx"
+	"github.com/yilong-musk/weibo-rss/internal/weibo"
+)
+
+// version is injected at build time with -X main.version=...
+var version = "dev"
+
+const (
+	defaultListen  = "127.0.0.1:3000"
+	defaultTimeout = weibo.DefaultTimeout
+	breakerCooloff = 10 * time.Minute
+)
+
+// Exit codes, fixed by the CLI contract.
+const (
+	exitOK          = 0
+	exitUsage       = 2
+	exitNetwork     = 3
+	exitBlocked     = 4
+	exitNotFound    = 5
+	exitBreakerOpen = 6
+	exitOther       = 10
+)
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// options holds every flag the CLI understands. Flags are global: the parser
+// accepts them before or after the subcommand.
+type options struct {
+	json     bool
+	quiet    bool
+	refresh  bool
+	all      bool
+	dryRun   bool
+	help     bool
+	timeout  time.Duration
+	cacheDir string
+	listen   string
+	limit    int
+	output   string
+	uid      string
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	cmd, pos, o, err := parseArgs(args)
+	if err != nil {
+		// --json and --quiet may still have been requested before the bad flag;
+		// honour both so an agent's "quiet" contract holds on the error path too.
+		o = &options{
+			json:  hasFlag(args, "--json"),
+			quiet: hasFlag(args, "--quiet") || hasFlag(args, "-q"),
+		}
+		logger := logx.New(stderr)
+		if o.quiet {
+			logger = logx.Discard()
+		}
+		return fail(o, logger, stdout, err)
+	}
+
+	logger := logx.New(stderr)
+	if o.quiet {
+		logger = logx.Discard()
+	}
+	applyEnv(o)
+
+	if o.help || cmd == "help" || cmd == "" {
+		printHelp(stdout)
+		return exitOK
+	}
+
+	switch cmd {
+	case "version":
+		return cmdVersion(o, stdout)
+	case "serve":
+		return cmdServe(o, stdout, logger)
+	case "fetch":
+		return cmdFetch(pos, o, stdout, logger)
+	case "doctor":
+		return cmdDoctor(o, stdout, logger)
+	case "cache":
+		return cmdCache(pos, o, stdout, logger)
+	default:
+		return fail(o, logger, stdout, usageError("unknown command %q", cmd))
+	}
+}
+
+// ---------------------------------------------------------------- flag parsing
+
+func parseArgs(args []string) (string, []string, *options, error) {
+	o := &options{timeout: defaultTimeout}
+	var cmd string
+	var pos []string
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+
+		if a == "--" {
+			for _, rest := range args[i+1:] {
+				if cmd == "" {
+					cmd = rest
+					continue
+				}
+				pos = append(pos, rest)
+			}
+			break
+		}
+
+		switch {
+		case a == "-h" || a == "--help":
+			o.help = true
+			continue
+		case a == "-o" || a == "--output":
+			if i+1 >= len(args) {
+				return "", nil, nil, usageError("flag %s needs a value", a)
+			}
+			i++
+			o.output = args[i]
+			continue
+		case len(a) > 1 && a[0] == '-':
+			name, value, hasValue := a, "", false
+			if eq := strings.IndexByte(a, '='); eq > 1 {
+				name, value, hasValue = a[:eq], a[eq+1:], true
+			}
+
+			boolFlag := func(dst *bool) error {
+				if hasValue {
+					return usageError("flag %s takes no value", name)
+				}
+				*dst = true
+				return nil
+			}
+			strFlag := func(dst *string) error {
+				if !hasValue {
+					if i+1 >= len(args) {
+						return usageError("flag %s needs a value", name)
+					}
+					i++
+					value = args[i]
+				}
+				*dst = value
+				return nil
+			}
+
+			var err error
+			switch name {
+			case "--json":
+				err = boolFlag(&o.json)
+			case "--quiet", "-q":
+				err = boolFlag(&o.quiet)
+			case "--refresh":
+				err = boolFlag(&o.refresh)
+			case "--all":
+				err = boolFlag(&o.all)
+			case "--dry-run":
+				err = boolFlag(&o.dryRun)
+			case "--cache-dir":
+				err = strFlag(&o.cacheDir)
+			case "--listen":
+				err = strFlag(&o.listen)
+			case "--output", "-o":
+				err = strFlag(&o.output)
+			case "--uid":
+				err = strFlag(&o.uid)
+			case "--limit":
+				var raw string
+				if err = strFlag(&raw); err == nil {
+					n, convErr := strconv.Atoi(strings.TrimSpace(raw))
+					if convErr != nil || n < 0 {
+						err = usageError("flag --limit needs a non-negative integer, got %q", raw)
+					} else {
+						o.limit = n
+					}
+				}
+			case "--timeout":
+				var raw string
+				if err = strFlag(&raw); err == nil {
+					d, convErr := parseDuration(raw)
+					if convErr != nil {
+						err = usageError("flag --timeout needs a duration such as 9s or 500ms, got %q", raw)
+					} else {
+						o.timeout = d
+					}
+				}
+			default:
+				err = usageError("unknown flag %q", name)
+			}
+			if err != nil {
+				return "", nil, nil, err
+			}
+			continue
+		default:
+			if cmd == "" {
+				cmd = a
+				continue
+			}
+			pos = append(pos, a)
+		}
+	}
+	return cmd, pos, o, nil
+}
+
+func parseDuration(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, errors.New("empty duration")
+	}
+	if d, err := time.ParseDuration(raw); err == nil {
+		return d, nil
+	}
+	// Bare numbers are seconds, a common slip worth accepting.
+	if n, err := strconv.ParseFloat(raw, 64); err == nil {
+		return time.Duration(n * float64(time.Second)), nil
+	}
+	return 0, fmt.Errorf("invalid duration %q", raw)
+}
+
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag || strings.HasPrefix(a, flag+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// applyEnv resolves the flag > env > default precedence.
+func applyEnv(o *options) {
+	if o.cacheDir == "" {
+		o.cacheDir = strings.TrimSpace(os.Getenv("WEIBO_RSS_CACHE"))
+	}
+	if o.cacheDir == "" {
+		o.cacheDir = defaultCacheDir()
+	}
+	if o.listen == "" {
+		o.listen = strings.TrimSpace(os.Getenv("WEIBO_RSS_LISTEN"))
+	}
+	if o.listen == "" {
+		o.listen = defaultListen
+	}
+	if o.timeout <= 0 {
+		o.timeout = defaultTimeout
+	}
+}
+
+func defaultCacheDir() string {
+	if dir, err := os.UserCacheDir(); err == nil && dir != "" {
+		return filepath.Join(dir, "weibo-rss")
+	}
+	return filepath.Join(os.TempDir(), "weibo-rss")
+}
+
+// ------------------------------------------------------------------- plumbing
+
+func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *weibo.Client, *guard.Breaker, error) {
+	c, err := cache.New(o.cacheDir)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	breaker := guard.NewBreaker(breakerCooloff)
+	client := weibo.New(weibo.Config{
+		Timeout: o.timeout,
+		Breaker: breaker,
+		Log:     logger,
+		Retries: 3,
+		Backoff: 300 * time.Millisecond,
+	})
+	svc := feed.NewService(client, c, logger, feed.DefaultTTLs())
+	return svc, c, client, breaker, nil
+}
+
+func exitCodeFor(code string) int {
+	switch code {
+	case weibo.CodeBadRequest:
+		return exitUsage
+	case weibo.CodeNetwork, weibo.CodeTimeout, weibo.CodeUpstreamUnavailable:
+		return exitNetwork
+	case weibo.CodeUpstreamBlocked:
+		return exitBlocked
+	case weibo.CodeUserNotFound, weibo.CodeLoginRequired:
+		return exitNotFound
+	case weibo.CodeBreakerOpen:
+		return exitBreakerOpen
+	default:
+		return exitOther
+	}
+}
+
+type errorPayload struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type errorEnvelope struct {
+	OK    bool         `json:"ok"`
+	Error errorPayload `json:"error"`
+}
+
+func usageError(format string, args ...any) error {
+	return weibo.NewError(weibo.CodeBadRequest, 0, format, args...)
+}
+
+// fail reports an error on both channels and returns the mapped exit code.
+func fail(o *options, logger *logx.Logger, stdout io.Writer, err error) int {
+	code := weibo.CodeOf(err)
+	logger.Error(err.Error(), "code", code)
+	if o != nil && o.json {
+		_ = writeJSONLine(stdout, errorEnvelope{
+			OK:    false,
+			Error: errorPayload{Code: code, Message: err.Error()},
+		})
+	}
+	return exitCodeFor(code)
+}
+
+func writeJSONLine(w io.Writer, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	_, err = w.Write(b)
+	return err
+}
+
+// ------------------------------------------------------------------- commands
+
+type versionInfo struct {
+	Version string `json:"version"`
+	Go      string `json:"go"`
+	OS      string `json:"os"`
+	Arch    string `json:"arch"`
+}
+
+func cmdVersion(o *options, stdout io.Writer) int {
+	info := versionInfo{Version: version, Go: runtime.Version(), OS: runtime.GOOS, Arch: runtime.GOARCH}
+	if o.json {
+		if err := writeJSONLine(stdout, info); err != nil {
+			return exitOther
+		}
+		return exitOK
+	}
+	fmt.Fprintf(stdout, "weibo-rss %s (%s/%s, %s)\n", info.Version, info.OS, info.Arch, info.Go)
+	return exitOK
+}
+
+type fetchJSON struct {
+	OK          bool        `json:"ok"`
+	UID         string      `json:"uid"`
+	ScreenName  string      `json:"screen_name"`
+	Description string      `json:"description"`
+	FetchedAt   time.Time   `json:"fetched_at"`
+	Cached      bool        `json:"cached"`
+	Count       int         `json:"count"`
+	Items       []feed.Item `json:"items"`
+}
+
+func cmdFetch(pos []string, o *options, stdout io.Writer, logger *logx.Logger) int {
+	if len(pos) == 0 {
+		return fail(o, logger, stdout, usageError("fetch needs a target: a numeric uid or a vanity domain"))
+	}
+	if len(pos) > 1 {
+		return fail(o, logger, stdout, usageError("fetch takes exactly one target, got %d", len(pos)))
+	}
+
+	svc, _, _, _, err := newService(o, logger)
+	if err != nil {
+		return fail(o, logger, stdout, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), o.timeout*8)
+	defer cancel()
+
+	target := strings.TrimSpace(pos[0])
+	uid, err := svc.ResolveUID(ctx, target, o.refresh)
+	if err != nil {
+		return fail(o, logger, stdout, err)
+	}
+	if uid != target {
+		logger.Info("resolved domain to uid", "target", target, "uid", uid)
+	}
+
+	f, err := svc.GetFeed(ctx, uid, o.limit, o.refresh)
+	if err != nil {
+		return fail(o, logger, stdout, err)
+	}
+	logger.Info("feed built", "uid", f.UID, "items", len(f.Items), "cached", f.Cached)
+
+	var payload []byte
+	if o.json {
+		buf := &strings.Builder{}
+		if err := writeJSONLine(buf, fetchJSON{
+			OK:          true,
+			UID:         f.UID,
+			ScreenName:  f.ScreenName,
+			Description: f.Description,
+			FetchedAt:   f.FetchedAt,
+			Cached:      f.Cached,
+			Count:       len(f.Items),
+			Items:       f.Items,
+		}); err != nil {
+			return fail(o, logger, stdout, err)
+		}
+		payload = []byte(buf.String())
+	} else {
+		payload = feed.RenderRSS(f)
+	}
+
+	if o.output != "" && o.output != "-" {
+		if err := os.WriteFile(o.output, payload, 0o644); err != nil {
+			return fail(o, logger, stdout, fmt.Errorf("write output file: %w", err))
+		}
+		logger.Info("wrote output", "path", o.output, "bytes", len(payload))
+		return exitOK
+	}
+	if _, err := stdout.Write(payload); err != nil {
+		return fail(o, logger, stdout, err)
+	}
+	return exitOK
+}
+
+type doctorJSON struct {
+	OK    bool         `json:"ok"`
+	Steps []weibo.Step `json:"steps"`
+}
+
+func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
+	_, _, client, _, err := newService(o, logger)
+	if err != nil {
+		return fail(o, logger, stdout, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), o.timeout*8)
+	defer cancel()
+
+	steps := client.Probe(ctx, strings.TrimSpace(o.uid))
+	ok := true
+	failed := ""
+	for _, st := range steps {
+		if !st.OK {
+			ok = false
+			if failed == "" {
+				failed = st.Code
+			}
+		}
+	}
+
+	if o.json {
+		if err := writeJSONLine(stdout, doctorJSON{OK: ok, Steps: steps}); err != nil {
+			return exitOther
+		}
+	} else {
+		for _, st := range steps {
+			status := "ok"
+			if !st.OK {
+				status = "fail"
+			}
+			line := fmt.Sprintf("%-12s %-4s %5dms http=%d", st.Step, status, st.MS, st.HTTPStatus)
+			if st.Error != "" {
+				line += "  " + st.Error
+			}
+			fmt.Fprintln(stdout, line)
+		}
+	}
+
+	if ok {
+		return exitOK
+	}
+	if failed == "" {
+		failed = weibo.CodeInternal
+	}
+	return exitCodeFor(failed)
+}
+
+type purgeResult struct {
+	DryRun  bool   `json:"dry_run"`
+	Scope   string `json:"scope"`
+	Deleted int    `json:"deleted"`
+	Entries int    `json:"entries"`
+	Bytes   int64  `json:"bytes"`
+}
+
+func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) int {
+	if len(pos) == 0 {
+		return fail(o, logger, stdout, usageError("cache needs a subcommand: stat or purge"))
+	}
+	c, err := cache.New(o.cacheDir)
+	if err != nil {
+		return fail(o, logger, stdout, err)
+	}
+
+	switch pos[0] {
+	case "stat":
+		st, err := c.Stat()
+		if err != nil {
+			return fail(o, logger, stdout, err)
+		}
+		if o.json {
+			_ = writeJSONLine(stdout, st)
+			return exitOK
+		}
+		fmt.Fprintf(stdout, "dir=%s entries=%d bytes=%d\n", st.Dir, st.Entries, st.Bytes)
+		return exitOK
+
+	case "purge":
+		if !o.all && strings.TrimSpace(o.uid) == "" {
+			return fail(o, logger, stdout, usageError("cache purge needs --all or --uid <uid>"))
+		}
+		if o.all && strings.TrimSpace(o.uid) != "" {
+			return fail(o, logger, stdout, usageError("cache purge accepts either --all or --uid, not both"))
+		}
+
+		uid := strings.TrimSpace(o.uid)
+		scope := "all"
+		if !o.all {
+			if err := weibo.ValidateUID(uid); err != nil {
+				return fail(o, logger, stdout, err)
+			}
+			scope = "uid:" + uid
+		}
+
+		list, err := c.List()
+		if err != nil {
+			return fail(o, logger, stdout, err)
+		}
+		targets := make([]cache.KeyInfo, 0, len(list))
+		var bytes int64
+		for _, ki := range list {
+			if o.all || cacheKeyBelongsToUID(ki.Key, uid) {
+				targets = append(targets, ki)
+				bytes += ki.Bytes
+			}
+		}
+
+		result := purgeResult{Scope: scope, DryRun: o.dryRun, Entries: len(targets), Bytes: bytes}
+
+		// A dry run reports the blast radius and touches nothing.
+		if o.dryRun {
+			if o.json {
+				_ = writeJSONLine(stdout, result)
+				return exitOK
+			}
+			fmt.Fprintf(stdout, "dry-run scope=%s would_delete=%d bytes=%d\n", scope, result.Entries, result.Bytes)
+			return exitOK
+		}
+
+		for _, ki := range targets {
+			ok, err := c.Delete(ki.Key)
+			if err != nil {
+				return fail(o, logger, stdout, err)
+			}
+			if ok {
+				result.Deleted++
+			}
+		}
+		logger.Info("cache purged", "scope", scope, "deleted", result.Deleted)
+		if o.json {
+			_ = writeJSONLine(stdout, result)
+			return exitOK
+		}
+		fmt.Fprintf(stdout, "purged scope=%s deleted=%d\n", scope, result.Deleted)
+		return exitOK
+
+	default:
+		return fail(o, logger, stdout, usageError("unknown cache subcommand %q", pos[0]))
+	}
+}
+
+// cacheKeyBelongsToUID reports whether a cache file stem holds data for uid.
+// Long-text entries are keyed by status id and cannot be attributed to a user,
+// so they are only removed by --all (they expire after 24h regardless).
+func cacheKeyBelongsToUID(key, uid string) bool {
+	if key == "profile_"+uid || key == "timeline_"+uid {
+		return true
+	}
+	return strings.HasPrefix(key, "feed_"+uid+"_")
+}
+
+// cmdServe runs the HTTP service until SIGINT/SIGTERM.
+func cmdServe(o *options, stdout io.Writer, logger *logx.Logger) int {
+	svc, c, client, breaker, err := newService(o, logger)
+	if err != nil {
+		return fail(o, logger, stdout, err)
+	}
+
+	api := httpapi.New(httpapi.Config{
+		Version: version,
+		Service: svc,
+		Cache:   c,
+		Client:  client,
+		Breaker: breaker,
+		Log:     logger,
+	})
+
+	ln, err := net.Listen("tcp", o.listen)
+	if err != nil {
+		return fail(o, logger, stdout, fmt.Errorf("listen on %s: %w", o.listen, err))
+	}
+
+	// The readiness line is the contract: one line of JSON on stdout, flushed
+	// immediately so supervisors never have to sleep and guess.
+	ready := struct {
+		Event   string `json:"event"`
+		Addr    string `json:"addr"`
+		Version string `json:"version"`
+	}{Event: "ready", Addr: ln.Addr().String(), Version: version}
+	if err := writeJSONLine(stdout, ready); err != nil {
+		return exitOther
+	}
+	if f, ok := stdout.(interface{ Sync() error }); ok {
+		_ = f.Sync()
+	}
+	logger.Info("listening", "addr", ln.Addr().String(), "version", version, "cache_dir", o.cacheDir)
+
+	srv := &http.Server{
+		Handler:           api.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       90 * time.Second,
+		ErrorLog:          nil,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ln) }()
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fail(o, logger, stdout, fmt.Errorf("http server: %w", err))
+		}
+		return exitOK
+	case <-ctx.Done():
+		logger.Info("shutdown requested")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("graceful shutdown failed", "error", err.Error())
+			_ = srv.Close()
+		}
+		return exitOK
+	}
+}
+
+// ------------------------------------------------------------------- help text
+
+func printHelp(w io.Writer) {
+	help := `weibo-rss — turn a weibo timeline into RSS (single binary, no dependencies)
+
+USAGE
+  weibo-rss <command> [flags]
+
+COMMANDS
+  serve                     Run the HTTP service
+      --listen <addr>       Listen address (default 127.0.0.1:3000, env WEIBO_RSS_LISTEN)
+  fetch <uid|domain>        Print one account's timeline
+      --json                Emit one line of JSON instead of RSS
+      --limit <n>           Number of posts, 1-10 (default 10)
+      --refresh             Bypass the cache and refetch from weibo
+      -o, --output <path>   Write to a file; "-" means stdout (default)
+  doctor                    Probe genvisitor, getIndex and statuses in order
+      --uid <uid>           Account used for the probe (default 2803301701)
+  cache stat                Report cache entry count and size
+  cache purge --all         Delete every cache entry
+  cache purge --uid <uid>   Delete entries for one account
+      --dry-run             Report what a purge would delete, delete nothing
+  version                   Print the version
+  help                      Print this text (same as -h), exit code 0
+
+GLOBAL FLAGS
+  --json                    Data output as exactly one line of JSON (jq-safe)
+  --quiet, -q               Silence stderr logs
+  --timeout <duration>      Per-upstream-request timeout (default 9s)
+  --cache-dir <dir>         Cache directory (env WEIBO_RSS_CACHE)
+  -h, --help                Print this text
+
+OUTPUT DISCIPLINE
+  stdout: data only (RSS XML, or one line of JSON with --json)
+  stderr: newline-delimited JSON logs ({"ts","level","msg",...})
+
+EXIT CODES
+  0   success
+  2   usage error
+  3   network failure or timeout
+  4   upstream blocked (HTTP 418/403)
+  5   user not found, or visible to logged-in users only
+  6   circuit breaker open (cooling down after a block)
+  10  anything else
+
+EXAMPLES
+  weibo-rss fetch 2803301701
+  weibo-rss fetch 2803301701 --json --limit 5 | jq '.items[].text'
+  weibo-rss fetch rmrb --refresh -o rmrb.xml
+  weibo-rss doctor --json
+  weibo-rss cache purge --uid 2803301701 --dry-run --json
+  weibo-rss serve --listen 127.0.0.1:3000
+`
+	fmt.Fprint(w, help)
+}

@@ -172,6 +172,20 @@ func TestRenderRSSEmptyFeedStillValid(t *testing.T) {
 	}
 }
 
+func TestRenderRSSAlwaysEmitsChannelDescription(t *testing.T) {
+	// RSS 2.0 requires title/link/description on the channel; an account with no
+	// bio must still produce a (empty) description element.
+	f := &feed.Feed{UID: "42", ScreenName: "无简介", FetchedAt: time.Now()}
+	raw := string(feed.RenderRSS(f))
+	if !strings.Contains(raw, "<description></description>") {
+		t.Fatalf("empty description was omitted:\n%s", raw)
+	}
+	doc := parseRSS(t, []byte(raw))
+	if doc.Channel.Description != "" {
+		t.Fatalf("description = %q, want empty", doc.Channel.Description)
+	}
+}
+
 func TestItemURLUsesBIDPermalink(t *testing.T) {
 	m := mblog(t, `{"id":"5357189637868854","bid":"RnZLlx130"}`)
 	if got := feed.ItemURL("2803301701", m); got != "https://weibo.com/2803301701/RnZLlx130" {

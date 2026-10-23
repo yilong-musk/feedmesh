@@ -1,6 +1,8 @@
 GO      ?= go
 BIN     := weibo-rss
 PREFIX  ?= $(HOME)/.local
+# CGO off keeps the binary static (pure-Go resolver), so it runs on any distro.
+CGO_ENABLED ?= 0
 VERSION := $(shell git describe --tags --always 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
@@ -9,7 +11,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 all: check build
 
 build:
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/weibo-rss
+	CGO_ENABLED=$(CGO_ENABLED) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/weibo-rss
 
 test:
 	$(GO) test ./...

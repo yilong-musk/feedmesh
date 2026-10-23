@@ -68,7 +68,8 @@ func NewService(client *weibo.Client, c *cache.Cache, log *logx.Logger, ttls TTL
 }
 
 // ResolveUID accepts either a numeric uid or a vanity domain and returns a uid.
-func (s *Service) ResolveUID(ctx context.Context, target string) (string, error) {
+// refresh bypasses the domain->uid cache so "--refresh" is honest end to end.
+func (s *Service) ResolveUID(ctx context.Context, target string, refresh bool) (string, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return "", &weibo.Error{Code: weibo.CodeBadRequest, Message: "uid or domain is required"}
@@ -79,15 +80,15 @@ func (s *Service) ResolveUID(ctx context.Context, target string) (string, error)
 	if err := weibo.ValidateDomain(target); err != nil {
 		return "", err
 	}
-	uid, err := s.resolveDomain(ctx, target)
+	uid, err := s.resolveDomain(ctx, target, refresh)
 	if err != nil {
 		return "", err
 	}
 	return uid, nil
 }
 
-func (s *Service) resolveDomain(ctx context.Context, domain string) (string, error) {
-	uid, _, err := fetchCached(ctx, s, "domain:"+strings.ToLower(domain), s.ttls.Domain, false,
+func (s *Service) resolveDomain(ctx context.Context, domain string, refresh bool) (string, error) {
+	uid, _, err := fetchCached(ctx, s, "domain:"+strings.ToLower(domain), s.ttls.Domain, refresh,
 		func() (string, error) { return s.client.ResolveDomain(ctx, domain) })
 	return uid, err
 }

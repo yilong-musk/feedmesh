@@ -71,7 +71,11 @@ func RenderRSS(f *Feed) []byte {
 	b.WriteString("  <channel>\n")
 	writeElem(&b, "    ", "title", f.Title())
 	writeElem(&b, "    ", "link", f.Link())
-	writeElem(&b, "    ", "description", f.Description)
+	// RSS 2.0 requires channel title/link/description, so description is always
+	// emitted — an empty element beats a missing one for strict validators.
+	b.WriteString("    <description>")
+	b.WriteString(EscapeXML(f.Description))
+	b.WriteString("</description>\n")
 	b.WriteString("    <language>zh-cn</language>\n")
 	b.WriteString("    <ttl>15</ttl>\n")
 	b.WriteString("    <generator>weibo-rss</generator>\n")
