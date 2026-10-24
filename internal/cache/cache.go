@@ -42,6 +42,19 @@ type Stats struct {
 type Cache struct {
 	dir string
 	mu  sync.Mutex // serialises writes so temp-file naming cannot collide
+	// now is the clock used for expiry decisions. It is test-only: New wires
+	// time.Now and a zero Cache falls back to it. GC's stale-temp sweep stays
+	// on the real clock on purpose, because it compares file mtimes rather
+	// than entry expiry.
+	now func() time.Time
+}
+
+// clock returns the current time, defaulting to time.Now for a zero Cache.
+func (c *Cache) clock() time.Time {
+	if c.now == nil {
+		return time.Now()
+	}
+	return c.now()
 }
 
 // New creates (if needed) and returns a cache rooted at dir. Expiry sweeping is
@@ -64,7 +77,7 @@ func New(dir string) (*Cache, error) {
 	// Tighten a pre-existing directory too; the cache contains subscription
 	// identifiers even though all content is public.
 	_ = os.Chmod(abs, 0o700)
-	c := &Cache{dir: abs}
+	c := &Cache{dir: abs, now: time.Now}
 	return c, nil
 }
 
@@ -209,7 +222,7 @@ func (c *Cache) GC() (int, error) {
 		if rerr != nil || !ok || !managedEntry(e, stem) {
 			continue
 		}
-		if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
+		if !e.ExpiresAt.IsZero() && !c.clock().Before(e.ExpiresAt) {
 			// Another process may have replaced the expired file since we read
 			// it. Delete only the exact bytes we judged expired, otherwise a
 			// concurrent Set would lose its fresh entry.
@@ -276,7 +289,7 @@ func (c *Cache) Get(key string, out any) (bool, time.Time, error) {
 	if !ok || !entryMatches(e, key) {
 		return false, time.Time{}, nil
 	}
-	if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
+	if !e.ExpiresAt.IsZero() && !c.clock().Before(e.ExpiresAt) {
 		c.removeIfUnchanged(p, raw)
 		return false, e.StoredAt, nil
 	}
@@ -311,7 +324,7 @@ func (c *Cache) peek(key string, out any, includeExpired bool) (bool, error) {
 	if !ok || !entryMatches(e, key) {
 		return false, nil
 	}
-	if !includeExpired && !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
+	if !includeExpired && !e.ExpiresAt.IsZero() && !c.clock().Before(e.ExpiresAt) {
 		return false, nil
 	}
 	if out != nil {
@@ -332,7 +345,7 @@ func (c *Cache) Set(key string, v any, ttl time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("cache: encode %s: %w", key, err)
 	}
-	now := time.Now().UTC()
+	now := c.clock().UTC()
 	e := Entry{Key: key, StoredAt: now, Value: value}
 	if ttl > 0 {
 		e.ExpiresAt = now.Add(ttl)

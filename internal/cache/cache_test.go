@@ -19,6 +19,11 @@ func newTestCache(t *testing.T) *Cache {
 	return c
 }
 
+// fakeClock pins c's clock to t; move *t forward to advance time.
+func fakeClock(c *Cache, t *time.Time) {
+	c.now = func() time.Time { return *t }
+}
+
 func TestSetGetRoundTrip(t *testing.T) {
 	c := newTestCache(t)
 	type payload struct {
@@ -60,7 +65,10 @@ func TestGetMissingIsMiss(t *testing.T) {
 
 func TestExpiredEntryIsMissAndRemoved(t *testing.T) {
 	c := newTestCache(t)
-	if err := c.Set("timeline:1", []string{"a"}, 30*time.Millisecond); err != nil {
+	now := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	fakeClock(c, &now)
+
+	if err := c.Set("timeline:1", []string{"a"}, 30*time.Second); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -69,7 +77,9 @@ func TestExpiredEntryIsMissAndRemoved(t *testing.T) {
 		t.Fatalf("expected a fresh hit, got hit=%v err=%v", hit, err)
 	}
 
-	time.Sleep(60 * time.Millisecond)
+	// Move the cache clock past the TTL instead of sleeping: the check must not
+	// depend on scheduling delays between Set and Get.
+	now = now.Add(time.Minute)
 
 	out = nil
 	hit, _, err := c.Get("timeline:1", &out)
@@ -81,6 +91,40 @@ func TestExpiredEntryIsMissAndRemoved(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(c.Dir(), SafeKey("timeline:1")+".json")); !os.IsNotExist(err) {
 		t.Fatalf("expired file should be removed, stat err = %v", err)
+	}
+}
+
+func TestPeekHonoursTheClock(t *testing.T) {
+	c := newTestCache(t)
+	now := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	fakeClock(c, &now)
+
+	if err := c.Set("timeline:2", []string{"b"}, 30*time.Second); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	var out []string
+	if hit, err := c.Peek("timeline:2", &out); err != nil || !hit {
+		t.Fatalf("expected a fresh peek hit, got hit=%v err=%v", hit, err)
+	}
+
+	// Read-only peeks must not depend on wall-clock time any more than Get does.
+	now = now.Add(time.Minute)
+
+	out = nil
+	if hit, err := c.Peek("timeline:2", &out); err != nil || hit {
+		t.Fatalf("expired entry must not peek as a hit, got hit=%v err=%v", hit, err)
+	}
+
+	hit, err := c.PeekStored("timeline:2", &out)
+	if err != nil || !hit {
+		t.Fatalf("PeekStored must still read an expired entry, got hit=%v err=%v", hit, err)
+	}
+	if len(out) != 1 || out[0] != "b" {
+		t.Fatalf("PeekStored decoded %v, want [b]", out)
+	}
+	if _, err := os.Stat(filepath.Join(c.Dir(), SafeKey("timeline:2")+".json")); err != nil {
+		t.Fatalf("Peek must leave the expired file in place: %v", err)
 	}
 }
 
