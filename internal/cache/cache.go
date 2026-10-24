@@ -67,16 +67,19 @@ func New(dir string) (*Cache, error) {
 	return c, nil
 }
 
-// managedPrefixes lists the file stems this package owns. Purge and GC only
-// touch these names so pointing --cache-dir at a shared directory cannot
-// delete unrelated JSON files.
+// managedPrefixes lists the file stems this package may own. It is a cheap
+// filter for stats and candidates; deletion paths also verify the Entry.Key
+// stored in the file so a shared cache directory cannot lose unrelated JSON
+// that happens to share a prefix.
 var managedPrefixes = []string{
 	"profile_", "timeline_", "longtext_", "domain_", "hot_",
 	"sspai_list", "sspai_detail_", "v2ex_latest", "v2ex_hot",
 	"x_", "feed_",
 }
 
-// ManagedKey reports whether a cache file stem belongs to feedmesh.
+// ManagedKey reports whether a cache file stem matches a feedmesh key prefix.
+// It is intentionally cheap; callers that delete should use ListManaged or
+// verify the entry with managedEntry.
 func ManagedKey(key string) bool {
 	for _, prefix := range managedPrefixes {
 		if strings.HasPrefix(key, prefix) {
@@ -86,8 +89,55 @@ func ManagedKey(key string) bool {
 	return false
 }
 
-// GC removes managed expired or corrupt entries and reports how many files
-// were deleted.
+// managedEntry reports whether e is a feedmesh entry whose stored key maps to
+// the same filename stem. Entry.Key is written by Cache.Set, so unrelated JSON
+// files (including corrupt ones) are not mistaken for cache entries.
+func managedEntry(e Entry, stem string) bool {
+	safe := SafeKey(e.Key)
+	return safe != "" && safe == stem && ManagedKey(safe)
+}
+
+func (c *Cache) readEntry(key string) (Entry, bool) {
+	p, err := c.path(key)
+	if err != nil {
+		return Entry{}, false
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return Entry{}, false
+	}
+	var e Entry
+	if err := json.Unmarshal(raw, &e); err != nil {
+		return Entry{}, false
+	}
+	return e, true
+}
+
+// ListManaged enumerates entries that verify as feedmesh cache entries. Files
+// that merely share a managed filename prefix are ignored, so callers can use
+// the result for deletion in a shared cache directory.
+func (c *Cache) ListManaged() ([]KeyInfo, error) {
+	list, err := c.List()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]KeyInfo, 0, len(list))
+	for _, ki := range list {
+		if !ManagedKey(ki.Key) {
+			continue
+		}
+		e, ok := c.readEntry(ki.Key)
+		if !ok || !managedEntry(e, ki.Key) {
+			continue
+		}
+		out = append(out, ki)
+	}
+	return out, nil
+}
+
+// GC removes expired entries that verify as feedmesh cache entries. Corrupt or
+// foreign files are left alone: without a parseable Entry there is no reliable
+// way to prove ownership. Cache.Get still removes a known key when it reads it.
 func (c *Cache) GC() (int, error) {
 	// Serialise with writers so an expired entry cannot be removed after a
 	// concurrent Set has already renamed a fresh value into place.
@@ -109,19 +159,12 @@ func (c *Cache) GC() (int, error) {
 		if !ManagedKey(stem) {
 			continue
 		}
-		p := filepath.Join(c.dir, de.Name())
-		raw, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		var e Entry
-		if err := json.Unmarshal(raw, &e); err != nil {
-			if os.Remove(p) == nil {
-				removed++
-			}
+		e, ok := c.readEntry(stem)
+		if !ok || !managedEntry(e, stem) {
 			continue
 		}
 		if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
+			p := filepath.Join(c.dir, de.Name())
 			if os.Remove(p) == nil {
 				removed++
 			}
@@ -295,7 +338,8 @@ type KeyInfo struct {
 }
 
 // List enumerates every .json file, sorted by key. Callers that delete files
-// must filter with ManagedKey.
+// should use ListManaged (or verify the Entry.Key) rather than trusting the
+// filename prefix alone.
 func (c *Cache) List() ([]KeyInfo, error) {
 	entries, err := os.ReadDir(c.dir)
 	if err != nil {
@@ -322,8 +366,10 @@ func (c *Cache) List() ([]KeyInfo, error) {
 	return out, nil
 }
 
-// Stat walks the directory and reports entry count and byte size. Files that
-// do not belong to feedmesh are ignored.
+// Stat walks the directory and reports entry count and byte size. It uses the
+// cheap filename filter: files that do not match a feedmesh prefix are ignored,
+// but a lookalike that shares a prefix may still be counted. Deletion paths use
+// ListManaged, which verifies the Entry.Key in the file.
 func (c *Cache) Stat() (Stats, error) {
 	st := Stats{Dir: c.dir}
 	list, err := c.List()

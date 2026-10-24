@@ -3,6 +3,7 @@ package xnitter
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,8 +17,14 @@ func TestPublicInstanceURLRejectsLocalTargets(t *testing.T) {
 		"https://127.0.0.1:8443",
 		"https://user@127.0.0.1:8443",
 		"https://localhost",
+		"https://localhost.",
+		"https://localhost..",
+		"https://localhost.:8443",
 		"https://[::1]",
+		"https://0x7f.0.0.1",
+		"https://0177.0.0.1",
 		"https://nitter.local",
+		"https://nitter.local.",
 		"https://127.0.0.1.nip.io",
 		"https://10.0.0.1.sslip.io",
 		"http://nitter.example",
@@ -26,8 +33,40 @@ func TestPublicInstanceURLRejectsLocalTargets(t *testing.T) {
 			t.Errorf("publicInstanceURL(%q) unexpectedly accepted", raw)
 		}
 	}
-	if got, err := publicInstanceURL("https://nitter.example/"); err != nil || got != "https://nitter.example" {
+	if got, err := publicInstanceURL("https://nitter.example./"); err != nil || got != "https://nitter.example" {
 		t.Fatalf("public instance = %q, %v", got, err)
+	}
+}
+
+func TestIsPublicIP(t *testing.T) {
+	for _, raw := range []string{
+		"127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1",
+		"169.254.169.254", "0.0.0.0", "0.1.2.3", "100.64.0.1",
+		"192.0.2.1", "198.51.100.1", "203.0.113.1", "224.0.0.1",
+		"::1", "fc00::1", "fe80::1", "ff02::1",
+	} {
+		if isPublicIP(net.ParseIP(raw)) {
+			t.Errorf("isPublicIP(%q) = true", raw)
+		}
+	}
+	for _, raw := range []string{"8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"} {
+		if !isPublicIP(net.ParseIP(raw)) {
+			t.Errorf("isPublicIP(%q) = false", raw)
+		}
+	}
+	if isPublicIP(nil) {
+		t.Error("isPublicIP(nil) = true")
+	}
+}
+
+func TestDialContextRejectsPrivateAddress(t *testing.T) {
+	c := New(Config{Timeout: time.Second})
+	// A proxy environment variable may legitimately mark loopback as trusted;
+	// remove it so this test always exercises the directory-host path.
+	delete(c.trusted, "127.0.0.1")
+	if _, err := c.dialContext(context.Background(), "tcp", "127.0.0.1:443"); err == nil ||
+		!strings.Contains(err.Error(), "non-public") {
+		t.Fatalf("dialContext error = %v, want a non-public rejection", err)
 	}
 }
 

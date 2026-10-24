@@ -421,6 +421,17 @@ func TestHotRoutes(t *testing.T) {
 	if out.Items[0].Rank != 1 || out.Items[0].Title != "1. 小城良方 剧情硬伤" {
 		t.Fatalf("/api/v1/hot first item = %+v", out.Items[0])
 	}
+
+	rec = get(t, h, "/api/v1/hot?limit=2&refresh=1")
+	var refreshed struct {
+		Cached bool `json:"cached"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &refreshed); err != nil {
+		t.Fatalf("decode refresh response: %v", err)
+	}
+	if refreshed.Cached {
+		t.Fatal("/api/v1/hot?refresh=1 must bypass the cache")
+	}
 }
 
 func TestSspaiRoutes(t *testing.T) {

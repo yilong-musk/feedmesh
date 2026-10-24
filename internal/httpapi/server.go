@@ -97,6 +97,18 @@ func (s *Server) Handler() http.Handler {
 	return h
 }
 
+// setRSSCache emits cache directives appropriate for the response. When a
+// bearer token is configured, a shared cache must not reuse an authenticated
+// response for an unauthenticated client.
+func (s *Server) setRSSCache(w http.ResponseWriter, maxAge int) {
+	if s.cfg.Token != "" {
+		w.Header().Set("Cache-Control", "private, max-age="+strconv.Itoa(maxAge))
+		w.Header().Add("Vary", "Authorization")
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(maxAge))
+}
+
 // getOnly rejects non-GET verbs with a 405 and the standard error envelope.
 func (s *Server) getOnly(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +208,7 @@ func (s *Server) serveRSS(w http.ResponseWriter, r *http.Request, uid string) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	s.setRSSCache(w, 300)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -261,15 +273,16 @@ func (s *Server) handleHot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=60")
+	s.setRSSCache(w, 60)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
 
 func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
 	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultHotLimit, feed.MaxHotLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
 
-	f, err := s.cfg.Service.GetHot(r.Context(), limit, false)
+	f, err := s.cfg.Service.GetHot(r.Context(), limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -319,7 +332,7 @@ func (s *Server) handleSspai(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=600")
+	s.setRSSCache(w, 600)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -374,7 +387,7 @@ func (s *Server) serveV2ex(w http.ResponseWriter, r *http.Request, section strin
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=600")
+	s.setRSSCache(w, 600)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -440,7 +453,7 @@ func (s *Server) handleX(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	// Nitter's own <ttl> is 40 minutes; match the cache rather than inviting
 	// readers to hammer volunteer instances.
-	w.Header().Set("Cache-Control", "public, max-age=2400")
+	s.setRSSCache(w, 2400)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }

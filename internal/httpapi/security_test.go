@@ -36,6 +36,9 @@ func TestBearerTokenRequiredWhenConfigured(t *testing.T) {
 	if rec.Header().Get("WWW-Authenticate") == "" {
 		t.Fatal("missing WWW-Authenticate header")
 	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("401 Cache-Control = %q, want no-store", got)
+	}
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -54,6 +57,9 @@ func TestRateLimitReturnsJSONEnvelope(t *testing.T) {
 	rec := get(t, h, "/healthz")
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("second status = %d", rec.Code)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("429 Cache-Control = %q, want no-store", got)
 	}
 	var body struct {
 		Error struct {

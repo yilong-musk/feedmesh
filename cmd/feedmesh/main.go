@@ -37,9 +37,13 @@ import (
 var version = "dev"
 
 const (
-	defaultListen  = "127.0.0.1:3000"
-	defaultTimeout = weibo.DefaultTimeout
-	breakerCooloff = 10 * time.Minute
+	defaultListen       = "127.0.0.1:3000"
+	defaultTimeout      = weibo.DefaultTimeout
+	defaultSspaiTimeout = 15 * time.Second
+	defaultV2exTimeout  = 15 * time.Second
+	defaultXTimeout     = 20 * time.Second
+	maxXTimeout         = 25 * time.Second
+	breakerCooloff      = 10 * time.Minute
 )
 
 // Exit codes, fixed by the CLI contract.
@@ -60,23 +64,24 @@ func main() {
 // options holds every flag the CLI understands. Flags are global: the parser
 // accepts them before or after the subcommand.
 type options struct {
-	json         bool
-	quiet        bool
-	refresh      bool
-	all          bool
-	dryRun       bool
-	help         bool
-	timeout      time.Duration
-	timeoutSet   bool
-	cacheDir     string
-	listen       string
-	limit        int
-	output       string
-	uid          string
-	handle       string
-	token        string
-	rateLimit    int
-	rateLimitSet bool
+	json            bool
+	quiet           bool
+	refresh         bool
+	all             bool
+	dryRun          bool
+	help            bool
+	timeout         time.Duration
+	timeoutSet      bool
+	cacheDir        string
+	cacheDirCleanup func()
+	listen          string
+	limit           int
+	output          string
+	uid             string
+	handle          string
+	token           string
+	rateLimit       int
+	rateLimitSet    bool
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -100,6 +105,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		logger = logx.Discard()
 	}
 	applyEnv(o)
+	if o.cacheDirCleanup != nil {
+		defer o.cacheDirCleanup()
+	}
 
 	if o.help || cmd == "help" || cmd == "" {
 		printHelp(stdout)
@@ -305,7 +313,7 @@ func applyEnv(o *options) {
 		o.cacheDir = envFirst("FEEDMESH_CACHE", "WEIBO_RSS_PRO_CACHE", "WEIBO_RSS_CACHE")
 	}
 	if o.cacheDir == "" {
-		o.cacheDir = defaultCacheDir()
+		o.cacheDir, o.cacheDirCleanup = defaultCacheDir()
 	}
 	if o.listen == "" {
 		o.listen = envFirst("FEEDMESH_LISTEN", "WEIBO_RSS_PRO_LISTEN", "WEIBO_RSS_LISTEN")
@@ -318,19 +326,19 @@ func applyEnv(o *options) {
 	}
 }
 
-func defaultCacheDir() string {
+func defaultCacheDir() (string, func()) {
 	if dir, err := os.UserCacheDir(); err == nil && dir != "" {
-		return filepath.Join(dir, "feedmesh")
+		return filepath.Join(dir, "feedmesh"), nil
 	}
 	// A predictable directory under /tmp is shared with every local user. If
 	// the platform cannot give us a home cache, use a private, random directory
 	// instead; losing the cache across restarts is preferable to cache
-	// poisoning.
+	// poisoning. Remove it on exit so repeated runs cannot leak directories.
 	dir, err := os.MkdirTemp("", "feedmesh-cache-*")
 	if err != nil {
-		return ""
+		return "", nil
 	}
-	return dir
+	return dir, func() { _ = os.RemoveAll(dir) }
 }
 
 // ------------------------------------------------------------------- plumbing
@@ -352,20 +360,39 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		Retries: 3,
 		Backoff: 300 * time.Millisecond,
 	})
-	// The slow providers (sspai detail calls can take 3-20s) use a larger
-	// default, but an explicit --timeout overrides it end to end.
-	providerTimeout := 45 * time.Second
-	if o.timeoutSet {
-		providerTimeout = o.timeout
-	}
-	if providerTimeout <= 0 {
-		providerTimeout = defaultTimeout
-	}
-	sp := sspai.New(sspai.Config{Timeout: providerTimeout})
-	vx := v2ex.New(v2ex.Config{Timeout: providerTimeout})
-	xn := xnitter.New(xnitter.Config{Timeout: providerTimeout})
+	sspaiTimeout, v2exTimeout, xTimeout := providerTimeouts(o)
+	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
+	vx := v2ex.New(v2ex.Config{Timeout: v2exTimeout})
+	xn := xnitter.New(xnitter.Config{Timeout: xTimeout})
 	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
+}
+
+// providerTimeouts resolves the per-provider request timeouts. X is capped even
+// when --timeout is larger, so a single X feed request cannot spend the whole
+// handler deadline on slow mirror attempts.
+func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout time.Duration) {
+	sspaiTimeout = defaultSspaiTimeout
+	v2exTimeout = defaultV2exTimeout
+	xTimeout = defaultXTimeout
+	if o.timeoutSet {
+		sspaiTimeout = o.timeout
+		v2exTimeout = o.timeout
+		xTimeout = o.timeout
+	}
+	if sspaiTimeout <= 0 {
+		sspaiTimeout = defaultTimeout
+	}
+	if v2exTimeout <= 0 {
+		v2exTimeout = defaultTimeout
+	}
+	if xTimeout <= 0 {
+		xTimeout = defaultTimeout
+	}
+	if xTimeout > maxXTimeout {
+		xTimeout = maxXTimeout
+	}
+	return sspaiTimeout, v2exTimeout, xTimeout
 }
 
 func exitCodeFor(code string) int {
@@ -637,7 +664,7 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 			scope = "handle:" + handle
 		}
 
-		list, err := c.List()
+		list, err := c.ListManaged()
 		if err != nil {
 			return fail(o, logger, stdout, err)
 		}
@@ -658,9 +685,7 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 		switch {
 		case o.all:
 			for _, ki := range list {
-				if cache.ManagedKey(ki.Key) {
-					add(ki.Key)
-				}
+				add(ki.Key)
 			}
 		case uid != "":
 			add("profile_" + uid)
@@ -892,7 +917,7 @@ GLOBAL FLAGS
   --json                    Data output as exactly one line of JSON (jq-safe)
   --quiet, -q               Silence stderr logs
   --timeout <duration>      Per-upstream-request timeout; overrides all providers
-                            (default 9s for weibo, 45s for sspai/V2EX/X)
+                            (default 9s weibo, 15s sspai/V2EX, 20s X; X capped at 25s)
   --cache-dir <dir>         Cache directory (env FEEDMESH_CACHE; legacy WEIBO_RSS_PRO_CACHE / WEIBO_RSS_CACHE)
   -h, --help                Print this text
 

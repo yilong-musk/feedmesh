@@ -91,8 +91,8 @@
 ### 账号时间线
 
 - 实例池从 `https://status.d420.de/api/v1/instances` 拉取（筛 `rss=true`、`points ≥ 60`、非 bad host），30 分钟内复用；目录不可用或返回的节点全是私网/非法地址时回退内置列表（kareem.one、meowing.monster、netbub），失败结果缓存 30 秒。
-- 只接受 https、无 userinfo、非 IP 字面量、非 `.local/.internal` 的实例地址，避免第三方目录把请求引向本机或内网；显式配置的实例由运维自行信任。
-- 按得分顺序逐个尝试（最多 5 个）；某个实例超时、5xx、返回 0 条都会换下一个。全部失败返回 `UPSTREAM_UNAVAILABLE`（HTTP 504）。
+- 只接受 https、无 userinfo、非 IP 字面量、非 `.local/.internal` 的实例地址；实际拨号时还会校验解析出的 IP 不是 loopback、RFC1918、link-local 等非公网地址，避免第三方目录把请求引向本机或内网。显式配置的实例由运维自行信任。
+- 按得分顺序逐个尝试实例池节点（最多 3 个，单次尝试默认 20 秒、最多 25 秒）；某个实例超时、5xx、返回 0 条都会换下一个。实例池全部失败后仍会尝试内置 fallback。全部失败返回 `UPSTREAM_UNAVAILABLE`（HTTP 504）。
 - 部分实例有 Anubis 人机门（`anubis_challenge` / `preact_info`）：客户端自动解 SHA-256 PoW 并缓存 cookie 后重试，不需要浏览器。
 - 正文里的实例链接会改写成 `https://x.com/...`，并保留 query；Nitter 的 `/pic/` 代理图片会还原成 `pbs.twimg.com`，其他图片域名不改写。
 - 转发条目在标题前标 `🔁`，并去掉 Nitter 原始的 `RT by @user:` 前缀。

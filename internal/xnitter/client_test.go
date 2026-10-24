@@ -198,6 +198,55 @@ func TestTimelineFallsBackToNextInstance(t *testing.T) {
 	}
 }
 
+func TestTimelineTriesFallbackAfterFullPoolFails(t *testing.T) {
+	var failing []string
+	for i := 0; i < maxPoolAttempts; i++ {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "down", http.StatusInternalServerError)
+		}))
+		t.Cleanup(srv.Close)
+		failing = append(failing, srv.URL)
+	}
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/elonmusk/rss" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write(fixture(t))
+	}))
+	defer good.Close()
+
+	c := testClient(t, good.URL)
+	c.pool = failing
+	c.pooledAt = c.now()
+	if tweets, err := c.Timeline(context.Background(), "elonmusk"); err != nil || len(tweets) == 0 {
+		t.Fatalf("Timeline with fallback after %d pool failures = %d, %v", len(failing), len(tweets), err)
+	}
+}
+
+func TestTimelineBoundsEachInstanceAttempt(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write(fixture(t))
+	}))
+	defer slow.Close()
+
+	c := New(Config{
+		Instances: []string{slow.URL},
+		StatusURL: "http://127.0.0.1:1/status",
+		Timeout:   50 * time.Millisecond,
+	})
+	start := time.Now()
+	if _, err := c.Timeline(context.Background(), "elonmusk"); err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Timeline took %v, want it bounded by the per-attempt timeout", elapsed)
+	}
+}
+
 func TestTimelineAllInstancesFail(t *testing.T) {
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusBadGateway)

@@ -56,9 +56,9 @@ func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (
 		Items:       make([]Item, 0, len(articles)),
 	}
 	if full {
-		// Detail calls dominate latency (~2s each upstream), so fetch a few
-		// in parallel. Three workers keep a cold 10-item feed around 15-25s while
-		// staying polite to sspai (the detail API is slow: 3-20s per call).
+		// Detail calls are network-bound; a cold 30-item feed measured around
+		// 4.5s end to end with three workers. Keep the parallelism modest so a
+		// burst of feed readers stays polite to sspai.
 		detailed := make([]sspai.Article, len(articles))
 		sem := make(chan struct{}, 3)
 		var wg sync.WaitGroup

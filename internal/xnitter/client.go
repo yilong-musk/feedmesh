@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -46,12 +47,12 @@ const (
 	// every X request.
 	poolFailureTTL = 30 * time.Second
 
-	maxBody             = 4 << 20
-	maxNonce            = 2_000_000
-	maxDifficulty       = 12
-	maxRandomData       = 2 << 10
-	maxInstanceAttempts = 5
-	maxPoolInstances    = 20
+	maxBody          = 4 << 20
+	maxNonce         = 2_000_000
+	maxDifficulty    = 12
+	maxRandomData    = 2 << 10
+	maxPoolAttempts  = 3
+	maxPoolInstances = 20
 )
 
 // defaultInstances are used when the status directory is unreachable.
@@ -85,11 +86,14 @@ type Config struct {
 
 // Client fetches timelines from a pool of Nitter instances.
 type Client struct {
-	http      *http.Client
-	ua        string
-	fallback  []string
-	statusURL string
-	now       func() time.Time
+	http           *http.Client
+	ua             string
+	fallback       []string
+	statusURL      string
+	now            func() time.Time
+	attemptTimeout time.Duration
+	trusted        map[string]struct{}
+	dialer         *net.Dialer
 
 	mu           sync.Mutex
 	pool         []string
@@ -112,15 +116,27 @@ func New(cfg Config) *Client {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	fallback := cfg.Instances
+	fallback := append([]string(nil), cfg.Instances...)
 	if len(fallback) == 0 {
-		fallback = defaultInstances
+		fallback = append([]string(nil), defaultInstances...)
 	}
 	// A real jar so Anubis session cookies survive to the retry.
 	jar, _ := cookiejar.New(nil)
-	httpClient := &http.Client{
-		Timeout: cfg.Timeout,
-		Jar:     jar,
+	c := &Client{
+		ua:             cfg.UserAgent,
+		fallback:       fallback,
+		statusURL:      cfg.StatusURL,
+		now:            cfg.Now,
+		attemptTimeout: cfg.Timeout,
+		trusted:        trustedHosts(cfg.StatusURL, fallback),
+		dialer:         &net.Dialer{Timeout: cfg.Timeout, KeepAlive: 30 * time.Second},
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = c.dialContext
+	c.http = &http.Client{
+		Transport: transport,
+		Timeout:   cfg.Timeout,
+		Jar:       jar,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return fmt.Errorf("too many redirects")
@@ -133,13 +149,108 @@ func New(cfg Config) *Client {
 			return nil
 		},
 	}
-	return &Client{
-		http:      httpClient,
-		ua:        cfg.UserAgent,
-		fallback:  append([]string(nil), fallback...),
-		statusURL: cfg.StatusURL,
-		now:       cfg.Now,
+	return c
+}
+
+// trustedHosts lists hosts whose operator explicitly configured them. Directory
+// results are not included, so their resolved addresses are checked at dial
+// time. Proxies come from the environment and are trusted infrastructure.
+func trustedHosts(statusURL string, instances []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(instances)+2)
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		if !strings.Contains(raw, "://") {
+			raw = "http://" + raw
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Hostname() == "" {
+			return
+		}
+		out[normalizeHost(u.Hostname())] = struct{}{}
 	}
+	add(statusURL)
+	for _, inst := range instances {
+		add(inst)
+	}
+	for _, name := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
+		add(os.Getenv(name))
+	}
+	return out
+}
+
+func normalizeHost(host string) string {
+	return strings.ToLower(strings.TrimRight(strings.TrimSpace(host), "."))
+}
+
+// dialContext blocks directory-provided hosts from resolving to loopback,
+// private, link-local or other non-public addresses. Checking the resolved IP
+// at dial time also covers DNS names that point at internal services and DNS
+// rebinding between validation and use. When an egress proxy is configured,
+// the proxy resolves the origin, so the same policy must be enforced there.
+func (c *Client) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	host = normalizeHost(host)
+	if _, ok := c.trusted[host]; ok {
+		return c.dialer.DialContext(ctx, network, addr)
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s: %w", host, err)
+	}
+	var lastErr error
+	for _, ip := range ips {
+		if !isPublicIP(ip.IP) {
+			continue
+		}
+		conn, derr := c.dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
+		if derr == nil {
+			return conn, nil
+		}
+		lastErr = derr
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("connect to %s: %w", host, lastErr)
+	}
+	return nil, fmt.Errorf("refusing to connect to non-public host %q", host)
+}
+
+// isPublicIP rejects addresses that a directory-poisoning attacker could use to
+// reach the host or its private network.
+func isPublicIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return false
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		switch {
+		case ip4[0] == 0:
+			return false // 0.0.0.0/8
+		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127:
+			return false // 100.64.0.0/10, carrier-grade NAT
+		case ip4[0] == 192 && ip4[1] == 0 && ip4[2] == 0:
+			return false // 192.0.0.0/24, IETF protocol assignments
+		case ip4[0] == 192 && ip4[1] == 0 && ip4[2] == 2:
+			return false // 192.0.2.0/24, TEST-NET-1
+		case ip4[0] == 198 && (ip4[1] == 18 || ip4[1] == 19):
+			return false // 198.18.0.0/15, benchmarking
+		case ip4[0] == 198 && ip4[1] == 51 && ip4[2] == 100:
+			return false // 198.51.100.0/24, TEST-NET-2
+		case ip4[0] == 203 && ip4[1] == 0 && ip4[2] == 113:
+			return false // 203.0.113.0/24, TEST-NET-3
+		case ip4[0] >= 240:
+			return false // 240.0.0.0/4, reserved and broadcast
+		}
+	}
+	return true
 }
 
 var handleRe = regexp.MustCompile(`^[A-Za-z0-9_]{1,15}$`)
@@ -160,18 +271,46 @@ func (c *Client) Timeline(ctx context.Context, handle string) ([]Tweet, error) {
 		return nil, err
 	}
 	var failures []string
-	for i, base := range c.instances(ctx) {
-		if i >= maxInstanceAttempts || ctx.Err() != nil {
-			break
-		}
-		tweets, ferr := c.timelineFrom(ctx, base, handle)
+	try := func(base string) ([]Tweet, bool) {
+		attemptCtx, cancel := context.WithTimeout(ctx, c.attemptTimeout)
+		defer cancel()
+		tweets, ferr := c.timelineFrom(attemptCtx, base, handle)
 		if ferr == nil && len(tweets) > 0 {
-			return tweets, nil
+			return tweets, true
 		}
 		if ferr == nil {
 			ferr = fmt.Errorf("returned no tweets")
 		}
 		failures = append(failures, base+": "+ferr.Error())
+		return nil, false
+	}
+
+	tried := make(map[string]bool)
+	for i, base := range c.instances(ctx) {
+		if i >= maxPoolAttempts || ctx.Err() != nil {
+			break
+		}
+		if tried[base] {
+			continue
+		}
+		tried[base] = true
+		if tweets, ok := try(base); ok {
+			return tweets, nil
+		}
+	}
+	// The directory attempt cap must not hide the baked-in fallback: when the
+	// whole pool fails for this server, try the operator-trusted hosts too.
+	for _, base := range c.fallback {
+		if ctx.Err() != nil {
+			break
+		}
+		if tried[base] {
+			continue
+		}
+		tried[base] = true
+		if tweets, ok := try(base); ok {
+			return tweets, nil
+		}
 	}
 	if len(failures) == 0 {
 		return nil, fmt.Errorf("xnitter: no instance available")
@@ -317,19 +456,20 @@ func (c *Client) fetchPool(ctx context.Context) ([]string, error) {
 }
 
 // publicInstanceURL accepts only https URLs with a public-looking hostname.
-// IP literals and obvious local names are rejected so a poisoned directory
-// cannot point the fetcher at loopback, RFC1918 or link-local services.
+// IP literals and obvious local names are rejected here; the client also
+// verifies resolved addresses at dial time so DNS names and alternate IP
+// spellings cannot point the fetcher at loopback or private services.
 func publicInstanceURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "", fmt.Errorf("invalid instance URL")
 	}
-	if u.Scheme != "https" || u.User != nil || u.Host == "" {
+	if !strings.EqualFold(u.Scheme, "https") || u.User != nil || u.Host == "" {
 		return "", fmt.Errorf("instance must be an https URL without userinfo")
 	}
-	host := strings.ToLower(u.Hostname())
-	if host == "" || host == "localhost" || strings.Contains(host, " ") {
+	host := normalizeHost(u.Hostname())
+	if host == "" || host == "localhost" || strings.ContainsAny(host, " \t\r\n") {
 		return "", fmt.Errorf("invalid instance host")
 	}
 	if net.ParseIP(host) != nil {
@@ -346,17 +486,25 @@ func publicInstanceURL(raw string) (string, error) {
 			return "", fmt.Errorf("instance host looks private")
 		}
 	}
-	// Refuse hostnames whose first label is a bare number; these are commonly
-	// used to smuggle an IP through a DNS wildcard service.
+	// Refuse hostnames whose first label parses as a number in any base; this
+	// catches decimal, octal and hexadecimal spellings of IPv4 addresses.
 	if first := strings.Split(host, ".")[0]; first != "" {
-		if _, err := strconv.Atoi(first); err == nil {
+		if _, err := strconv.ParseUint(first, 0, 64); err == nil {
 			return "", fmt.Errorf("instance host looks like an address")
 		}
 	}
+	if port := u.Port(); port != "" {
+		u.Host = net.JoinHostPort(host, port)
+	} else {
+		u.Host = host
+	}
+	u.Scheme = "https"
 	u.Path = ""
 	u.RawPath = ""
 	u.RawQuery = ""
+	u.ForceQuery = false
 	u.Fragment = ""
+	u.RawFragment = ""
 	return strings.TrimRight(u.String(), "/"), nil
 }
 

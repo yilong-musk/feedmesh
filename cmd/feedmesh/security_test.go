@@ -28,6 +28,30 @@ func TestParseArgsMarksExplicitTimeout(t *testing.T) {
 	}
 }
 
+func TestProviderTimeoutsClampX(t *testing.T) {
+	cases := []struct {
+		name      string
+		opts      *options
+		wantSspai time.Duration
+		wantV2ex  time.Duration
+		wantX     time.Duration
+	}{
+		{"defaults", &options{}, 15 * time.Second, 15 * time.Second, 20 * time.Second},
+		{"explicit", &options{timeout: 2 * time.Second, timeoutSet: true}, 2 * time.Second, 2 * time.Second, 2 * time.Second},
+		{"x capped", &options{timeout: 60 * time.Second, timeoutSet: true}, 60 * time.Second, 60 * time.Second, 25 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sspaiTimeout, v2exTimeout, xTimeout := providerTimeouts(tc.opts)
+			if sspaiTimeout != tc.wantSspai || v2exTimeout != tc.wantV2ex || xTimeout != tc.wantX {
+				t.Fatalf("timeouts = %v/%v/%v, want %v/%v/%v",
+					sspaiTimeout, v2exTimeout, xTimeout,
+					tc.wantSspai, tc.wantV2ex, tc.wantX)
+			}
+		})
+	}
+}
+
 func TestCachePurgeUIDRemovesLongTextAndDomainAliases(t *testing.T) {
 	dir := t.TempDir()
 	c, err := cache.New(dir)
@@ -122,21 +146,47 @@ func TestCachePurgeAllLeavesUnrelatedJSONAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = c.Set("profile:1", "p", time.Hour)
-	unrelated := filepath.Join(dir, "user-notes.json")
-	if err := os.WriteFile(unrelated, []byte(`{"private":true}`), 0o600); err != nil {
-		t.Fatal(err)
+	unrelated := map[string]string{
+		"user-notes.json": `{"private":true}`,
+		"x_notes.json":    `{"name":"notes"}`,
+	}
+	for name, body := range unrelated {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	var out, errBuf bytes.Buffer
 	if code := run([]string{"cache", "purge", "--all", "--json", "--cache-dir", dir}, &out, &errBuf); code != exitOK {
 		t.Fatalf("exit = %d, stderr=%s", code, errBuf.String())
 	}
-	if _, err := os.Stat(unrelated); err != nil {
-		t.Fatalf("purge --all deleted an unrelated file: %v", err)
+	for name := range unrelated {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("purge --all deleted unrelated %s: %v", name, err)
+		}
 	}
 	var v any
 	if hit, _, _ := c.Get("profile:1", &v); hit {
 		t.Fatal("managed cache was not purged")
+	}
+}
+
+func TestDefaultCacheDirFallbackIsCleanedUp(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CACHE_HOME", "")
+	dir, cleanup := defaultCacheDir()
+	if cleanup == nil {
+		t.Skip("UserCacheDir is available in this environment")
+	}
+	if dir == "" {
+		t.Fatal("fallback directory is empty")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("fallback directory was not created: %v", err)
+	}
+	cleanup()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("cleanup left %s behind: %v", dir, err)
 	}
 }
 

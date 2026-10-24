@@ -2,7 +2,7 @@
 
 所有接口都是 `GET`，默认只监听 `127.0.0.1:3000`。RSS 响应的 `Content-Type` 为 `application/rss+xml; charset=utf-8`，JSON 响应为 `application/json`。
 
-设置 `--token <token>` 或 `FEEDMESH_TOKEN` 后，所有请求必须带 `Authorization: Bearer <token>`，否则返回 401。设置 `--rate-limit <n>` 或 `FEEDMESH_RATE_LIMIT` 后，每个远端 IP 每分钟最多 n 次请求，超出返回 429。若监听非 loopback 地址且未设置限额，服务默认启用 120 次/分钟/IP。反向代理场景下 `RemoteAddr` 通常是代理 IP，建议在代理层也做限流。
+设置 `--token <token>` 或 `FEEDMESH_TOKEN` 后，所有请求必须带 `Authorization: Bearer <token>`，否则返回 401。设置 `--rate-limit <n>` 或 `FEEDMESH_RATE_LIMIT` 后，每个远端 IP 在任意滚动一分钟内最多 n 次请求，超出返回 429。若监听非 loopback 地址且未设置限额，服务默认启用 120 次/分钟/IP。反向代理场景下 `RemoteAddr` 通常是代理 IP，建议在代理层也做限流。
 
 平台与路由的对应关系见 [PLATFORMS.md](PLATFORMS.md)。
 
@@ -215,6 +215,6 @@ curl -s 'http://127.0.0.1:3000/rss/x/elonmusk?limit=20'
 
 - `refresh=1` 跳过读取并覆盖写回；RSS 和 JSON 接口都支持。
 - 缓存条目按请求的 `limit` 记录宽度，小 `limit` 的缓存不会污染大 `limit` 请求（按需回源加宽）。
-- 缓存目录：`--cache-dir` / `FEEDMESH_CACHE`，默认 `~/.cache/feedmesh`；一个 key 一个 JSON 文件，原子写。目录权限 0700，文件权限 0600；启动时会清理过期条目。`cache purge --all` 只删除 feedmesh 管理的条目，不会碰同目录下其他 `.json` 文件。
+- 缓存目录：`--cache-dir` / `FEEDMESH_CACHE`，默认 `~/.cache/feedmesh`；一个 key 一个 JSON 文件，原子写。目录权限 0700，文件权限 0600；启动时会清理过期条目。`cache purge --all` 只删除能验证为 feedmesh 写入的条目（校验条目内的 `key` 与文件名），不会碰同目录下其他 `.json` 文件。
 
 实现细节（并发、熔断、重试）见 [ARCHITECTURE.md](ARCHITECTURE.md)。
