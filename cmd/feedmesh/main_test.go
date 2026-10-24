@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -336,5 +337,23 @@ func TestCacheStatPlainText(t *testing.T) {
 	}
 	if strings.Contains(line, "{") {
 		t.Fatalf("plain output must not be JSON: %q", line)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("output closed") }
+
+func TestCacheJSONWriteFailureExitsNonZero(t *testing.T) {
+	dir := t.TempDir()
+	seedCache(t, dir, "profile:1")
+
+	var errBuf bytes.Buffer
+	code := run([]string{"cache", "stat", "--json", "--cache-dir", dir}, failingWriter{}, &errBuf)
+	if code != exitOther {
+		t.Fatalf("exit = %d, want %d", code, exitOther)
+	}
+	if !strings.Contains(errBuf.String(), "cache output failed") {
+		t.Fatalf("stderr = %q", errBuf.String())
 	}
 }

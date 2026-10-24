@@ -613,6 +613,10 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 	if err != nil {
 		return fail(o, logger, stdout, err)
 	}
+	writeErr := func(err error) int {
+		logger.Error("cache output failed", "error", err.Error())
+		return exitOther
+	}
 
 	switch pos[0] {
 	case "stat":
@@ -622,10 +626,14 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 			return fail(o, logger, stdout, err)
 		}
 		if o.json {
-			_ = writeJSONLine(stdout, st)
+			if err := writeJSONLine(stdout, st); err != nil {
+				return writeErr(err)
+			}
 			return exitOK
 		}
-		fmt.Fprintf(stdout, "dir=%s entries=%d bytes=%d\n", st.Dir, st.Entries, st.Bytes)
+		if _, err := fmt.Fprintf(stdout, "dir=%s entries=%d bytes=%d\n", st.Dir, st.Entries, st.Bytes); err != nil {
+			return writeErr(err)
+		}
 		return exitOK
 
 	case "purge":
@@ -723,10 +731,14 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 		// A dry run reports the blast radius and touches nothing.
 		if o.dryRun {
 			if o.json {
-				_ = writeJSONLine(stdout, result)
+				if err := writeJSONLine(stdout, result); err != nil {
+					return writeErr(err)
+				}
 				return exitOK
 			}
-			fmt.Fprintf(stdout, "dry-run scope=%s would_delete=%d bytes=%d\n", scope, result.Entries, result.Bytes)
+			if _, err := fmt.Fprintf(stdout, "dry-run scope=%s would_delete=%d bytes=%d\n", scope, result.Entries, result.Bytes); err != nil {
+				return writeErr(err)
+			}
 			return exitOK
 		}
 
@@ -741,10 +753,14 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 		}
 		logger.Info("cache purged", "scope", scope, "deleted", result.Deleted)
 		if o.json {
-			_ = writeJSONLine(stdout, result)
+			if err := writeJSONLine(stdout, result); err != nil {
+				return writeErr(err)
+			}
 			return exitOK
 		}
-		fmt.Fprintf(stdout, "purged scope=%s deleted=%d\n", scope, result.Deleted)
+		if _, err := fmt.Fprintf(stdout, "purged scope=%s deleted=%d\n", scope, result.Deleted); err != nil {
+			return writeErr(err)
+		}
 		return exitOK
 
 	default:

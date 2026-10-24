@@ -201,11 +201,15 @@ func (c *Client) Probe(ctx context.Context, uid string) []Step {
 
 	start := time.Now()
 	_, err := c.visitor(ctx, true)
-	steps = append(steps, stepResult("genvisitor", start, 200, err))
+	status := 200
+	if err != nil {
+		status = StatusOf(err)
+	}
+	steps = append(steps, stepResult("genvisitor", start, status, err))
 
 	start = time.Now()
 	profile, err := c.Profile(ctx, uid)
-	status := 200
+	status = 200
 	if err != nil {
 		status = StatusOf(err)
 	}

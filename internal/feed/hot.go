@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,6 +34,12 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 	if err != nil {
 		return nil, err
 	}
+	// realpos is the authoritative rank; do not rely on the order of the
+	// upstream array, and keep the limit applied to the ranked order. Copy the
+	// slice first because a value returned by single-flight may be shared with
+	// other callers and sorting it in place would race with them.
+	items = append([]weibo.HotItem(nil), items...)
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Rank < items[j].Rank })
 	if len(items) > limit {
 		items = items[:limit]
 	}
@@ -57,6 +64,7 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 			URL:       link,
 			CreatedAt: now,
 			Images:    []string{},
+			Rank:      h.Rank,
 		})
 	}
 	return f, nil

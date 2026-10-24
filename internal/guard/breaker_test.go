@@ -93,6 +93,74 @@ func TestBreakerReopensOnRepeatedBlock(t *testing.T) {
 	}
 }
 
+func TestBreakerHalfOpenAdmitsOneProbe(t *testing.T) {
+	clock := newFakeClock()
+	b := NewBreaker(10 * time.Minute)
+	b.SetClock(clock.Now)
+	b.Trip()
+	clock.Advance(11 * time.Minute)
+
+	allowed, probe := b.AllowRequest()
+	if !allowed || !probe {
+		t.Fatalf("first call after cooldown = allowed %v, probe %v; want true, true", allowed, probe)
+	}
+	if allowed, probe := b.AllowRequest(); allowed || probe {
+		t.Fatalf("second call while probe is in flight = allowed %v, probe %v; want false, false", allowed, probe)
+	}
+	if b.Allow() {
+		t.Fatal("Allow must also be denied while the probe is in flight")
+	}
+
+	b.Success()
+	if !b.Allow() {
+		t.Fatal("a successful probe must close the breaker")
+	}
+	if allowed, probe := b.AllowRequest(); !allowed || probe {
+		t.Fatalf("closed breaker = allowed %v, probe %v; want true, false", allowed, probe)
+	}
+}
+
+func TestBreakerAbortProbeReleasesProbe(t *testing.T) {
+	clock := newFakeClock()
+	b := NewBreaker(time.Minute)
+	b.SetClock(clock.Now)
+	b.Trip()
+	clock.Advance(2 * time.Minute)
+
+	if allowed, probe := b.AllowRequest(); !allowed || !probe {
+		t.Fatalf("first probe = allowed %v, probe %v", allowed, probe)
+	}
+	b.AbortProbe()
+	if allowed, probe := b.AllowRequest(); !allowed || !probe {
+		t.Fatalf("next probe after abort = allowed %v, probe %v; want true, true", allowed, probe)
+	}
+}
+
+func TestBreakerAllowAdmitsOneProbe(t *testing.T) {
+	clock := newFakeClock()
+	b := NewBreaker(time.Minute)
+	b.SetClock(clock.Now)
+	b.Trip()
+	clock.Advance(2 * time.Minute)
+
+	if !b.Allow() {
+		t.Fatal("first Allow after cooldown should admit the probe")
+	}
+	if b.Allow() {
+		t.Fatal("second Allow while the probe is held should be denied")
+	}
+	b.Reset()
+}
+
+func TestBreakerStraySuccessDoesNotCloseOpenBreaker(t *testing.T) {
+	b := NewBreaker(time.Hour)
+	b.Trip()
+	b.Success()
+	if b.Allow() {
+		t.Fatal("a success that was not admitted as the probe must not close the breaker")
+	}
+}
+
 func TestBreakerReset(t *testing.T) {
 	b := NewBreaker(time.Hour)
 	b.Trip()

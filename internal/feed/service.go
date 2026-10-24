@@ -136,6 +136,9 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 	if len(posts) > limit {
 		posts = posts[:limit]
 	}
+	// A timeline returned by single-flight is shared with every waiter. Hydrate
+	// mutates MBlog.Text, so copy the selected posts before filling in long text.
+	posts = cloneTimeline(posts)
 
 	f := &Feed{
 		UID:         uid,
@@ -150,6 +153,37 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 		f.Items = append(f.Items, s.toItem(uid, m))
 	}
 	return f, nil
+}
+
+// cloneTimeline copies the posts and the quoted-retweet chain so a caller can
+// mutate the result (long-text hydration) without touching a timeline shared
+// by concurrent single-flight waiters.
+func cloneTimeline(items []*weibo.MBlog) []*weibo.MBlog {
+	out := make([]*weibo.MBlog, len(items))
+	for i, m := range items {
+		out[i] = cloneMBlog(m)
+	}
+	return out
+}
+
+func cloneMBlog(m *weibo.MBlog) *weibo.MBlog {
+	if m == nil {
+		return nil
+	}
+	c := *m
+	if m.Pics != nil {
+		c.Pics = append([]weibo.Pic(nil), m.Pics...)
+	}
+	if m.User != nil {
+		u := *m.User
+		c.User = &u
+	}
+	if m.PageInfo != nil {
+		p := *m.PageInfo
+		c.PageInfo = &p
+	}
+	c.Retweeted = cloneMBlog(m.Retweeted)
+	return &c
 }
 
 // hydrate fills in full text for long posts, recursing into the quoted retweet.
@@ -302,21 +336,35 @@ type cachedList[T any] struct {
 	Want  int `json:"want"`
 }
 
+// maxListFetchWidth is the largest list width any provider exposes today
+// (V2EX). It caps the width carried over from an old cache entry so a forged
+// or legacy value cannot make a refresh fetch an unbounded list.
+const maxListFetchWidth = 50
+
 // covers reports whether the entry can answer a request for n entries.
 func (c cachedList[T]) covers(n int) bool {
 	return c.Want >= n || len(c.Items) >= n
 }
 
-// readCachedList returns the entry for key when it can satisfy want.
-func readCachedList[T any](s *Service, key string, want int) (cachedList[T], bool) {
+// readCachedEntry returns the entry for key without checking its width.
+func readCachedEntry[T any](s *Service, key string) (cachedList[T], bool) {
 	if s.cache == nil {
 		return cachedList[T]{}, false
 	}
 	var e cachedList[T]
-	if hit, _, err := s.cache.Get(key, &e); err == nil && hit && e.covers(want) {
+	if hit, _, err := s.cache.Get(key, &e); err == nil && hit {
 		return e, true
 	}
 	return cachedList[T]{}, false
+}
+
+// readCachedList returns the entry for key when it can satisfy want.
+func readCachedList[T any](s *Service, key string, want int) (cachedList[T], bool) {
+	e, ok := readCachedEntry[T](s, key)
+	if !ok || !e.covers(want) {
+		return cachedList[T]{}, false
+	}
+	return e, true
 }
 
 // fetchCachedList reads a paginated list through the cache and returns at
@@ -333,6 +381,25 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 
 	if want < 1 {
 		want = 1
+	}
+	if refresh {
+		// Refresh deliberately bypasses the old values, but keep the cache at
+		// least as wide as the entry being replaced. Otherwise a small-limit
+		// refresh would truncate a wider cache that another reader just warmed.
+		// The caller still only sees its requested limit; every item in the
+		// refreshed range comes from upstream.
+		if prev, ok := readCachedEntry[T](s, key); ok {
+			width := prev.Want
+			if len(prev.Items) > width {
+				width = len(prev.Items)
+			}
+			if width > want {
+				want = width
+				if want > maxListFetchWidth {
+					want = maxListFetchWidth
+				}
+			}
+		}
 	}
 	if !refresh {
 		if e, ok := readCachedList[T](s, key, want); ok {
@@ -355,8 +422,12 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 		}
 		cur := cachedList[T]{Items: items, Want: want}
 		// Another request may have just stored a wider list; keep the widest.
-		if prev, ok := readCachedList[T](s, key, want); ok && len(prev.Items) > len(cur.Items) {
-			return prev, nil
+		// An explicit refresh must not be discarded in favour of the old entry:
+		// the caller asked for fresh upstream data and we just fetched it.
+		if !refresh {
+			if prev, ok := readCachedList[T](s, key, want); ok && len(prev.Items) > len(cur.Items) {
+				return prev, nil
+			}
 		}
 		if s.cache != nil {
 			if cerr := s.cache.Set(key, cur, ttl); cerr != nil {

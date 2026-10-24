@@ -13,7 +13,7 @@ CLI / HTTP
    ↓
 feed.Service（缓存、single-flight、错误分类）
    ↓
-provider 包（weibo / sspai / v2ex，只负责 HTTP 与解析）
+provider 包（weibo / sspai / v2ex / xnitter，只负责 HTTP 与解析）
    ↓
 feed.Item（rester 无关的统一模型）
    ↓
@@ -28,9 +28,9 @@ RSS 2.0 + Media RSS / JSON
 - 布局：一个 key 一个 JSON 文件，文件名由 key 净化（`profile:2803301701` → `profile_2803301701.json`）。
 - 权限：目录 0700，文件 0600；拒绝符号链接形式的缓存目录。
 - 原子写：临时文件 → `fsync` → `rename`；并发写有互斥锁，读方看不到半截文件。
-- 过期条目在启动时及服务运行期间每小时由 `GC()` 清理；读取时也会判定为 miss 并删除。损坏条目（非 JSON）读取时视为 miss；`GC()` 不会仅凭文件名前缀删除无法验证的损坏文件。
+- 过期条目在启动时及服务运行期间每小时由 `GC()` 清理；读取时也会判定为 miss 并删除。损坏条目（非 JSON）读取时视为 miss；`GC()` 不会仅凭文件名前缀删除无法验证的损坏文件，并会清理超过 1 小时的 `.json.tmp*` 临时文件。
 - 清理范围：`cache purge --all` 只删除能验证 `Entry.Key` 与文件名对应的 feedmesh 条目，不会误删同目录下其他 `.json` 文件；`--uid` 删除 `longtext_<uid>_*`，并额外读取旧版 timeline 收集 longtext id、扫描 domain 条目；`--handle` 删除对应 X 时间线。
-- **limit 感知**：列表类缓存记录 `{items, want}`；请求条数大于已缓存宽度时回源并加宽，小 `limit` 不会把大 `limit` 的缓存截断。
+- **limit 感知**：列表类缓存记录 `{items, want}`；请求条数大于已缓存宽度时回源并加宽，小 `limit` 不会把大 `limit` 的缓存截断；`refresh=1` 也会保持已有宽度并写入新数据。
 
 | key | TTL |
 |---|---|
@@ -47,9 +47,9 @@ RSS 2.0 + Media RSS / JSON
 ## 上游调用策略（微博）
 
 - **全局并发 1**：信号量保证任何时刻最多一个在途请求，避免风控。
-- **single-flight**：同 key 的并发请求合并成一次，HTTP 与 CLI 共享。
+- **single-flight**：同 key 的并发请求合并成一次；只在单个进程内生效，HTTP 与 CLI 通过磁盘缓存共享结果。
 - **重试**：网络错误 / 5xx 重试 3 次，指数退避 300ms → 600ms → 1200ms。
-- **熔断**：418/403 先刷新 visitor cookie 重试；仍被封则熔断 10 分钟，期间上游调用立即返回 `BREAKER_OPEN`；冷却结束后恢复放行，若再次被 block 会重新熔断。
+- **熔断**：418/403 先刷新 visitor cookie 重试；仍被封则熔断 10 分钟，期间上游调用立即返回 `BREAKER_OPEN`；冷却结束后只放行一个探测请求，探测成功即恢复，若再次被 block 会重新熔断。
 - 少数派 client 有全局 3 并发信号量（跨请求生效）；V2EX 单请求完成。`--timeout` 显式设置时覆盖所有 provider；默认微博 9 秒、少数派/V2EX 15 秒、X 20 秒（X 单次尝试最多 25 秒）。
 - HTTP 层：所有请求有 3 分钟 handler deadline；`http.Server` 设置 `ReadTimeout`/`WriteTimeout`；`ErrorLog` 接 `logx`；panic 由 recovery middleware 转成 500 JSON。
 - 安全：可选 Bearer token（`--token`/`FEEDMESH_TOKEN`）；按 IP 的滚动一分钟窗口限流（`--rate-limit`/`FEEDMESH_RATE_LIMIT`）；非 loopback 且未配置限额时默认 120 次/分钟/IP。启用 token 时 RSS 响应使用 `Cache-Control: private` 并带 `Vary: Authorization`，避免共享缓存绕过鉴权。上游 HTML 在 provider 边界做 allowlist 清洗，CDATA 输出前剥离 XML 非法控制字符。

@@ -18,14 +18,15 @@ type State struct {
 // Breaker is a cooldown circuit breaker.
 //
 // It opens when the upstream answers with a block status (418/403) and stays
-// open for a fixed cooldown. Once the cooldown elapses it closes again, giving
-// the upstream exactly one chance per cooldown window: a repeated block simply
-// reopens it.
+// open for a fixed cooldown. Once the cooldown elapses it half-opens: exactly
+// one caller is admitted as a probe. A successful probe closes the breaker; a
+// repeated block reopens it and releases the probe for the next cooling window.
 type Breaker struct {
 	mu       sync.Mutex
 	cooldown time.Duration
 	now      func() time.Time
 	until    time.Time
+	probing  bool
 	trips    int
 }
 
@@ -47,22 +48,62 @@ func (b *Breaker) SetClock(now func() time.Time) {
 	b.now = now
 }
 
-// Allow reports whether a request may proceed. When the cooldown has elapsed
-// the breaker closes itself and the request is allowed through.
+// Allow is a compatibility wrapper around AllowRequest. A true result after a
+// cooldown has been admitted as the half-open probe and must be released with
+// Success, Trip, or AbortProbe; request paths should call AllowRequest directly
+// so they know whether they own the probe.
 func (b *Breaker) Allow() bool {
+	allowed, _ := b.AllowRequest()
+	return allowed
+}
+
+// AllowRequest reports whether a request may proceed and whether it was
+// admitted as the single half-open probe. Callers that receive probe=true must
+// eventually call Success, Trip, or AbortProbe to release the probe.
+func (b *Breaker) AllowRequest() (allowed, probe bool) {
 	if b == nil {
-		return true
+		return true, false
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.until.IsZero() {
-		return true
+		return true, false
 	}
 	if b.now().Before(b.until) {
-		return false
+		return false, false
 	}
+	if b.probing {
+		return false, false
+	}
+	b.probing = true
+	return true, true
+}
+
+// Success closes the breaker after the half-open probe succeeds. It is a no-op
+// when the breaker did not admit a probe, so an ordinary in-flight request
+// cannot close a breaker that another request just tripped.
+func (b *Breaker) Success() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.probing {
+		return
+	}
+	b.probing = false
 	b.until = time.Time{}
-	return true
+}
+
+// AbortProbe releases a half-open probe without closing the breaker. The next
+// caller may become the probe after the current cooldown has elapsed.
+func (b *Breaker) AbortProbe() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.probing = false
 }
 
 // Trip opens the breaker and returns the instant it will close again.
@@ -72,6 +113,7 @@ func (b *Breaker) Trip() time.Time {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.probing = false
 	b.until = b.now().Add(b.cooldown)
 	b.trips++
 	return b.until
@@ -84,6 +126,7 @@ func (b *Breaker) Reset() {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.probing = false
 	b.until = time.Time{}
 }
 

@@ -13,12 +13,12 @@
 | 参数 | 说明 |
 |---|---|
 | `limit` | 返回条数；各平台默认值与上限见 [PLATFORMS.md](PLATFORMS.md) |
-| `refresh=1` | 跳过读缓存、强制回源，并覆盖写回缓存 |
+| `refresh=1` | 跳过旧值缓存、强制回源，并覆盖写回缓存（保留已有缓存宽度） |
 | `full=1` | 仅少数派：抓取正文（默认关闭） |
 | `section=latest\|hot` | 仅 `/api/v1/v2ex`：选择最新或最热 |
 | `handle` | 仅 `/api/v1/x`：X 用户名（可带 `@`，1–15 位字母数字下划线） |
 
-路径后缀 `.xml` 与不带后缀等价（如 `/rss/hot.xml`）。
+路径后缀 `.xml` 与不带后缀等价仅适用于 RSS 路由（如 `/rss/hot.xml`）；`/api/v1/*` 不接受 `.xml` 后缀。
 
 ---
 
@@ -213,8 +213,8 @@ curl -s 'http://127.0.0.1:3000/rss/x/elonmusk?limit=20'
 | V2EX 最新/最热 | `v2ex:latest` / `v2ex:hot` | 10 分钟 |
 | X 时间线 | `x:<handle>` | 40 分钟 |
 
-- `refresh=1` 跳过读取并覆盖写回；RSS 和 JSON 接口都支持。
-- 缓存条目按请求的 `limit` 记录宽度，小 `limit` 的缓存不会污染大 `limit` 请求（按需回源加宽）。
+- `refresh=1` 跳过读取旧值并覆盖写回；为保持缓存宽度，会读取旧条目的宽度。RSS 和 JSON 接口都支持。
+- 缓存条目按请求的 `limit` 记录宽度，普通请求和 `refresh=1` 都不会用较小 `limit` 截断更宽的缓存（按需回源加宽）。
 - 缓存目录：`--cache-dir` / `FEEDMESH_CACHE`，默认 `~/.cache/feedmesh`；一个 key 一个 JSON 文件，原子写。目录权限 0700，文件权限 0600；启动时会清理过期条目。`cache purge --all` 只删除能验证为 feedmesh 写入的条目（校验条目内的 `key` 与文件名），不会碰同目录下其他 `.json` 文件。
 
 实现细节（并发、熔断、重试）见 [ARCHITECTURE.md](ARCHITECTURE.md)。

@@ -306,6 +306,24 @@ func TestRenderRSSEmitsMediaAndEnclosure(t *testing.T) {
 	parseRSS(t, []byte(raw))
 }
 
+func TestRenderRSSInfersImageMIME(t *testing.T) {
+	f := &feed.Feed{
+		UID: "1", ScreenName: "x", FetchedAt: time.Now(),
+		Items: []feed.Item{{
+			Title: "t", HTML: "<p>body</p>", URL: "https://weibo.com/1/a",
+			CreatedAt: time.Now(),
+			Images:    []string{"https://example.com/a.png", "https://example.com/no-extension"},
+		}},
+	}
+	raw := string(feed.RenderRSS(f))
+	if !strings.Contains(raw, `<media:content url="https://example.com/a.png" medium="image" type="image/png" />`) {
+		t.Fatalf("PNG media:content missing type:\n%s", raw)
+	}
+	if strings.Contains(raw, `url="https://example.com/no-extension" medium="image" type=`) {
+		t.Fatalf("extensionless image should omit type:\n%s", raw)
+	}
+}
+
 func TestBuildDescriptionLinkCardSwapsShortPublisher(t *testing.T) {
 	// Real shape from an article card: page_title carries the publisher, the
 	// headline lives in content1. The headline must be the bold line.

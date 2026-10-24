@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -56,6 +57,9 @@ func TestGetHotBuildsFeed(t *testing.T) {
 	if f.Items[0].Title != "1. 小城良方 剧情硬伤" {
 		t.Fatalf("first title = %q", f.Items[0].Title)
 	}
+	if f.Items[0].Rank != 1 || f.Items[1].Rank != 2 {
+		t.Fatalf("ranks = %d,%d", f.Items[0].Rank, f.Items[1].Rank)
+	}
 	if !strings.Contains(f.Items[0].HTML, "热度 148.9 万") || !strings.Contains(f.Items[0].HTML, "剧集") {
 		t.Fatalf("description missing heat/category: %s", f.Items[0].HTML)
 	}
@@ -69,6 +73,87 @@ func TestGetHotBuildsFeed(t *testing.T) {
 	}
 	if !strings.Contains(raw, "<ttl>5</ttl>") {
 		t.Fatalf("hot feed should advertise ttl 5:\n%s", raw)
+	}
+}
+
+func TestGetHotUsesRealposOrderAndRank(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/visitor":
+			http.SetCookie(w, &http.Cookie{Name: "SUB", Value: "x", Path: "/"})
+			fmt.Fprint(w, `{"retcode":20000000}`)
+		case "/hot":
+			fmt.Fprint(w, `{"ok":1,"data":{"realtime":[
+				{"word":"third","word_scheme":"third","num":100,"realpos":3},
+				{"word":"first","word_scheme":"first","num":300,"realpos":1}
+			]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	client := weibo.New(weibo.Config{
+		BaseURL: srv.URL, VisitorURL: srv.URL + "/visitor", HotURL: srv.URL + "/hot",
+		Timeout: 2 * time.Second, Backoff: 5 * time.Millisecond,
+	})
+	svc := feed.NewService(feed.Clients{Weibo: client}, nil, logx.Discard(), feed.DefaultTTLs())
+
+	f, err := svc.GetHot(context.Background(), 2, false)
+	if err != nil {
+		t.Fatalf("GetHot: %v", err)
+	}
+	if len(f.Items) != 2 {
+		t.Fatalf("items = %d", len(f.Items))
+	}
+	if f.Items[0].Title != "1. first" || f.Items[0].Rank != 1 {
+		t.Fatalf("first item = %+v", f.Items[0])
+	}
+	if f.Items[1].Title != "3. third" || f.Items[1].Rank != 3 {
+		t.Fatalf("second item = %+v", f.Items[1])
+	}
+}
+
+func TestGetHotConcurrentSharedValue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/visitor":
+			http.SetCookie(w, &http.Cookie{Name: "SUB", Value: "x", Path: "/"})
+			fmt.Fprint(w, `{"retcode":20000000}`)
+		case "/hot":
+			time.Sleep(50 * time.Millisecond)
+			fmt.Fprint(w, `{"ok":1,"data":{"realtime":[
+				{"word":"second","word_scheme":"second","num":100,"realpos":2},
+				{"word":"first","word_scheme":"first","num":300,"realpos":1}
+			]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	client := weibo.New(weibo.Config{
+		BaseURL: srv.URL, VisitorURL: srv.URL + "/visitor", HotURL: srv.URL + "/hot",
+		Timeout: 2 * time.Second, Backoff: 5 * time.Millisecond,
+	})
+	svc := feed.NewService(feed.Clients{Weibo: client}, nil, logx.Discard(), feed.DefaultTTLs())
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if _, err := svc.GetHot(context.Background(), 2, false); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }
 

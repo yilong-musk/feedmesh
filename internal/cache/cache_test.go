@@ -257,3 +257,54 @@ func TestCorruptEntryIsTreatedAsMiss(t *testing.T) {
 		t.Fatal("corrupt entry must be a miss")
 	}
 }
+
+func TestGCCleansStaleTempFiles(t *testing.T) {
+	c := newTestCache(t)
+	oldPath := filepath.Join(c.Dir(), "profile_1.json.tmpold")
+	freshPath := filepath.Join(c.Dir(), "profile_2.json.tmpfresh")
+	for _, p := range []string{oldPath, freshPath} {
+		if err := os.WriteFile(p, []byte("partial"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(oldPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := c.GC()
+	if err != nil {
+		t.Fatalf("GC: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("GC removed %d files, want 1 stale temp file", removed)
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("stale temp file survived: %v", err)
+	}
+	if _, err := os.Stat(freshPath); err != nil {
+		t.Fatalf("fresh temp file was removed: %v", err)
+	}
+}
+
+func TestRemoveIfUnchangedKeepsReplacedFile(t *testing.T) {
+	c := newTestCache(t)
+	key := "profile:1"
+	p := filepath.Join(c.Dir(), SafeKey(key)+".json")
+	old := []byte("old contents")
+	if err := os.WriteFile(p, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Set(key, "fresh", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate Get having read the old file, then a concurrent Set replacing it.
+	c.removeIfUnchanged(p, old)
+
+	var got string
+	hit, _, err := c.Get(key, &got)
+	if err != nil || !hit || got != "fresh" {
+		t.Fatalf("fresh entry was lost: hit=%v err=%v got=%q", hit, err, got)
+	}
+}

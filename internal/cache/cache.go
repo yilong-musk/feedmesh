@@ -7,6 +7,7 @@
 package cache
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -135,9 +136,10 @@ func (c *Cache) ListManaged() ([]KeyInfo, error) {
 	return out, nil
 }
 
-// GC removes expired entries that verify as feedmesh cache entries. Corrupt or
-// foreign files are left alone: without a parseable Entry there is no reliable
-// way to prove ownership. Cache.Get still removes a known key when it reads it.
+// GC removes expired entries that verify as feedmesh cache entries, plus stale
+// temporary files left by an interrupted Set. Corrupt or foreign files are left
+// alone: without a parseable Entry there is no reliable way to prove ownership.
+// Cache.Get still removes a known key when it reads it.
 func (c *Cache) GC() (int, error) {
 	// Serialise with writers so an expired entry cannot be removed after a
 	// concurrent Set has already renamed a fresh value into place.
@@ -150,12 +152,33 @@ func (c *Cache) GC() (int, error) {
 		}
 		return 0, err
 	}
-	removed := 0
+	var removed int
 	for _, de := range entries {
-		if de.IsDir() || !strings.HasSuffix(de.Name(), ".json") {
+		if de.IsDir() {
 			continue
 		}
-		stem := strings.TrimSuffix(de.Name(), ".json")
+		name := de.Name()
+		// Set writes to <key>.json.tmp<random> before rename. A process killed
+		// mid-write leaves one behind; List and the normal expiry path ignore
+		// them, so sweep stale ones here. The grace period protects a write
+		// that is still in progress in another process.
+		if i := strings.Index(name, ".json.tmp"); i > 0 && !strings.HasSuffix(name, ".json") {
+			if !ManagedKey(name[:i]) {
+				continue
+			}
+			info, err := de.Info()
+			if err != nil || time.Since(info.ModTime()) < time.Hour {
+				continue
+			}
+			if os.Remove(filepath.Join(c.dir, name)) == nil {
+				removed++
+			}
+			continue
+		}
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		stem := strings.TrimSuffix(name, ".json")
 		if !ManagedKey(stem) {
 			continue
 		}
@@ -164,7 +187,7 @@ func (c *Cache) GC() (int, error) {
 			continue
 		}
 		if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
-			p := filepath.Join(c.dir, de.Name())
+			p := filepath.Join(c.dir, name)
 			if os.Remove(p) == nil {
 				removed++
 			}
@@ -199,6 +222,20 @@ func (c *Cache) path(key string) (string, error) {
 	return filepath.Join(c.dir, name+".json"), nil
 }
 
+// removeIfUnchanged removes p only when its contents still match raw. Get reads
+// a file before deciding to drop it; a concurrent Set may rename a fresh entry
+// into the same path in between, and an unconditional remove would delete that
+// fresh entry.
+func (c *Cache) removeIfUnchanged(p string, raw []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	current, err := os.ReadFile(p)
+	if err != nil || !bytes.Equal(current, raw) {
+		return
+	}
+	_ = os.Remove(p)
+}
+
 // Get decodes a fresh entry into out. The boolean reports a hit; expired and
 // unreadable entries are misses, and expired files are removed best-effort.
 func (c *Cache) Get(key string, out any) (bool, time.Time, error) {
@@ -217,16 +254,16 @@ func (c *Cache) Get(key string, out any) (bool, time.Time, error) {
 	if err := json.Unmarshal(raw, &e); err != nil {
 		// A corrupt entry is disposable: drop it and report a miss rather than
 		// failing the caller's request.
-		_ = os.Remove(p)
+		c.removeIfUnchanged(p, raw)
 		return false, time.Time{}, nil
 	}
 	if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
-		_ = os.Remove(p)
+		c.removeIfUnchanged(p, raw)
 		return false, e.StoredAt, nil
 	}
 	if out != nil {
 		if err := json.Unmarshal(e.Value, out); err != nil {
-			_ = os.Remove(p)
+			c.removeIfUnchanged(p, raw)
 			return false, e.StoredAt, nil
 		}
 	}

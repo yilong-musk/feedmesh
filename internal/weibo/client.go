@@ -296,9 +296,17 @@ func (c *Client) fetchJSON(ctx context.Context, rawURL, referer string, out any)
 // do performs a GET with breaker checks, one cookie-refresh retry on a block,
 // and bounded exponential backoff on transport errors and 5xx responses.
 func (c *Client) do(ctx context.Context, rawURL, referer string, mode requestMode) ([]byte, int, string, error) {
-	if c.cfg.Breaker != nil && !c.cfg.Breaker.Allow() {
-		return nil, 0, "", &Error{Code: CodeBreakerOpen,
-			Message: "upstream circuit breaker is open after a block; retry later"}
+	probe := false
+	if c.cfg.Breaker != nil {
+		allowed, admittedProbe := c.cfg.Breaker.AllowRequest()
+		if !allowed {
+			return nil, 0, "", &Error{Code: CodeBreakerOpen,
+				Message: "upstream circuit breaker is open after a block; retry later"}
+		}
+		probe = admittedProbe
+		if probe {
+			defer c.cfg.Breaker.AbortProbe()
+		}
 	}
 
 	attempts := c.cfg.Retries + 1
@@ -352,6 +360,9 @@ func (c *Client) do(ctx context.Context, rawURL, referer string, mode requestMod
 		case status != http.StatusOK:
 			return body, status, finalURL, &Error{Code: CodeUpstreamUnavailable, Status: status,
 				Message: fmt.Sprintf("upstream returned HTTP %d", status)}
+		}
+		if probe {
+			c.cfg.Breaker.Success()
 		}
 		return body, status, finalURL, nil
 	}

@@ -289,8 +289,12 @@ func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]hotItemResponse, 0, len(f.Items))
 	for i, it := range f.Items {
+		rank := it.Rank
+		if rank == 0 {
+			rank = i + 1
+		}
 		items = append(items, hotItemResponse{
-			Rank: i + 1, Title: it.Title, Text: it.Text,
+			Rank: rank, Title: it.Title, Text: it.Text,
 			URL: it.URL, HTML: it.HTML, CreatedAt: it.CreatedAt,
 		})
 	}

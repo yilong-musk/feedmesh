@@ -11,7 +11,7 @@
 | <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
 | <img src="assets/x.png" width="20" height="20" alt="X"> **X** | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 
-通用参数：`limit`、`refresh=1`（跳过读缓存、强制回源）；`.xml` 后缀与不带后缀等价。完整契约见 [API.md](API.md)。
+通用参数：`limit`、`refresh=1`（跳过旧值缓存、强制回源，保留缓存宽度）；RSS 路径的 `.xml` 后缀与不带后缀等价。完整契约见 [API.md](API.md)。
 
 ---
 

@@ -18,6 +18,9 @@ type Item struct {
 	VideoURL  string    `json:"video_url,omitempty"`
 	PageURL   string    `json:"page_url,omitempty"`
 	Title     string    `json:"-"`
+	// Rank is the upstream display rank (hot search only); it is deliberately
+	// kept out of the generic item JSON.
+	Rank int `json:"-"`
 }
 
 // Feed is a rendered timeline for one account.

@@ -2,6 +2,8 @@ package feed
 
 import (
 	"fmt"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -190,6 +192,31 @@ func writeCardImage(b *strings.Builder, url, width, height string) {
 	b.WriteString(` style="max-width:100%;height:auto" loading="lazy" />`)
 }
 
+// imageMIME returns the Media RSS type for an image URL when it can be
+// inferred from the path extension. Unknown or extensionless URLs return an
+// empty string so the optional type attribute is omitted rather than lying
+// about the format.
+func imageMIME(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(path.Ext(u.Path)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".avif":
+		return "image/avif"
+	default:
+		return ""
+	}
+}
+
 // renderPost renders one post (and, one level deep, its quoted retweet).
 func renderPost(m *weibo.MBlog, depth int) string {
 	if m == nil {
@@ -280,7 +307,11 @@ func RenderRSS(f *Feed) []byte {
 			for _, img := range it.Images {
 				b.WriteString(`      <media:content url="`)
 				b.WriteString(EscapeXML(img))
-				b.WriteString(`" medium="image" type="image/jpeg" />` + "\n")
+				b.WriteString(`" medium="image"`)
+				if mime := imageMIME(img); mime != "" {
+					b.WriteString(` type="` + mime + `"`)
+				}
+				b.WriteString(" />\n")
 			}
 		}
 		if it.VideoURL != "" {
