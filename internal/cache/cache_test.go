@@ -60,7 +60,10 @@ func TestGetMissingIsMiss(t *testing.T) {
 
 func TestExpiredEntryIsMissAndRemoved(t *testing.T) {
 	c := newTestCache(t)
-	if err := c.Set("timeline:1", []string{"a"}, 30*time.Millisecond); err != nil {
+	now := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	c.now = func() time.Time { return now }
+
+	if err := c.Set("timeline:1", []string{"a"}, 30*time.Second); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -69,7 +72,9 @@ func TestExpiredEntryIsMissAndRemoved(t *testing.T) {
 		t.Fatalf("expected a fresh hit, got hit=%v err=%v", hit, err)
 	}
 
-	time.Sleep(60 * time.Millisecond)
+	// Move the cache clock past the TTL instead of sleeping: the check must not
+	// depend on scheduling delays between Set and Get.
+	now = now.Add(time.Minute)
 
 	out = nil
 	hit, _, err := c.Get("timeline:1", &out)
