@@ -40,3 +40,4 @@ Thumbs.db
 # ---- tooling / scratch ----
 .hermes/
 .tmp/
+__pycache__/

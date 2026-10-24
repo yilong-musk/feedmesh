@@ -82,14 +82,20 @@ func (s *Service) GetV2ex(ctx context.Context, section string, limit int, refres
 		}
 		images := []string{}
 		if m := v2exImg.FindStringSubmatch(a.Content); m != nil {
-			images = append(images, m[1])
+			if u := resolveSafeURL(m[1], "https://www.v2ex.com"); u != "" {
+				images = append(images, u)
+			}
+		}
+		itemURL := resolveSafeURL(a.URL, "https://www.v2ex.com")
+		if itemURL == "" {
+			itemURL = fmt.Sprintf("https://www.v2ex.com/t/%d", a.ID)
 		}
 		f.Items = append(f.Items, Item{
 			ID:        strconv.Itoa(a.ID),
 			Title:     a.Title,
 			Text:      HTMLToText(a.Content),
 			HTML:      v2exHTML(a, section),
-			URL:       a.URL,
+			URL:       itemURL,
 			CreatedAt: created.UTC(),
 			Images:    images,
 		})
@@ -115,10 +121,14 @@ func v2exHTML(a v2ex.Article, section string) string {
 		b.WriteString("</p>")
 	}
 	if strings.TrimSpace(a.Content) != "" {
-		b.WriteString(NormalizeHTML(a.Content))
+		b.WriteString(NormalizeHTMLBase(a.Content, "https://www.v2ex.com"))
 	} else {
+		link := resolveSafeURL(a.URL, "https://www.v2ex.com")
+		if link == "" {
+			link = fmt.Sprintf("https://www.v2ex.com/t/%d", a.ID)
+		}
 		b.WriteString(`<p><a href="`)
-		b.WriteString(EscapeXML(a.URL))
+		b.WriteString(EscapeXML(link))
 		b.WriteString(`">查看主题</a></p>`)
 	}
 	return b.String()

@@ -3,7 +3,9 @@
 import sys
 import xml.etree.ElementTree as ET
 
-path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/feed.xml"
+if len(sys.argv) < 2:
+    sys.exit("usage: check_rss.py <feed.xml>")
+path = sys.argv[1]
 tree = ET.parse(path)
 root = tree.getroot()
 print("root tag:", root.tag, "version:", root.get("version"))

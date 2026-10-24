@@ -35,6 +35,10 @@ func statusFor(code string) int {
 		return http.StatusBadGateway
 	case weibo.CodeBreakerOpen:
 		return http.StatusServiceUnavailable
+	case weibo.CodeUnauthorized:
+		return http.StatusUnauthorized
+	case weibo.CodeRateLimited:
+		return http.StatusTooManyRequests
 	case weibo.CodeNetwork, weibo.CodeTimeout, weibo.CodeUpstreamUnavailable:
 		return http.StatusGatewayTimeout
 	default:
@@ -46,7 +50,6 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
 	_ = enc.Encode(payload)
 }
 

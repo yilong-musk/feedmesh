@@ -71,6 +71,19 @@ func TestGroupPropagatesErrors(t *testing.T) {
 	}
 }
 
+func TestGroupRecoversPanicAndClearsKey(t *testing.T) {
+	g := NewGroup()
+	if _, err, _ := Do(g, "key", func() (int, error) {
+		panic("boom")
+	}); err == nil {
+		t.Fatal("expected a panic-derived error")
+	}
+	v, err, _ := Do(g, "key", func() (int, error) { return 7, nil })
+	if err != nil || v != 7 {
+		t.Fatalf("call after panic = %d, %v", v, err)
+	}
+}
+
 func TestGroupSequentialCallsRunAgain(t *testing.T) {
 	g := NewGroup()
 	var runs atomic.Int32

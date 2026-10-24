@@ -11,6 +11,7 @@ import (
 // cdata wraps s in a CDATA section, splitting any embedded "]]>" so the
 // section can never terminate early.
 func cdata(s string) string {
+	s = stripXMLControls(s)
 	if s == "" {
 		return "<![CDATA[]]>"
 	}
@@ -35,6 +36,7 @@ func cardNoise(kind string) bool {
 }
 
 func writeImage(b *strings.Builder, url, width, height string) {
+	url = safeURLString(url)
 	if url == "" {
 		return
 	}
@@ -84,63 +86,88 @@ func writeMediaCard(b *strings.Builder, p *weibo.PageInfo) {
 	if p == nil || cardNoise(p.Type) {
 		return
 	}
-	link := p.Link()
+	link := safeURLString(p.Link())
 	heading, summary := cardText(p)
 	cover := ""
 	width, height := "", ""
 	if p.PagePic != nil {
-		cover = strings.TrimSpace(p.PagePic.URL)
-		width, height = strings.TrimSpace(string(p.PagePic.Width)), strings.TrimSpace(string(p.PagePic.Height))
+		cover = safeURLString(p.PagePic.URL)
+		// PagePic dimensions come from upstream JSON and must never be trusted
+		// as raw attribute text.
+		width = sanitizeDimensionValue(string(p.PagePic.Width))
+		height = sanitizeDimensionValue(string(p.PagePic.Height))
 	}
-	if p.IsVideo() {
-		dur := formatDuration(p.MediaInfo.Duration)
-		b.WriteString(`<p><a href="`)
-		b.WriteString(EscapeXML(link))
-		b.WriteString(`">`)
-		if cover != "" {
-			b.WriteString(`<img src="`)
-			b.WriteString(EscapeXML(cover))
-			b.WriteString(`" alt=""`)
-			if width != "" && height != "" {
-				b.WriteString(` width="` + width + `" height="` + height + `"`)
+	video := safeURLString(p.BestVideoURL())
+
+	if p.IsVideo() && video != "" {
+		duration := 0.0
+		if p.MediaInfo != nil {
+			duration = p.MediaInfo.Duration
+		}
+		dur := formatDuration(duration)
+		openLink := func() {
+			if link != "" {
+				b.WriteString(`<p><a href="`)
+				b.WriteString(EscapeXML(link))
+				b.WriteString(`">`)
+			} else {
+				b.WriteString("<p>")
 			}
-			b.WriteString(` style="max-width:100%;height:auto" loading="lazy" />`)
+		}
+		closeLink := func() {
+			if link != "" {
+				b.WriteString("</a>")
+			}
+			b.WriteString("</p>")
+		}
+		openLink()
+		if cover != "" {
+			writeCardImage(b, cover, width, height)
 		} else {
 			b.WriteString("▶ 视频")
 		}
-		b.WriteString(`</a></p><p>▶ 视频`)
+		closeLink()
+		b.WriteString(`<p>▶ 视频`)
 		if dur != "" {
 			b.WriteString(" · " + dur)
 		}
-		b.WriteString(` · <a href="`)
-		b.WriteString(EscapeXML(p.BestVideoURL()))
-		b.WriteString(`">直接播放 MP4</a></p>`)
+		if link != "" {
+			b.WriteString(` · <a href="`)
+			b.WriteString(EscapeXML(link))
+			b.WriteString(`">直接播放 MP4</a>`)
+		}
+		b.WriteString("</p>")
 		b.WriteString(`<video controls preload="none" src="`)
-		b.WriteString(EscapeXML(p.BestVideoURL()))
+		b.WriteString(EscapeXML(video))
 		if cover != "" {
 			b.WriteString(`" poster="` + EscapeXML(cover))
 		}
 		b.WriteString(`" style="max-width:100%"></video>`)
 		return
 	}
-	if link == "" && heading == "" {
+	if link == "" && heading == "" && cover == "" {
 		return
 	}
-	b.WriteString(`<p><a href="`)
-	b.WriteString(EscapeXML(link))
-	b.WriteString(`">`)
-	if cover != "" {
-		b.WriteString(`<img src="`)
-		b.WriteString(EscapeXML(cover))
-		b.WriteString(`" alt=""`)
-		if width != "" && height != "" {
-			b.WriteString(` width="` + width + `" height="` + height + `"`)
+	switch {
+	case link != "":
+		b.WriteString(`<p><a href="`)
+		b.WriteString(EscapeXML(link))
+		b.WriteString(`">`)
+		if cover != "" {
+			writeCardImage(b, cover, width, height)
+		} else if heading != "" {
+			b.WriteString(EscapeXML(heading))
 		}
-		b.WriteString(` style="max-width:100%;height:auto" loading="lazy" />`)
-	} else if heading != "" {
+		b.WriteString(`</a></p>`)
+	case cover != "":
+		b.WriteString("<p>")
+		writeCardImage(b, cover, width, height)
+		b.WriteString("</p>")
+	case heading != "":
+		b.WriteString("<p>")
 		b.WriteString(EscapeXML(heading))
+		b.WriteString("</p>")
 	}
-	b.WriteString(`</a></p>`)
 	if heading != "" {
 		b.WriteString(`<p><strong>`)
 		b.WriteString(EscapeXML(heading))
@@ -153,13 +180,23 @@ func writeMediaCard(b *strings.Builder, p *weibo.PageInfo) {
 	}
 }
 
+func writeCardImage(b *strings.Builder, url, width, height string) {
+	b.WriteString(`<img src="`)
+	b.WriteString(EscapeXML(url))
+	b.WriteString(`" alt=""`)
+	if width != "" && height != "" {
+		b.WriteString(` width="` + width + `" height="` + height + `"`)
+	}
+	b.WriteString(` style="max-width:100%;height:auto" loading="lazy" />`)
+}
+
 // renderPost renders one post (and, one level deep, its quoted retweet).
 func renderPost(m *weibo.MBlog, depth int) string {
 	if m == nil {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(NormalizeHTML(m.Text))
+	b.WriteString(NormalizeHTMLBase(m.Text, "https://weibo.com"))
 
 	for _, p := range m.Pics {
 		if u := p.BestURL(); u != "" {

@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	stdhtml "html"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -40,9 +42,16 @@ const (
 	MaxLimit = 20
 	// poolTTL is how long a fetched instance list is reused.
 	poolTTL = 30 * time.Minute
+	// poolFailureTTL stops a dead status directory from adding a timeout to
+	// every X request.
+	poolFailureTTL = 30 * time.Second
 
-	maxBody  = 4 << 20
-	maxNonce = 5_000_000
+	maxBody             = 4 << 20
+	maxNonce            = 2_000_000
+	maxDifficulty       = 12
+	maxRandomData       = 2 << 10
+	maxInstanceAttempts = 5
+	maxPoolInstances    = 20
 )
 
 // defaultInstances are used when the status directory is unreachable.
@@ -82,9 +91,11 @@ type Client struct {
 	statusURL string
 	now       func() time.Time
 
-	mu       sync.Mutex
-	pool     []string
-	pooledAt time.Time
+	mu           sync.Mutex
+	pool         []string
+	pooledAt     time.Time
+	poolFailedAt time.Time
+	fetchMu      sync.Mutex
 }
 
 // New builds a Client with production defaults.
@@ -107,8 +118,23 @@ func New(cfg Config) *Client {
 	}
 	// A real jar so Anubis session cookies survive to the retry.
 	jar, _ := cookiejar.New(nil)
+	httpClient := &http.Client{
+		Timeout: cfg.Timeout,
+		Jar:     jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			// Nitter instances are untrusted; never let one redirect us to a
+			// different host (which would turn the fetcher into an SSRF proxy).
+			if len(via) > 0 && !strings.EqualFold(via[0].URL.Host, req.URL.Host) {
+				return fmt.Errorf("refusing cross-host redirect to %s", req.URL.Host)
+			}
+			return nil
+		},
+	}
 	return &Client{
-		http:      &http.Client{Timeout: cfg.Timeout, Jar: jar},
+		http:      httpClient,
 		ua:        cfg.UserAgent,
 		fallback:  append([]string(nil), fallback...),
 		statusURL: cfg.StatusURL,
@@ -134,8 +160,8 @@ func (c *Client) Timeline(ctx context.Context, handle string) ([]Tweet, error) {
 		return nil, err
 	}
 	var failures []string
-	for _, base := range c.instances(ctx) {
-		if ctx.Err() != nil {
+	for i, base := range c.instances(ctx) {
+		if i >= maxInstanceAttempts || ctx.Err() != nil {
 			break
 		}
 		tweets, ferr := c.timelineFrom(ctx, base, handle)
@@ -150,7 +176,8 @@ func (c *Client) Timeline(ctx context.Context, handle string) ([]Tweet, error) {
 	if len(failures) == 0 {
 		return nil, fmt.Errorf("xnitter: no instance available")
 	}
-	return nil, fmt.Errorf("xnitter: all instances failed (%s)", strings.Join(failures, "; "))
+	// Do not echo every mirror URL into an HTTP error response.
+	return nil, fmt.Errorf("xnitter: all instances failed (%d tried)", len(failures))
 }
 
 func (c *Client) timelineFrom(ctx context.Context, base, handle string) ([]Tweet, error) {
@@ -172,17 +199,65 @@ func (c *Client) timelineFrom(ctx context.Context, base, handle string) ([]Tweet
 
 // instances returns the current candidate list, best first.
 func (c *Client) instances(ctx context.Context) []string {
+	if pool, ok := c.cachedPool(); ok {
+		return pool
+	}
+
+	// Only one goroutine refreshes the directory. Other callers wait here and
+	// then re-check the cache, so a slow status endpoint cannot create a
+	// stampede against every X request.
+	c.fetchMu.Lock()
+	defer c.fetchMu.Unlock()
+	if pool, ok := c.cachedPool(); ok {
+		return pool
+	}
+
+	c.mu.Lock()
+	failedRecently := !c.poolFailedAt.IsZero() && c.now().Sub(c.poolFailedAt) < poolFailureTTL
+	c.mu.Unlock()
+	if failedRecently {
+		return c.fallbackWithPool()
+	}
+
+	statusCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	pool, err := c.fetchPool(statusCtx)
+	cancel()
+	c.mu.Lock()
+	if err == nil && len(pool) > 0 {
+		c.pool, c.pooledAt = pool, c.now()
+		c.poolFailedAt = time.Time{}
+	} else {
+		c.poolFailedAt = c.now()
+	}
+	c.mu.Unlock()
+	return c.fallbackWithPool()
+}
+
+func (c *Client) cachedPool() ([]string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.pool) > 0 && c.now().Sub(c.pooledAt) < poolTTL {
-		return append([]string(nil), c.pool...)
+		return append([]string(nil), c.pool...), true
 	}
-	if pool, err := c.fetchPool(ctx); err == nil && len(pool) > 0 {
-		c.pool, c.pooledAt = pool, c.now()
-		return append([]string(nil), pool...)
+	return nil, false
+}
+
+// fallbackWithPool merges the baked-in hosts after the directory results, so a
+// directory full of dead nodes still leaves a working fallback.
+func (c *Client) fallbackWithPool() []string {
+	c.mu.Lock()
+	pool := append([]string(nil), c.pool...)
+	c.mu.Unlock()
+	seen := make(map[string]bool, len(pool)+len(c.fallback))
+	out := make([]string, 0, len(pool)+len(c.fallback))
+	for _, u := range append(pool, c.fallback...) {
+		if u == "" || seen[u] {
+			continue
+		}
+		seen[u] = true
+		out = append(out, u)
 	}
-	// The directory is optional: keep serving from the baked-in list.
-	return append([]string(nil), c.fallback...)
+	return out
 }
 
 type statusDoc struct {
@@ -221,20 +296,68 @@ func (c *Client) fetchPool(ctx context.Context) ([]string, error) {
 	}
 	var cands []cand
 	for _, h := range doc.Hosts {
-		if !h.RSS || h.BadHost || h.URL == "" || !strings.HasPrefix(h.URL, "https://") {
+		if !h.RSS || h.BadHost || h.Points < 60 {
 			continue
 		}
-		if h.Points < 60 {
+		host, err := publicInstanceURL(h.URL)
+		if err != nil {
 			continue
 		}
-		cands = append(cands, cand{url: strings.TrimRight(h.URL, "/"), points: h.Points})
+		cands = append(cands, cand{url: host, points: h.Points})
 	}
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].points > cands[j].points })
 	out := make([]string, 0, len(cands))
 	for _, cd := range cands {
+		if len(out) >= maxPoolInstances {
+			break
+		}
 		out = append(out, cd.url)
 	}
 	return out, nil
+}
+
+// publicInstanceURL accepts only https URLs with a public-looking hostname.
+// IP literals and obvious local names are rejected so a poisoned directory
+// cannot point the fetcher at loopback, RFC1918 or link-local services.
+func publicInstanceURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid instance URL")
+	}
+	if u.Scheme != "https" || u.User != nil || u.Host == "" {
+		return "", fmt.Errorf("instance must be an https URL without userinfo")
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" || host == "localhost" || strings.Contains(host, " ") {
+		return "", fmt.Errorf("invalid instance host")
+	}
+	if net.ParseIP(host) != nil {
+		return "", fmt.Errorf("instance host must not be an IP literal")
+	}
+	if !strings.Contains(host, ".") {
+		return "", fmt.Errorf("instance host must be a qualified name")
+	}
+	for _, suffix := range []string{
+		".local", ".localhost", ".internal", ".lan", ".home.arpa",
+		".nip.io", ".sslip.io", ".xip.io", ".localtest.me", ".lvh.me", ".vcap.me", ".traefik.me",
+	} {
+		if strings.HasSuffix(host, suffix) {
+			return "", fmt.Errorf("instance host looks private")
+		}
+	}
+	// Refuse hostnames whose first label is a bare number; these are commonly
+	// used to smuggle an IP through a DNS wildcard service.
+	if first := strings.Split(host, ".")[0]; first != "" {
+		if _, err := strconv.Atoi(first); err == nil {
+			return "", fmt.Errorf("instance host looks like an address")
+		}
+	}
+	u.Path = ""
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/"), nil
 }
 
 func (c *Client) get(ctx context.Context, target string) ([]byte, error) {
@@ -303,26 +426,42 @@ func parseChallenge(body []byte) *challenge {
 }
 
 func (c *Client) solve(ctx context.Context, base string, ch *challenge, path string) error {
-	var target string
+	baseURL, err := url.Parse(base)
+	if err != nil || baseURL.Host == "" {
+		return fmt.Errorf("invalid Nitter base URL")
+	}
+	var target *url.URL
 	switch ch.kind {
 	case "fast":
 		nonce, digest, err := solvePoW(ctx, ch.randomData, ch.diff)
 		if err != nil {
 			return err
 		}
-		target = fmt.Sprintf("%s/.within.website/x/cmd/anubis/api/pass-challenge?id=%s&response=%s&nonce=%d&redir=%s&elapsedTime=3000",
-			strings.TrimRight(base, "/"), url.QueryEscape(ch.id), digest, nonce,
-			url.QueryEscape(path))
+		target = baseURL.ResolveReference(&url.URL{Path: "/.within.website/x/cmd/anubis/api/pass-challenge"})
+		q := target.Query()
+		q.Set("id", ch.id)
+		q.Set("response", digest)
+		q.Set("nonce", strconv.Itoa(nonce))
+		q.Set("redir", path)
+		q.Set("elapsedTime", "3000")
+		target.RawQuery = q.Encode()
 	case "preact":
-		sep := "?"
-		if strings.Contains(ch.redir, "?") {
-			sep = "&"
+		redir, err := url.Parse(ch.redir)
+		if err != nil || redir.IsAbs() || redir.Host != "" ||
+			!strings.HasPrefix(ch.redir, "/") || strings.HasPrefix(ch.redir, "//") {
+			return fmt.Errorf("refusing unsafe Anubis redirect")
 		}
-		target = strings.TrimRight(base, "/") + ch.redir + sep + "result=" + ch.result
+		target = baseURL.ResolveReference(redir)
+		q := target.Query()
+		q.Set("result", ch.result)
+		target.RawQuery = q.Encode()
 	default:
 		return fmt.Errorf("unknown challenge kind %q", ch.kind)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if !strings.EqualFold(target.Host, baseURL.Host) {
+		return fmt.Errorf("refusing cross-host challenge URL")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
 		return err
 	}
@@ -344,6 +483,12 @@ func (c *Client) solve(ctx context.Context, base string, ch *challenge, path str
 func solvePoW(ctx context.Context, data string, diff int) (int, string, error) {
 	if diff < 1 {
 		diff = 1
+	}
+	if diff > maxDifficulty {
+		return 0, "", fmt.Errorf("challenge difficulty %d exceeds limit %d", diff, maxDifficulty)
+	}
+	if len(data) > maxRandomData {
+		return 0, "", fmt.Errorf("challenge data too large")
 	}
 	prefix := strings.Repeat("0", diff)
 	for nonce := 0; nonce < maxNonce; nonce++ {
@@ -409,6 +554,9 @@ func parseRSS(body []byte, base, handle string) ([]Tweet, error) {
 			Published: parseTime(it.PubDate),
 			IsRetweet: strings.HasPrefix(strings.TrimSpace(it.Title), "RT by @"),
 		})
+		if len(out) >= MaxLimit {
+			break
+		}
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("nitter rss had no usable items")
@@ -475,19 +623,61 @@ func parseTime(raw string) time.Time {
 }
 
 // rewriteLinks turns instance-local links into x.com links so the feed does
-// not leak the mirror that happened to answer. Image hosts are untouched.
+// not leak the mirror that happened to answer. Query strings are preserved,
+// relative links are absolutised, and Nitter's proxied /pic/ URLs are mapped
+// back to the public pbs.twimg.com host.
 func rewriteLinks(html, base string) string {
 	u, err := url.Parse(base)
 	if err != nil || u.Host == "" {
 		return html
 	}
-	re := regexp.MustCompile(`https?://` + regexp.QuoteMeta(u.Host) + `[^"'\s<>]*`)
-	return re.ReplaceAllStringFunc(html, func(raw string) string {
-		p, perr := url.Parse(raw)
-		if perr != nil || p.Path == "" {
-			return raw
+	re := regexp.MustCompile(`(?i)(href|src)="([^"]*)"`)
+	html = re.ReplaceAllStringFunc(html, func(attr string) string {
+		m := re.FindStringSubmatch(attr)
+		if len(m) != 3 {
+			return attr
 		}
-		// Path only: drops the "#m" anchor Nitter appends to status links.
-		return "https://x.com" + p.Path
+		raw := strings.TrimSpace(stdhtml.UnescapeString(m[2]))
+		if raw == "" || strings.HasPrefix(raw, "#") {
+			return attr
+		}
+		p, perr := url.Parse(raw)
+		if perr != nil {
+			return attr
+		}
+		if p.Scheme != "" && p.Scheme != "http" && p.Scheme != "https" {
+			return attr
+		}
+		mirror := p.Host == "" || strings.EqualFold(p.Host, u.Host)
+		if !mirror {
+			return attr
+		}
+		if strings.HasPrefix(p.Path, "/pic/") {
+			if rewritten := nitterMediaURL(p.Path); rewritten != "" {
+				return m[1] + `="` + stdhtml.EscapeString(rewritten) + `"`
+			}
+		}
+		p.Scheme = "https"
+		p.Host = "x.com"
+		p.Fragment = ""
+		return m[1] + `="` + stdhtml.EscapeString(p.String()) + `"`
 	})
+	// Visible URL text in Nitter's <cite> blocks also names the mirror.
+	visible := regexp.MustCompile(`https?://` + regexp.QuoteMeta(u.Host) + `([^"'\s<>]*)`)
+	return visible.ReplaceAllString(html, "https://x.com$1")
+}
+
+// nitterMediaURL decodes Nitter's /pic/ proxy path back to pbs.twimg.com.
+func nitterMediaURL(path string) string {
+	rest := strings.TrimPrefix(path, "/pic/")
+	if rest == "" {
+		return ""
+	}
+	if decoded, err := url.PathUnescape(rest); err == nil {
+		rest = decoded
+	}
+	if u, err := url.Parse(rest); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+		return u.String()
+	}
+	return "https://pbs.twimg.com/" + strings.TrimLeft(rest, "/")
 }

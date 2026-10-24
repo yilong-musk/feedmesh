@@ -35,12 +35,19 @@ type Config struct {
 	UserAgent string
 }
 
-// Client reads the sspai article API. It is safe for concurrent use.
+// Client reads the sspai article API. It is safe for concurrent use and
+// limits all upstream requests to maxConcurrent.
 type Client struct {
 	base string
 	ua   string
 	http *http.Client
+	sem  chan struct{}
 }
+
+const (
+	maxConcurrent = 3
+	maxListPages  = 5
+)
 
 // New builds a Client with production defaults.
 func New(cfg Config) *Client {
@@ -57,6 +64,7 @@ func New(cfg Config) *Client {
 		base: strings.TrimRight(cfg.BaseURL, "/"),
 		ua:   cfg.UserAgent,
 		http: &http.Client{Timeout: cfg.Timeout},
+		sem:  make(chan struct{}, maxConcurrent),
 	}
 }
 
@@ -119,7 +127,13 @@ func (c *Client) List(ctx context.Context, limit int) ([]Article, error) {
 		limit = MaxLimit
 	}
 	out := make([]Article, 0, limit)
+	pages := 0
 	for offset := 0; len(out) < limit; offset += PageSize {
+		if pages >= maxListPages {
+			break
+		}
+		pages++
+		before := len(out)
 		page, err := c.listPage(ctx, offset, PageSize)
 		if err != nil {
 			return nil, err
@@ -130,7 +144,9 @@ func (c *Client) List(ctx context.Context, limit int) ([]Article, error) {
 			}
 			out = append(out, a)
 		}
-		if len(page) < PageSize {
+		// A full page of malformed entries must not turn into an endless
+		// offset walk; if upstream gives us nothing usable, stop.
+		if len(page) < PageSize || len(out) == before {
 			break
 		}
 	}
@@ -177,6 +193,12 @@ func (c *Client) Detail(ctx context.Context, id int) (Article, error) {
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, out any) error {
+	select {
+	case c.sem <- struct{}{}:
+		defer func() { <-c.sem }()
+	case <-ctx.Done():
+		return fmt.Errorf("sspai request cancelled while waiting for upstream slot: %w", ctx.Err())
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
 	if err != nil {
 		return err

@@ -25,7 +25,7 @@ const (
 	DefaultUserAgent = "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36"
 
-	// DefaultTimeout is 9s: 3s was measured to time out from Singapore.
+	// DefaultTimeout is 9s; slower providers use a larger per-service default.
 	DefaultTimeout = 9 * time.Second
 
 	maxBodyBytes = 8 << 20

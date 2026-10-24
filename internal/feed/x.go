@@ -74,16 +74,18 @@ func (s *Service) GetX(ctx context.Context, handle string, limit int, refresh bo
 		if title == "" {
 			title = truncateRunes(t.Text, 60)
 		}
-		images := t.Images
-		if images == nil {
-			images = []string{}
+		images := make([]string, 0, len(t.Images))
+		for _, img := range t.Images {
+			if u := resolveSafeURL(img, "https://x.com"); u != "" {
+				images = append(images, u)
+			}
 		}
 		f.Items = append(f.Items, Item{
 			ID:        t.ID,
 			Title:     prefix + title,
 			Text:      t.Text,
-			HTML:      NormalizeHTML(t.HTML),
-			URL:       t.URL,
+			HTML:      NormalizeHTMLBase(t.HTML, "https://x.com"),
+			URL:       safeURLString(t.URL),
 			Images:    images,
 			CreatedAt: created.UTC(),
 		})

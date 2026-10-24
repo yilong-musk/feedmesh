@@ -27,6 +27,13 @@ type Config struct {
 	Breaker *guard.Breaker
 	Log     *logx.Logger
 	Now     func() time.Time
+
+	// Token enables bearer-token authentication when non-empty. RateLimit is
+	// the per-IP request budget per minute (zero disables it). RequestTimeout
+	// bounds one HTTP handler; zero uses the default.
+	Token          string
+	RateLimit      int
+	RequestTimeout time.Duration
 }
 
 // Server holds the HTTP handlers.
@@ -48,6 +55,9 @@ func New(cfg Config) *Server {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.RequestTimeout <= 0 {
+		cfg.RequestTimeout = 3 * time.Minute
+	}
 	return &Server{cfg: cfg, started: cfg.Now()}
 }
 
@@ -60,9 +70,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/user/{uid}", s.getOnly(s.handleUser))
 	mux.HandleFunc("/rss/domain/{name}", s.getOnly(s.handleDomain))
 	mux.HandleFunc("/rss/hot", s.getOnly(s.handleHot))
+	mux.HandleFunc("/rss/hot.xml", s.getOnly(s.handleHot))
 	mux.HandleFunc("/rss/sspai", s.getOnly(s.handleSspai))
+	mux.HandleFunc("/rss/sspai.xml", s.getOnly(s.handleSspai))
 	mux.HandleFunc("/rss/v2ex", s.getOnly(s.handleV2exLatest))
+	mux.HandleFunc("/rss/v2ex.xml", s.getOnly(s.handleV2exLatest))
 	mux.HandleFunc("/rss/v2ex/hot", s.getOnly(s.handleV2exHot))
+	mux.HandleFunc("/rss/v2ex/hot.xml", s.getOnly(s.handleV2exHot))
 	mux.HandleFunc("/rss/x/{handle}", s.getOnly(s.handleX))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
 	mux.HandleFunc("/api/v1/hot", s.getOnly(s.handleAPIHot))
@@ -70,7 +84,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/v2ex", s.getOnly(s.handleAPIV2ex))
 	mux.HandleFunc("/api/v1/x", s.getOnly(s.handleAPIX))
 	mux.HandleFunc("/", s.handleNotFound)
-	return mux
+
+	var h http.Handler = mux
+	h = s.withTimeout(h)
+	if s.cfg.Token != "" {
+		h = s.withAuth(h)
+	}
+	if s.cfg.RateLimit > 0 {
+		h = s.withRateLimit(h)
+	}
+	h = s.withRecovery(h)
+	return h
 }
 
 // getOnly rejects non-GET verbs with a 405 and the standard error envelope.
@@ -106,6 +130,7 @@ type healthResponse struct {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	out := healthResponse{
 		Status:  "ok",
 		Version: s.cfg.Version,
@@ -152,7 +177,8 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDomain(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSuffix(r.PathValue("name"), ".xml")
-	uid, err := s.cfg.Service.ResolveUID(r.Context(), name, false)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	uid, err := s.cfg.Service.ResolveUID(r.Context(), name, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -191,8 +217,9 @@ func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := atoiDefault(r.URL.Query().Get("limit"), feed.DefaultLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
 
-	f, err := s.cfg.Service.GetFeed(r.Context(), uid, limit, false)
+	f, err := s.cfg.Service.GetFeed(r.Context(), uid, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -300,8 +327,9 @@ func (s *Server) handleSspai(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPISspai(w http.ResponseWriter, r *http.Request) {
 	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSspaiLimit, feed.MaxSspaiLimit)
 	full := r.URL.Query().Get("full") == "1"
+	refresh := r.URL.Query().Get("refresh") == "1"
 
-	f, err := s.cfg.Service.GetSspai(r.Context(), limit, full, false)
+	f, err := s.cfg.Service.GetSspai(r.Context(), limit, full, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -362,7 +390,8 @@ func (s *Server) handleAPIV2ex(w http.ResponseWriter, r *http.Request) {
 		section = "latest"
 	}
 	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultV2exLimit, feed.MaxV2exLimit)
-	f, err := s.cfg.Service.GetV2ex(r.Context(), section, limit, false)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	f, err := s.cfg.Service.GetV2ex(r.Context(), section, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -402,7 +431,8 @@ type xResponse struct {
 func (s *Server) handleX(w http.ResponseWriter, r *http.Request) {
 	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultXLimit, feed.MaxXLimit)
 	refresh := r.URL.Query().Get("refresh") == "1"
-	f, err := s.cfg.Service.GetX(r.Context(), r.PathValue("handle"), limit, refresh)
+	handle := strings.TrimSuffix(r.PathValue("handle"), ".xml")
+	f, err := s.cfg.Service.GetX(r.Context(), handle, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -418,7 +448,8 @@ func (s *Server) handleX(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIX(w http.ResponseWriter, r *http.Request) {
 	handle := r.URL.Query().Get("handle")
 	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultXLimit, feed.MaxXLimit)
-	f, err := s.cfg.Service.GetX(r.Context(), handle, limit, false)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	f, err := s.cfg.Service.GetX(r.Context(), handle, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return

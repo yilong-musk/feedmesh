@@ -43,7 +43,9 @@ type Cache struct {
 	mu  sync.Mutex // serialises writes so temp-file naming cannot collide
 }
 
-// New creates (if needed) and returns a cache rooted at dir.
+// New creates (if needed) and returns a cache rooted at dir. Expiry sweeping is
+// explicit (GC) so read-only commands such as `cache purge --dry-run` never
+// delete anything.
 func New(dir string) (*Cache, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, errors.New("cache: empty directory")
@@ -52,10 +54,80 @@ func New(dir string) (*Cache, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cache: resolve dir: %w", err)
 	}
-	if err := os.MkdirAll(abs, 0o750); err != nil {
+	if fi, err := os.Lstat(abs); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("cache: %s is a symlink; refusing to use it", abs)
+	}
+	if err := os.MkdirAll(abs, 0o700); err != nil {
 		return nil, fmt.Errorf("cache: create dir: %w", err)
 	}
-	return &Cache{dir: abs}, nil
+	// Tighten a pre-existing directory too; the cache contains subscription
+	// identifiers even though all content is public.
+	_ = os.Chmod(abs, 0o700)
+	c := &Cache{dir: abs}
+	return c, nil
+}
+
+// managedPrefixes lists the file stems this package owns. Purge and GC only
+// touch these names so pointing --cache-dir at a shared directory cannot
+// delete unrelated JSON files.
+var managedPrefixes = []string{
+	"profile_", "timeline_", "longtext_", "domain_", "hot_",
+	"sspai_list", "sspai_detail_", "v2ex_latest", "v2ex_hot",
+	"x_", "feed_",
+}
+
+// ManagedKey reports whether a cache file stem belongs to feedmesh.
+func ManagedKey(key string) bool {
+	for _, prefix := range managedPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// GC removes managed expired or corrupt entries and reports how many files
+// were deleted.
+func (c *Cache) GC() (int, error) {
+	// Serialise with writers so an expired entry cannot be removed after a
+	// concurrent Set has already renamed a fresh value into place.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entries, err := os.ReadDir(c.dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	removed := 0
+	for _, de := range entries {
+		if de.IsDir() || !strings.HasSuffix(de.Name(), ".json") {
+			continue
+		}
+		stem := strings.TrimSuffix(de.Name(), ".json")
+		if !ManagedKey(stem) {
+			continue
+		}
+		p := filepath.Join(c.dir, de.Name())
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var e Entry
+		if err := json.Unmarshal(raw, &e); err != nil {
+			if os.Remove(p) == nil {
+				removed++
+			}
+			continue
+		}
+		if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
+			if os.Remove(p) == nil {
+				removed++
+			}
+		}
+	}
+	return removed, nil
 }
 
 // Dir returns the absolute cache directory.
@@ -116,6 +188,36 @@ func (c *Cache) Get(key string, out any) (bool, time.Time, error) {
 		}
 	}
 	return true, e.StoredAt, nil
+}
+
+// Peek decodes a fresh entry without deleting anything. It is used by
+// read-only paths such as `cache purge --dry-run`, where even an expired file
+// must remain untouched.
+func (c *Cache) Peek(key string, out any) (bool, error) {
+	p, err := c.path(key)
+	if err != nil {
+		return false, err
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	var e Entry
+	if err := json.Unmarshal(raw, &e); err != nil {
+		return false, nil
+	}
+	if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
+		return false, nil
+	}
+	if out != nil {
+		if err := json.Unmarshal(e.Value, out); err != nil {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // Set encodes v and writes it atomically with the given time-to-live.
@@ -192,7 +294,8 @@ type KeyInfo struct {
 	Bytes int64  `json:"bytes"`
 }
 
-// List enumerates cached entries, sorted by key.
+// List enumerates every .json file, sorted by key. Callers that delete files
+// must filter with ManagedKey.
 func (c *Cache) List() ([]KeyInfo, error) {
 	entries, err := os.ReadDir(c.dir)
 	if err != nil {
@@ -219,7 +322,8 @@ func (c *Cache) List() ([]KeyInfo, error) {
 	return out, nil
 }
 
-// Stat walks the directory and reports entry count and byte size.
+// Stat walks the directory and reports entry count and byte size. Files that
+// do not belong to feedmesh are ignored.
 func (c *Cache) Stat() (Stats, error) {
 	st := Stats{Dir: c.dir}
 	list, err := c.List()
@@ -227,6 +331,9 @@ func (c *Cache) Stat() (Stats, error) {
 		return st, err
 	}
 	for _, ki := range list {
+		if !ManagedKey(ki.Key) {
+			continue
+		}
 		st.Entries++
 		st.Bytes += ki.Bytes
 	}

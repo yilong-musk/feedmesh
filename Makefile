@@ -26,6 +26,7 @@ check: vet test
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
 
 install: build
+	mkdir -p $(PREFIX)/bin
 	install -m 0755 $(BIN) $(PREFIX)/bin/$(BIN)
 
 run: build

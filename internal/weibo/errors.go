@@ -20,6 +20,8 @@ const (
 	CodeUserNotFound        = "USER_NOT_FOUND"
 	CodeLoginRequired       = "LOGIN_REQUIRED"
 	CodeBreakerOpen         = "BREAKER_OPEN"
+	CodeUnauthorized        = "UNAUTHORIZED"
+	CodeRateLimited         = "RATE_LIMITED"
 	CodeInternal            = "INTERNAL"
 )
 

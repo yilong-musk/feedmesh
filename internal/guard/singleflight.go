@@ -1,6 +1,9 @@
 package guard
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type call struct {
 	wg   sync.WaitGroup
@@ -24,9 +27,9 @@ func NewGroup() *Group {
 // Do runs fn once per key while a call for that key is in flight. Waiters
 // receive the same value and error. The reported shared flag is true when the
 // caller joined an existing call instead of doing the work itself.
-func Do[T any](g *Group, key string, fn func() (T, error)) (T, error, bool) {
+func Do[T any](g *Group, key string, fn func() (T, error)) (v T, err error, shared bool) {
 	if g == nil {
-		v, err := fn()
+		v, err = fn()
 		return v, err, false
 	}
 
@@ -42,15 +45,23 @@ func Do[T any](g *Group, key string, fn func() (T, error)) (T, error, bool) {
 	g.m[key] = c
 	g.mu.Unlock()
 
-	v, err := fn()
+	// A panic in fn must still remove the in-flight call; otherwise every
+	// waiter would block forever. Waiters receive a normal error instead.
+	defer func() {
+		if r := recover(); r != nil {
+			var zero T
+			v = zero
+			err = fmt.Errorf("singleflight panic: %v", r)
+		}
+		g.mu.Lock()
+		c.val = v
+		c.err = err
+		c.done = true
+		delete(g.m, key)
+		g.mu.Unlock()
+		c.wg.Done()
+	}()
 
-	g.mu.Lock()
-	c.val = v
-	c.err = err
-	c.done = true
-	delete(g.m, key)
-	g.mu.Unlock()
-	c.wg.Done()
-
+	v, err = fn()
 	return v, err, false
 }

@@ -3,8 +3,6 @@ package feed
 import (
 	"context"
 	"errors"
-	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,11 +18,6 @@ const (
 	MaxSspaiLimit     = sspai.MaxLimit
 	sspaiListTTL      = 10 * time.Minute
 	sspaiDetailTTL    = 24 * time.Hour
-)
-
-var (
-	sspaiScript = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
-	sspaiStyle  = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
 )
 
 // GetSspai builds the sspai feed. full controls whether article bodies are
@@ -101,7 +94,7 @@ func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (
 			created = time.Unix(a.ReleasedTime, 0).UTC()
 		}
 		images := []string{}
-		if cover := a.CoverURL(); cover != "" {
+		if cover := safeURLString(a.CoverURL()); cover != "" {
 			images = append(images, cover)
 		}
 		f.Items = append(f.Items, Item{
@@ -139,12 +132,11 @@ func sspaiHTML(a sspai.Article, full bool) string {
 	}
 
 	if a.IsPay {
+		// Never republish a paywalled body, even if upstream accidentally
+		// returned one.
 		b.WriteString("<p><em>会员文章，仅显示摘要。</em></p>")
-	}
-	if full && strings.TrimSpace(a.Body) != "" {
-		body := sspaiStyle.ReplaceAllString(a.Body, "")
-		body = sspaiScript.ReplaceAllString(body, "")
-		b.WriteString(body)
+	} else if full && strings.TrimSpace(a.Body) != "" {
+		b.WriteString(NormalizeHTMLBase(a.Body, "https://sspai.com"))
 		return b.String()
 	}
 	if sum := strings.TrimSpace(a.Summary); sum != "" {
@@ -159,7 +151,8 @@ func sspaiHTML(a sspai.Article, full bool) string {
 }
 
 // sspaiError keeps weibo-shaped codes intact and wraps the rest as upstream
-// failures so the HTTP layer answers 502 instead of 500.
+// failures (HTTP 504). The message is provider-neutral because X and V2EX
+// share it.
 func sspaiError(err error) error {
 	if err == nil {
 		return nil
@@ -168,5 +161,5 @@ func sspaiError(err error) error {
 	if errors.As(err, &we) {
 		return err
 	}
-	return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: fmt.Sprintf("sspai: %v", err), Err: err}
+	return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: err.Error(), Err: err}
 }

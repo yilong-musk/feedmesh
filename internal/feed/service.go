@@ -146,7 +146,7 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 		Items:       make([]Item, 0, len(posts)),
 	}
 	for _, m := range posts {
-		s.hydrate(ctx, m, refresh, 0)
+		s.hydrate(ctx, uid, m, refresh, 0)
 		f.Items = append(f.Items, s.toItem(uid, m))
 	}
 	return f, nil
@@ -154,14 +154,17 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 
 // hydrate fills in full text for long posts, recursing into the quoted retweet.
 // Long-text failures are tolerated: the truncated text is still usable.
-func (s *Service) hydrate(ctx context.Context, m *weibo.MBlog, refresh bool, depth int) {
+func (s *Service) hydrate(ctx context.Context, uid string, m *weibo.MBlog, refresh bool, depth int) {
 	if m == nil || depth > 1 {
 		return
 	}
 	if m.IsLongText {
 		id := m.IDString()
 		if id != "" {
-			text, _, err := fetchCached(ctx, s, "longtext:"+id, s.ttls.LongText, refresh,
+			// Include the timeline owner so `cache purge --uid` can remove
+			// long-text bodies even after the timeline entry has expired.
+			key := "longtext:" + uid + ":" + id
+			text, _, err := fetchCached(ctx, s, key, s.ttls.LongText, refresh,
 				func() (string, error) { return s.clients.Weibo.LongText(ctx, id) })
 			switch {
 			case err == nil && strings.TrimSpace(text) != "":
@@ -177,7 +180,7 @@ func (s *Service) hydrate(ctx context.Context, m *weibo.MBlog, refresh bool, dep
 			}
 		}
 	}
-	s.hydrate(ctx, m.Retweeted, refresh, depth+1)
+	s.hydrate(ctx, uid, m.Retweeted, refresh, depth+1)
 }
 
 func (s *Service) toItem(uid string, m *weibo.MBlog) Item {
@@ -192,10 +195,10 @@ func (s *Service) toItem(uid string, m *weibo.MBlog) Item {
 		CreatedAt: created.UTC(),
 		Text:      HTMLToText(m.Text),
 		HTML:      BuildDescription(m),
-		URL:       ItemURL(uid, m),
+		URL:       safeURLString(ItemURL(uid, m)),
 	}
 	for _, p := range m.Pics {
-		if u := p.BestURL(); u != "" {
+		if u := safeURLString(p.BestURL()); u != "" {
 			it.Images = append(it.Images, u)
 		}
 	}
@@ -204,9 +207,9 @@ func (s *Service) toItem(uid string, m *weibo.MBlog) Item {
 	}
 	if pi := m.PageInfo; pi != nil {
 		if pi.IsVideo() {
-			it.VideoURL = pi.BestVideoURL()
+			it.VideoURL = safeURLString(pi.BestVideoURL())
 		}
-		it.PageURL = pi.Link()
+		it.PageURL = safeURLString(pi.Link())
 	}
 	it.Title = ItemTitle(m.StatusTitle, it.Text)
 	return it

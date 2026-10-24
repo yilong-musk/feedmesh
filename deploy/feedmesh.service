@@ -1,17 +1,30 @@
 [Unit]
 Description=feedmesh — multi-source content to RSS (single binary)
-Documentation=file:///home/ubuntu/feedmesh/README.md
+Documentation=https://github.com/yilong-musk/feedmesh#readme
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/home/ubuntu/.local/bin/feedmesh serve --listen 127.0.0.1:3000
-Environment=FEEDMESH_CACHE=/home/ubuntu/.cache/feedmesh
+ExecStart=%h/.local/bin/feedmesh serve --listen 127.0.0.1:3000
+CacheDirectory=feedmesh
+CacheDirectoryMode=0700
+Environment=FEEDMESH_CACHE=%C/feedmesh
+ReadWritePaths=%C/feedmesh
 Restart=always
 RestartSec=5s
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=default.target

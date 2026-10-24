@@ -60,18 +60,23 @@ func main() {
 // options holds every flag the CLI understands. Flags are global: the parser
 // accepts them before or after the subcommand.
 type options struct {
-	json     bool
-	quiet    bool
-	refresh  bool
-	all      bool
-	dryRun   bool
-	help     bool
-	timeout  time.Duration
-	cacheDir string
-	listen   string
-	limit    int
-	output   string
-	uid      string
+	json         bool
+	quiet        bool
+	refresh      bool
+	all          bool
+	dryRun       bool
+	help         bool
+	timeout      time.Duration
+	timeoutSet   bool
+	cacheDir     string
+	listen       string
+	limit        int
+	output       string
+	uid          string
+	handle       string
+	token        string
+	rateLimit    int
+	rateLimitSet bool
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -194,6 +199,21 @@ func parseArgs(args []string) (string, []string, *options, error) {
 				err = strFlag(&o.output)
 			case "--uid":
 				err = strFlag(&o.uid)
+			case "--handle":
+				err = strFlag(&o.handle)
+			case "--token":
+				err = strFlag(&o.token)
+			case "--rate-limit":
+				var raw string
+				if err = strFlag(&raw); err == nil {
+					n, convErr := strconv.Atoi(strings.TrimSpace(raw))
+					if convErr != nil || n < 0 {
+						err = usageError("flag --rate-limit needs a non-negative integer, got %q", raw)
+					} else {
+						o.rateLimit = n
+						o.rateLimitSet = true
+					}
+				}
 			case "--limit":
 				var raw string
 				if err = strFlag(&raw); err == nil {
@@ -212,6 +232,7 @@ func parseArgs(args []string) (string, []string, *options, error) {
 						err = usageError("flag --timeout needs a duration such as 9s or 500ms, got %q", raw)
 					} else {
 						o.timeout = d
+						o.timeoutSet = true
 					}
 				}
 			default:
@@ -268,6 +289,17 @@ func envFirst(names ...string) string {
 
 // applyEnv resolves the flag > env > default precedence.
 func applyEnv(o *options) {
+	if o.token == "" {
+		o.token = envFirst("FEEDMESH_TOKEN")
+	}
+	if !o.rateLimitSet {
+		if raw := envFirst("FEEDMESH_RATE_LIMIT"); raw != "" {
+			if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && n >= 0 {
+				o.rateLimit = n
+				o.rateLimitSet = true
+			}
+		}
+	}
 	if o.cacheDir == "" {
 		// Older names keep working: weibo-rss-pro and the original weibo-rss.
 		o.cacheDir = envFirst("FEEDMESH_CACHE", "WEIBO_RSS_PRO_CACHE", "WEIBO_RSS_CACHE")
@@ -290,7 +322,15 @@ func defaultCacheDir() string {
 	if dir, err := os.UserCacheDir(); err == nil && dir != "" {
 		return filepath.Join(dir, "feedmesh")
 	}
-	return filepath.Join(os.TempDir(), "feedmesh")
+	// A predictable directory under /tmp is shared with every local user. If
+	// the platform cannot give us a home cache, use a private, random directory
+	// instead; losing the cache across restarts is preferable to cache
+	// poisoning.
+	dir, err := os.MkdirTemp("", "feedmesh-cache-*")
+	if err != nil {
+		return ""
+	}
+	return dir
 }
 
 // ------------------------------------------------------------------- plumbing
@@ -300,6 +340,10 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+	// This is a read/write command (serve/fetch/doctor), so sweeping expired
+	// entries here is safe. The cache CLI uses New directly to keep dry-run
+	// strictly read-only.
+	_, _ = c.GC()
 	breaker := guard.NewBreaker(breakerCooloff)
 	client := weibo.New(weibo.Config{
 		Timeout: o.timeout,
@@ -308,13 +352,18 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		Retries: 3,
 		Backoff: 300 * time.Millisecond,
 	})
-	sspaiTimeout := 45 * time.Second
-	if o.timeout > sspaiTimeout {
-		sspaiTimeout = o.timeout
+	// The slow providers (sspai detail calls can take 3-20s) use a larger
+	// default, but an explicit --timeout overrides it end to end.
+	providerTimeout := 45 * time.Second
+	if o.timeoutSet {
+		providerTimeout = o.timeout
 	}
-	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
-	vx := v2ex.New(v2ex.Config{Timeout: sspaiTimeout})
-	xn := xnitter.New(xnitter.Config{Timeout: sspaiTimeout})
+	if providerTimeout <= 0 {
+		providerTimeout = defaultTimeout
+	}
+	sp := sspai.New(sspai.Config{Timeout: providerTimeout})
+	vx := v2ex.New(v2ex.Config{Timeout: providerTimeout})
+	xn := xnitter.New(xnitter.Config{Timeout: providerTimeout})
 	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
@@ -540,6 +589,7 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 
 	switch pos[0] {
 	case "stat":
+		_, _ = c.GC()
 		st, err := c.Stat()
 		if err != nil {
 			return fail(o, logger, stdout, err)
@@ -552,35 +602,97 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 		return exitOK
 
 	case "purge":
-		if !o.all && strings.TrimSpace(o.uid) == "" {
-			return fail(o, logger, stdout, usageError("cache purge needs --all or --uid <uid>"))
+		uid := strings.TrimSpace(o.uid)
+		handle := strings.TrimSpace(o.handle)
+		scopes := 0
+		if o.all {
+			scopes++
 		}
-		if o.all && strings.TrimSpace(o.uid) != "" {
-			return fail(o, logger, stdout, usageError("cache purge accepts either --all or --uid, not both"))
+		if uid != "" {
+			scopes++
+		}
+		if handle != "" {
+			scopes++
+		}
+		if scopes == 0 {
+			return fail(o, logger, stdout, usageError("cache purge needs --all, --uid <uid> or --handle <handle>"))
+		}
+		if scopes > 1 {
+			return fail(o, logger, stdout, usageError("cache purge accepts only one of --all, --uid or --handle"))
 		}
 
-		uid := strings.TrimSpace(o.uid)
 		scope := "all"
-		if !o.all {
+		if uid != "" {
 			if err := weibo.ValidateUID(uid); err != nil {
 				return fail(o, logger, stdout, err)
 			}
 			scope = "uid:" + uid
+		}
+		if handle != "" {
+			h, err := xnitter.NormalizeHandle(handle)
+			if err != nil {
+				return fail(o, logger, stdout, usageError("%v", err))
+			}
+			handle = h
+			scope = "handle:" + handle
 		}
 
 		list, err := c.List()
 		if err != nil {
 			return fail(o, logger, stdout, err)
 		}
-		targets := make([]cache.KeyInfo, 0, len(list))
-		var bytes int64
+		byKey := make(map[string]cache.KeyInfo, len(list))
 		for _, ki := range list {
-			if o.all || cacheKeyBelongsToUID(ki.Key, uid) {
-				targets = append(targets, ki)
-				bytes += ki.Bytes
+			byKey[ki.Key] = ki
+		}
+		targets := make(map[string]cache.KeyInfo)
+		add := func(key string) {
+			if key == "" {
+				return
+			}
+			if ki, ok := byKey[key]; ok {
+				targets[key] = ki
 			}
 		}
 
+		switch {
+		case o.all:
+			for _, ki := range list {
+				if cache.ManagedKey(ki.Key) {
+					add(ki.Key)
+				}
+			}
+		case uid != "":
+			add("profile_" + uid)
+			add("timeline_" + uid)
+			for _, ki := range list {
+				if strings.HasPrefix(ki.Key, "feed_"+uid+"_") ||
+					strings.HasPrefix(ki.Key, "longtext_"+uid+"_") {
+					add(ki.Key)
+				}
+				if strings.HasPrefix(ki.Key, "domain_") {
+					var cachedUID string
+					if hit, err := c.Peek(ki.Key, &cachedUID); err == nil && hit && cachedUID == uid {
+						add(ki.Key)
+					}
+				}
+			}
+			// Long-text entries are keyed by status id, so recover the ids
+			// from the timeline we are about to delete.
+			var tl weibo.Timeline
+			if hit, err := c.Peek("timeline:"+uid, &tl); err == nil && hit {
+				for _, id := range longTextIDs(tl.Items) {
+					add("longtext_" + id)
+				}
+			}
+		case handle != "":
+			add("x_" + strings.ToLower(handle))
+		}
+
+		var bytes int64
+		for _, ki := range targets {
+			bytes += ki.Bytes
+		}
 		result := purgeResult{Scope: scope, DryRun: o.dryRun, Entries: len(targets), Bytes: bytes}
 
 		// A dry run reports the blast radius and touches nothing.
@@ -593,8 +705,8 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 			return exitOK
 		}
 
-		for _, ki := range targets {
-			ok, err := c.Delete(ki.Key)
+		for key := range targets {
+			ok, err := c.Delete(key)
 			if err != nil {
 				return fail(o, logger, stdout, err)
 			}
@@ -615,14 +727,40 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 	}
 }
 
-// cacheKeyBelongsToUID reports whether a cache file stem holds data for uid.
-// Long-text entries are keyed by status id and cannot be attributed to a user,
-// so they are only removed by --all (they expire after 24h regardless).
-func cacheKeyBelongsToUID(key, uid string) bool {
-	if key == "profile_"+uid || key == "timeline_"+uid {
+// longTextIDs walks a timeline (including quoted posts) and collects the status
+// ids whose long-text cache entries belong to it.
+func longTextIDs(items []*weibo.MBlog) []string {
+	seen := map[string]bool{}
+	var ids []string
+	var walk func(*weibo.MBlog, int)
+	walk = func(m *weibo.MBlog, depth int) {
+		if m == nil || depth > 32 {
+			return
+		}
+		if m.IsLongText {
+			if id := m.IDString(); id != "" && !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+		walk(m.Retweeted, depth+1)
+	}
+	for _, m := range items {
+		walk(m, 0)
+	}
+	return ids
+}
+
+func listenIsLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
 		return true
 	}
-	return strings.HasPrefix(key, "feed_"+uid+"_")
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 // cmdServe runs the HTTP service until SIGINT/SIGTERM.
@@ -632,13 +770,26 @@ func cmdServe(o *options, stdout io.Writer, logger *logx.Logger) int {
 		return fail(o, logger, stdout, err)
 	}
 
+	rateLimit := o.rateLimit
+	loopback := listenIsLoopback(o.listen)
+	if !loopback {
+		if o.token == "" {
+			logger.Warn("listening on a non-loopback address without FEEDMESH_TOKEN; anyone who can reach this port can read feeds and trigger upstream requests")
+		}
+		if rateLimit == 0 && !o.rateLimitSet {
+			rateLimit = 120
+		}
+	}
 	api := httpapi.New(httpapi.Config{
-		Version: version,
-		Service: svc,
-		Cache:   c,
-		Client:  client,
-		Breaker: breaker,
-		Log:     logger,
+		Version:        version,
+		Service:        svc,
+		Cache:          c,
+		Client:         client,
+		Breaker:        breaker,
+		Log:            logger,
+		Token:          o.token,
+		RateLimit:      rateLimit,
+		RequestTimeout: 3 * time.Minute,
 	})
 
 	ln, err := net.Listen("tcp", o.listen)
@@ -664,12 +815,29 @@ func cmdServe(o *options, stdout io.Writer, logger *logx.Logger) int {
 	srv := &http.Server{
 		Handler:           api.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      5 * time.Minute,
 		IdleTimeout:       90 * time.Second,
-		ErrorLog:          nil,
+		ErrorLog:          httpapi.ErrorLog(logger),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if n, err := c.GC(); err == nil && n > 0 {
+					logger.Info("cache gc", "removed", n)
+				}
+			}
+		}
+	}()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()
@@ -703,6 +871,8 @@ USAGE
 COMMANDS
   serve                     Run the HTTP service
       --listen <addr>       Listen address (default 127.0.0.1:3000, env FEEDMESH_LISTEN; legacy WEIBO_RSS_PRO_LISTEN / WEIBO_RSS_LISTEN)
+      --token <token>       Require "Authorization: Bearer <token>"; env FEEDMESH_TOKEN
+      --rate-limit <n>      Per-IP requests per minute (0 disables; env FEEDMESH_RATE_LIMIT)
   fetch <uid|domain>        Print one account's timeline
       --json                Emit one line of JSON instead of RSS
       --limit <n>           Number of posts, 1-10 (default 10)
@@ -711,8 +881,9 @@ COMMANDS
   doctor                    Probe genvisitor, getIndex and statuses in order
       --uid <uid>           Account used for the probe (default 2803301701)
   cache stat                Report cache entry count and size
-  cache purge --all         Delete every cache entry
-  cache purge --uid <uid>   Delete entries for one account
+  cache purge --all         Delete every feedmesh cache entry
+  cache purge --uid <uid>   Delete an account: profile, timeline, domain, feed and long-text entries
+  cache purge --handle <h>  Delete an X timeline cached for @h
       --dry-run             Report what a purge would delete, delete nothing
   version                   Print the version
   help                      Print this text (same as -h), exit code 0
@@ -720,7 +891,8 @@ COMMANDS
 GLOBAL FLAGS
   --json                    Data output as exactly one line of JSON (jq-safe)
   --quiet, -q               Silence stderr logs
-  --timeout <duration>      Per-upstream-request timeout (default 9s)
+  --timeout <duration>      Per-upstream-request timeout; overrides all providers
+                            (default 9s for weibo, 45s for sspai/V2EX/X)
   --cache-dir <dir>         Cache directory (env FEEDMESH_CACHE; legacy WEIBO_RSS_PRO_CACHE / WEIBO_RSS_CACHE)
   -h, --help                Print this text
 

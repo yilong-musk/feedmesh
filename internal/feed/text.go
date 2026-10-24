@@ -15,23 +15,6 @@ var (
 	brTag     = regexp.MustCompile(`(?i)<br\s*/?>`)
 )
 
-// NormalizeHTML rewrites weibo post HTML into something a feed reader can show:
-// image-emoji spans collapse to their alt text, and self-closing breaks become
-// ordinary breaks.
-func NormalizeHTML(s string) string {
-	if s == "" {
-		return ""
-	}
-	s = emojiSpan.ReplaceAllStringFunc(s, func(block string) string {
-		if m := altAttr.FindStringSubmatch(block); len(m) == 2 {
-			return m[1]
-		}
-		return ""
-	})
-	s = brTag.ReplaceAllString(s, "<br />")
-	return strings.TrimSpace(s)
-}
-
 // HTMLToText flattens post HTML to plain text.
 func HTMLToText(s string) string {
 	if s == "" {
@@ -86,8 +69,8 @@ func EscapeXML(s string) string {
 		case '\'':
 			b.WriteString("&apos;")
 		default:
-			// Drop control characters XML 1.0 cannot represent.
-			if r < 0x20 && r != '\t' && r != '\n' && r != '\r' {
+			// Drop characters XML 1.0 cannot represent.
+			if !xmlRuneOK(r) {
 				continue
 			}
 			b.WriteRune(r)

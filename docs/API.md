@@ -2,6 +2,8 @@
 
 所有接口都是 `GET`，默认只监听 `127.0.0.1:3000`。RSS 响应的 `Content-Type` 为 `application/rss+xml; charset=utf-8`，JSON 响应为 `application/json`。
 
+设置 `--token <token>` 或 `FEEDMESH_TOKEN` 后，所有请求必须带 `Authorization: Bearer <token>`，否则返回 401。设置 `--rate-limit <n>` 或 `FEEDMESH_RATE_LIMIT` 后，每个远端 IP 每分钟最多 n 次请求，超出返回 429。若监听非 loopback 地址且未设置限额，服务默认启用 120 次/分钟/IP。反向代理场景下 `RemoteAddr` 通常是代理 IP，建议在代理层也做限流。
+
 平台与路由的对应关系见 [PLATFORMS.md](PLATFORMS.md)。
 
 ---
@@ -99,7 +101,7 @@ curl -s 'http://127.0.0.1:3000/rss/x/elonmusk?limit=20'
 - 默认 20 条，上限 20（一页大小）；缓存 40 分钟，`Cache-Control: max-age=2400`。
 - 条目 `link`/`guid` 一律是 `https://x.com/{handle}/status/{id}`；正文内的实例链接也会改写。
 - 转发标题前有 `🔁`；图片走 Media RSS。
-- 所有实例都失败时返回 `UPSTREAM_UNAVAILABLE`（502）。
+- 所有实例都失败时返回 `UPSTREAM_UNAVAILABLE`（504）。
 
 ---
 
@@ -155,7 +157,7 @@ curl -s 'http://127.0.0.1:3000/rss/x/elonmusk?limit=20'
 ```
 
 - `handle` 必填（可带 `@`）；`limit` 默认 20、上限 20。
-- 不支持 `refresh`：强制回源走 `/rss/x/{handle}?refresh=1`。
+- 支持 `refresh=1`，行为与 RSS 路由一致。
 
 ---
 
@@ -170,10 +172,12 @@ curl -s 'http://127.0.0.1:3000/rss/x/elonmusk?limit=20'
 | code | HTTP |
 |---|---|
 | `BAD_REQUEST` | 400（方法不对为 405，带 `Allow` 头） |
+| `UNAUTHORIZED` | 401（启用 `--token` 后缺少/错误 Bearer token） |
 | `USER_NOT_FOUND` / `LOGIN_REQUIRED` | 404 |
 | `UPSTREAM_BLOCKED` | 502 |
 | `BREAKER_OPEN` | 503 |
 | `NETWORK` / `TIMEOUT` / `UPSTREAM_UNAVAILABLE` | 504 |
+| `RATE_LIMITED` | 429（带 `Retry-After`） |
 
 ---
 
@@ -201,7 +205,7 @@ curl -s 'http://127.0.0.1:3000/rss/x/elonmusk?limit=20'
 |---|---|---|
 | 微博时间线 | `timeline:<uid>` | 5 分钟 |
 | 微博资料 | `profile:<uid>` | 1 小时 |
-| 微博长文 | `longtext:<id>` | 24 小时 |
+| 微博长文 | `longtext:<uid>:<id>` | 24 小时 |
 | 微博域名 | `domain:<name>` | 24 小时 |
 | 微博热搜 | `hot:top` | 5 分钟 |
 | 少数派列表 | `sspai:list` | 10 分钟 |
@@ -209,8 +213,8 @@ curl -s 'http://127.0.0.1:3000/rss/x/elonmusk?limit=20'
 | V2EX 最新/最热 | `v2ex:latest` / `v2ex:hot` | 10 分钟 |
 | X 时间线 | `x:<handle>` | 40 分钟 |
 
-- `refresh=1` 跳过读取并覆盖写回；`/api/v1/feed` 不支持 `refresh`。
+- `refresh=1` 跳过读取并覆盖写回；RSS 和 JSON 接口都支持。
 - 缓存条目按请求的 `limit` 记录宽度，小 `limit` 的缓存不会污染大 `limit` 请求（按需回源加宽）。
-- 缓存目录：`--cache-dir` / `FEEDMESH_CACHE`，默认 `~/.cache/feedmesh`；一个 key 一个 JSON 文件，原子写。
+- 缓存目录：`--cache-dir` / `FEEDMESH_CACHE`，默认 `~/.cache/feedmesh`；一个 key 一个 JSON 文件，原子写。目录权限 0700，文件权限 0600；启动时会清理过期条目。`cache purge --all` 只删除 feedmesh 管理的条目，不会碰同目录下其他 `.json` 文件。
 
 实现细节（并发、熔断、重试）见 [ARCHITECTURE.md](ARCHITECTURE.md)。
