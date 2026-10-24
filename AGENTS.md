@@ -61,22 +61,25 @@ This file only adds the language rule. Existing conventions still apply:
 standard-library-only Go, a single static binary (`CGO_ENABLED=0`), the
 committed CI gates, and the deployment notes in `docs/ARCHITECTURE.md`.
 
-## 3. Known gaps (to be closed)
+## 3. Enforcement
 
-The repository predates this rule. Current violations, measured with a
-CJK-range scan:
+`make lang` (also wired into `make check` and the CI job) runs
+`scripts/check_language.py`, which fails when a tracked file contains
+Cyrillic, Hebrew, Arabic, Devanagari, Thai, Kana, CJK or Hangul characters in
+authored text.
 
-| Area | Files | CJK chars |
-|---|---|---|
-| `README.md` + `docs/` | 4 | 4,243 |
-| Go sources (display strings) | 9 | 101 |
-| Go tests (fixtures and assertions) | 12 | 803 |
+| Exemption | Reason |
+|---|---|
+| `*_test.go` | fixtures reproduce upstream payloads byte for byte |
+| a line containing `i18n-ignore` | upstream identifiers that must keep their original form, e.g. a node name |
+| `docs/<tag>/`, `README.<tag>.md`, `internal/i18n/<tag>.json` | localized versions, allowed by §1.3 |
+| `docs/assets/`, image and PDF files, `LICENSE` | binaries and third-party text |
 
-Migration order: (1) user-facing strings → string table with English default,
-(2) Go comments and test assertions, (3) English README and `docs/`, with the
-Chinese text kept only as `README.zh-CN.md` / `docs/zh-CN/` if a localized
-version is wanted.
+Anything outside those exemptions is a build failure, not a review comment.
+When an upstream identifier must stay as-is, add the marker and a one-line
+reason next to it:
 
-Once the migration lands, add a CI gate that fails on characters outside
-Latin-1 outside the allowlisted paths (`docs/<tag>/`, `README.<tag>.md`,
-`internal/i18n/<tag>.json`, test fixtures under `internal/*/testdata/`).
+```go
+const promotedNode = "<upstream node title>" // i18n-ignore: upstream node title
+```
+

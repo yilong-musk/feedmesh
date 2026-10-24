@@ -67,11 +67,11 @@ func (s *Service) GetV2ex(ctx context.Context, section string, limit int, refres
 		Items:     make([]Item, 0, len(items)),
 	}
 	if section == "hot" {
-		f.TitleText = "V2EX 最热"
-		f.Description = "V2EX 最热主题（按回复数排序）"
+		f.TitleText = "V2EX Hot"
+		f.Description = "Top V2EX topics, sorted by replies"
 	} else {
-		f.TitleText = "V2EX 最新"
-		f.Description = "V2EX 最新主题"
+		f.TitleText = "V2EX Latest"
+		f.Description = "Latest V2EX topics"
 	}
 	f.LinkText = "https://www.v2ex.com"
 
@@ -113,7 +113,7 @@ func v2exHTML(a v2ex.Article, section string) string {
 		meta = append(meta, "#"+strings.ReplaceAll(a.Node, " ", ""))
 	}
 	if section == "hot" {
-		meta = append(meta, fmt.Sprintf("%d 条回复", a.Replies))
+		meta = append(meta, fmt.Sprintf("%d replies", a.Replies))
 	}
 	if len(meta) > 0 {
 		b.WriteString("<p>")
@@ -129,7 +129,7 @@ func v2exHTML(a v2ex.Article, section string) string {
 		}
 		b.WriteString(`<p><a href="`)
 		b.WriteString(EscapeXML(link))
-		b.WriteString(`">查看主题</a></p>`)
+		b.WriteString(`">View topic</a></p>`)
 	}
 	return b.String()
 }

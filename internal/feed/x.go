@@ -50,7 +50,7 @@ func (s *Service) GetX(ctx context.Context, handle string, limit int, refresh bo
 	f := &Feed{
 		UID:         handle,
 		ScreenName:  "@" + handle,
-		Description: "@" + handle + " 的最新推文（经 Nitter 实例）",
+		Description: "@" + handle + " latest posts (via Nitter instances)",
 		FetchedAt:   now,
 		Cached:      hit,
 		TitleText:   handle + " / X",

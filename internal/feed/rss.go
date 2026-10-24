@@ -60,15 +60,15 @@ func formatDuration(seconds float64) string {
 		return ""
 	}
 	if seconds < 60 {
-		return fmt.Sprintf("%.1f 秒", seconds)
+		return fmt.Sprintf("%.1f s", seconds)
 	}
 	total := int(seconds + 0.5)
 	return fmt.Sprintf("%d:%02d", total/60, total%60)
 }
 
 // cardText picks the card headline and the secondary line. Weibo often puts the
-// publisher name in page_title ("蓝鲸新闻") and the real headline in content1,
-// so a very short heading swaps with a longer summary.
+// publisher name in page_title and the real headline in content1, so a very
+// short heading swaps with a longer summary.
 func cardText(p *weibo.PageInfo) (heading, summary string) {
 	heading = p.Heading()
 	summary = strings.TrimSpace(p.Content1)
@@ -126,17 +126,17 @@ func writeMediaCard(b *strings.Builder, p *weibo.PageInfo) {
 		if cover != "" {
 			writeCardImage(b, cover, width, height)
 		} else {
-			b.WriteString("▶ 视频")
+			b.WriteString("▶ Video")
 		}
 		closeLink()
-		b.WriteString(`<p>▶ 视频`)
+		b.WriteString(`<p>▶ Video`)
 		if dur != "" {
 			b.WriteString(" · " + dur)
 		}
 		if link != "" {
 			b.WriteString(` · <a href="`)
 			b.WriteString(EscapeXML(link))
-			b.WriteString(`">直接播放 MP4</a>`)
+			b.WriteString(`">Play MP4</a>`)
 		}
 		b.WriteString("</p>")
 		b.WriteString(`<video controls preload="none" src="`)

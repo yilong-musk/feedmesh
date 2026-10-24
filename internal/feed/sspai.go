@@ -47,9 +47,9 @@ func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (
 
 	now := s.now().UTC()
 	f := &Feed{
-		TitleText:   "少数派",
+		TitleText:   "sspai",
 		LinkText:    "https://sspai.com",
-		Description: "少数派最新文章",
+		Description: "Latest sspai articles",
 		FetchedAt:   now,
 		Cached:      hit,
 		TTL:         15,
@@ -134,7 +134,7 @@ func sspaiHTML(a sspai.Article, full bool) string {
 	if a.IsPay {
 		// Never republish a paywalled body, even if upstream accidentally
 		// returned one.
-		b.WriteString("<p><em>会员文章，仅显示摘要。</em></p>")
+		b.WriteString("<p><em>Member-only article; summary shown.</em></p>")
 	} else if full && strings.TrimSpace(a.Body) != "" {
 		b.WriteString(NormalizeHTMLBase(a.Body, "https://sspai.com"))
 		return b.String()
@@ -146,7 +146,7 @@ func sspaiHTML(a sspai.Article, full bool) string {
 	}
 	b.WriteString(`<p><a href="`)
 	b.WriteString(EscapeXML(a.URL()))
-	b.WriteString(`">阅读全文</a></p>`)
+	b.WriteString(`">Read full article</a></p>`)
 	return b.String()
 }
 

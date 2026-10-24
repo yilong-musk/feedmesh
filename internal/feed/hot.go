@@ -46,9 +46,9 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 
 	now := s.now().UTC()
 	f := &Feed{
-		TitleText:   "微博热搜",
+		TitleText:   "Weibo Hot Search",
 		LinkText:    "https://s.weibo.com/top/summary",
-		Description: "微博实时热搜榜",
+		Description: "Realtime Weibo hot search ranking",
 		FetchedAt:   now,
 		Cached:      hit,
 		TTL:         5,
@@ -65,6 +65,7 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 			CreatedAt: now,
 			Images:    []string{},
 			Rank:      h.Rank,
+			Heat:      h.Heat,
 		})
 	}
 	return f, nil
@@ -82,7 +83,7 @@ func HotSearchLink(h weibo.HotItem) string {
 
 func hotHTML(h weibo.HotItem, link string) string {
 	var b strings.Builder
-	b.WriteString(`<p>热度 `)
+	b.WriteString(`<p>Heat `)
 	b.WriteString(FormatHeat(h.Heat))
 	if h.Label != "" {
 		b.WriteString(` · `)
@@ -94,17 +95,18 @@ func hotHTML(h weibo.HotItem, link string) string {
 	}
 	b.WriteString(`</p><p><a href="`)
 	b.WriteString(EscapeXML(link))
-	b.WriteString(`">在微博搜索</a></p>`)
+	b.WriteString(`">Search on Weibo</a></p>`)
 	return b.String()
 }
 
-// FormatHeat renders the heat counter the way weibo does: 万 above ten thousand.
+// FormatHeat renders a heat counter in compact units: K for thousands and M
+// for millions.
 func FormatHeat(n int64) string {
 	switch {
-	case n >= 100000000:
-		return fmt.Sprintf("%.1f 亿", float64(n)/100000000)
-	case n >= 10000:
-		return fmt.Sprintf("%.1f 万", float64(n)/10000)
+	case n >= 1000000:
+		return fmt.Sprintf("%.1fM", float64(n)/1000000)
+	case n >= 1000:
+		return fmt.Sprintf("%.1fK", float64(n)/1000)
 	default:
 		return fmt.Sprintf("%d", n)
 	}

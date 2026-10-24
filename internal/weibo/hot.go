@@ -46,8 +46,8 @@ func (c *Client) HotSearch(ctx context.Context) ([]HotItem, error) {
 	items := make([]HotItem, 0, len(hr.Data.Realtime))
 	for _, it := range hr.Data.Realtime {
 		it.Word = strings.TrimSpace(it.Word)
-		// Entries without realpos are promoted/recommended slots (icon "荐"),
-		// not part of the ranked list; keep them out so ranks stay 1..50.
+		// Entries without realpos are promoted/recommended slots, not part of
+		// the ranked list; keep them out so ranks stay 1..50.
 		if it.Word == "" || it.RealPos <= 0 {
 			continue
 		}

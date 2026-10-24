@@ -21,6 +21,9 @@ type Item struct {
 	// Rank is the upstream display rank (hot search only); it is deliberately
 	// kept out of the generic item JSON.
 	Rank int `json:"-"`
+	// Heat is the upstream heat counter (hot search only). The hot JSON view
+	// exposes it as a number so clients never have to parse display text.
+	Heat int64 `json:"-"`
 }
 
 // Feed is a rendered timeline for one account.
@@ -48,9 +51,9 @@ func (f *Feed) Title() string {
 		return f.TitleText
 	}
 	if f.ScreenName == "" {
-		return "微博 " + f.UID
+		return "Weibo " + f.UID
 	}
-	return f.ScreenName + " 的微博"
+	return f.ScreenName + " on Weibo"
 }
 
 // Link returns the canonical channel link.

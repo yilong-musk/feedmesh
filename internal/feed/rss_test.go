@@ -73,7 +73,7 @@ func TestRenderRSSWellFormed(t *testing.T) {
 	if doc.Channel.TTL != 15 {
 		t.Fatalf("ttl = %d, want 15", doc.Channel.TTL)
 	}
-	if doc.Channel.Title != f.ScreenName+` 的微博` {
+	if doc.Channel.Title != f.ScreenName+` on Weibo` {
 		t.Fatalf("title round-trip failed: %q", doc.Channel.Title)
 	}
 	if doc.Channel.Description != f.Description {
@@ -216,8 +216,8 @@ func TestBuildDescriptionRendersVideoCard(t *testing.T) {
 	html := feed.BuildDescription(m)
 	for _, want := range []string{
 		`<img src="https://wx1.sinaimg.cn/orj480/cover.jpg" alt="" width="480" height="640"`,
-		"直接播放 MP4",
-		"12.1 秒",
+		"Play MP4",
+		"12.1 s",
 		`<video controls preload="none" src="https://f.video.weibocdn.com/o0/hd.mp4"`,
 	} {
 		if !strings.Contains(html, want) {

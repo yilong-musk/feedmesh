@@ -88,7 +88,7 @@ func TestGetSspaiFullText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSspai: %v", err)
 	}
-	if f.Title() != "少数派" || f.Link() != "https://sspai.com" {
+	if f.Title() != "sspai" || f.Link() != "https://sspai.com" {
 		t.Fatalf("feed meta = %q / %q", f.Title(), f.Link())
 	}
 	if len(f.Items) != 2 {
@@ -113,7 +113,7 @@ func TestGetSspaiFullText(t *testing.T) {
 	if !it.CreatedAt.Equal(time.Unix(1792750000, 0).UTC()) {
 		t.Fatalf("created = %v", it.CreatedAt)
 	}
-	if !strings.Contains(f.Items[1].HTML, "会员文章，仅显示摘要") {
+	if !strings.Contains(f.Items[1].HTML, "Member-only article; summary shown") {
 		t.Fatalf("paywall note missing: %s", f.Items[1].HTML)
 	}
 }
@@ -130,7 +130,7 @@ func TestGetSspaiSummaryOnly(t *testing.T) {
 	if strings.Contains(html, "正文 2001") {
 		t.Fatalf("summary mode must not fetch the body: %s", html)
 	}
-	if !strings.Contains(html, "这是一段摘要") || !strings.Contains(html, "阅读全文") {
+	if !strings.Contains(html, "这是一段摘要") || !strings.Contains(html, "Read full article") {
 		t.Fatalf("summary/read-more missing: %s", html)
 	}
 }
