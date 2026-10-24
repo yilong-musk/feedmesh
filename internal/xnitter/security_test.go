@@ -44,12 +44,15 @@ func TestIsPublicIP(t *testing.T) {
 		"169.254.169.254", "0.0.0.0", "0.1.2.3", "100.64.0.1",
 		"192.0.2.1", "198.51.100.1", "203.0.113.1", "224.0.0.1",
 		"::1", "fc00::1", "fe80::1", "ff02::1",
+		// IPv6 transition ranges can embed private IPv4 targets.
+		"64:ff9b::a9fe:a9fe", "64:ff9b::7f00:1", "64:ff9b:1::1",
+		"2002:7f00:1::", "2001::1", "2001:db8::1",
 	} {
 		if isPublicIP(net.ParseIP(raw)) {
 			t.Errorf("isPublicIP(%q) = true", raw)
 		}
 	}
-	for _, raw := range []string{"8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"} {
+	for _, raw := range []string{"8.8.8.8", "1.1.1.1", "2606:4700:4700::1111", "2001:4860:4860::8888"} {
 		if !isPublicIP(net.ParseIP(raw)) {
 			t.Errorf("isPublicIP(%q) = false", raw)
 		}

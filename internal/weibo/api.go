@@ -128,6 +128,10 @@ func (c *Client) ResolveDomain(ctx context.Context, domain string) (string, erro
 	}
 	endpoint := c.base() + "/" + url.PathEscape(domain) + "?&jumpfrom=weibocom"
 	body, status, finalURL, err := c.do(ctx, endpoint, c.base()+"/", modeDocument)
+	if status == http.StatusNotFound {
+		return "", &Error{Code: CodeUserNotFound, Status: status,
+			Message: fmt.Sprintf("weibo domain %q not found", domain)}
+	}
 	if err != nil {
 		return "", err
 	}

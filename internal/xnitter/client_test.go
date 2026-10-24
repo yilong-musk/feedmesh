@@ -97,6 +97,31 @@ func TestParseRSSTimeFormats(t *testing.T) {
 	}
 }
 
+func TestParseRSSUsesLinkIDWhenGUIDIsURL(t *testing.T) {
+	// Older Nitter versions emit the full status URL in <guid>; using it
+	// verbatim leaked the mirror host into Tweet.ID and doubled it in Tweet.URL.
+	body := []byte(`<rss xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>
+<item><title>old post</title><dc:creator>@someone</dc:creator>
+<description>&lt;p&gt;hello&lt;/p&gt;</description>
+<pubDate>Fri, 23 Oct 2026 05:50:22 GMT</pubDate>
+<guid>https://n.example/someone/status/123#m</guid>
+<link>https://n.example/someone/status/123#m</link></item>
+</channel></rss>`)
+	tweets, err := parseRSS(body, "https://n.example", "someone")
+	if err != nil {
+		t.Fatalf("parseRSS: %v", err)
+	}
+	if got := tweets[0].ID; got != "123" {
+		t.Errorf("id = %q, want the numeric status id", got)
+	}
+	if got, want := tweets[0].URL, "https://x.com/someone/status/123"; got != want {
+		t.Errorf("url = %q, want %q", got, want)
+	}
+	if strings.Contains(tweets[0].URL, "n.example") {
+		t.Errorf("mirror host leaked into tweet URL: %s", tweets[0].URL)
+	}
+}
+
 func TestRewriteLinksKeepsImageHosts(t *testing.T) {
 	in := `<p><a href="https://n.example.test/bot">@Bot</a>` +
 		`<img src="https://pbs.twimg.com/media/x.jpg"/></p>` +

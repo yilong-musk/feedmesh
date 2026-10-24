@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/cache"
@@ -59,6 +60,43 @@ type Service struct {
 	group   *guard.Group
 	ttls    TTLs
 	now     func() time.Time
+
+	listMu    sync.Mutex
+	listLocks map[string]*keyedMutex
+}
+
+// keyedMutex serialises cache reads and writes for one list key. Locks are
+// reference counted so the map does not grow with every account ever requested.
+type keyedMutex struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lockListKey blocks until the caller owns the lock for key and returns the
+// matching unlock function.
+func (s *Service) lockListKey(key string) func() {
+	s.listMu.Lock()
+	if s.listLocks == nil {
+		s.listLocks = make(map[string]*keyedMutex)
+	}
+	lock := s.listLocks[key]
+	if lock == nil {
+		lock = &keyedMutex{}
+		s.listLocks[key] = lock
+	}
+	lock.refs++
+	s.listMu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		s.listMu.Lock()
+		lock.refs--
+		if lock.refs == 0 && s.listLocks[key] == lock {
+			delete(s.listLocks, key)
+		}
+		s.listMu.Unlock()
+	}
 }
 
 // NewService wires a Service.
@@ -382,6 +420,13 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 	if want < 1 {
 		want = 1
 	}
+	// Cache read/widen/write must be atomic per key. With only single-flight
+	// keyed by width, a narrow and a wide request could both miss, then write
+	// in the wrong order and truncate the wider entry (refresh used to skip the
+	// wider-entry merge entirely).
+	unlock := s.lockListKey(key)
+	defer unlock()
+
 	if refresh {
 		// Refresh deliberately bypasses the old values, but keep the cache at
 		// least as wide as the entry being replaced. Otherwise a small-limit

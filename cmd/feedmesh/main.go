@@ -110,7 +110,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if o.help || cmd == "help" || cmd == "" {
-		printHelp(stdout)
+		if err := printHelp(stdout); err != nil {
+			logger.Error("help output failed", "error", err.Error())
+			return exitOther
+		}
 		return exitOK
 	}
 
@@ -466,7 +469,9 @@ func cmdVersion(o *options, stdout io.Writer) int {
 		}
 		return exitOK
 	}
-	fmt.Fprintf(stdout, "feedmesh %s (%s/%s, %s)\n", info.Version, info.OS, info.Arch, info.Go)
+	if _, err := fmt.Fprintf(stdout, "feedmesh %s (%s/%s, %s)\n", info.Version, info.OS, info.Arch, info.Go); err != nil {
+		return exitOther
+	}
 	return exitOK
 }
 
@@ -584,7 +589,10 @@ func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
 			if st.Error != "" {
 				line += "  " + st.Error
 			}
-			fmt.Fprintln(stdout, line)
+			if _, err := fmt.Fprintln(stdout, line); err != nil {
+				logger.Error("doctor output failed", "error", err.Error())
+				return exitOther
+			}
 		}
 	}
 
@@ -705,15 +713,17 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 				}
 				if strings.HasPrefix(ki.Key, "domain_") {
 					var cachedUID string
-					if hit, err := c.Peek(ki.Key, &cachedUID); err == nil && hit && cachedUID == uid {
+					if hit, err := c.PeekStored(ki.Key, &cachedUID); err == nil && hit && cachedUID == uid {
 						add(ki.Key)
 					}
 				}
 			}
 			// Long-text entries are keyed by status id, so recover the ids
-			// from the timeline we are about to delete.
+			// from the timeline we are about to delete. PeekStored ignores the
+			// TTL: an expired timeline still names long-text entries that must
+			// be removed by this targeted purge.
 			var tl weibo.Timeline
-			if hit, err := c.Peek("timeline:"+uid, &tl); err == nil && hit {
+			if hit, err := c.PeekStored("timeline:"+uid, &tl); err == nil && hit {
 				for _, id := range longTextIDs(tl.Items) {
 					add("longtext_" + id)
 				}
@@ -903,7 +913,7 @@ func cmdServe(o *options, stdout io.Writer, logger *logx.Logger) int {
 
 // ------------------------------------------------------------------- help text
 
-func printHelp(w io.Writer) {
+func printHelp(w io.Writer) error {
 	help := `feedmesh — multi-source content to RSS (single binary, no dependencies)
 
 USAGE
@@ -958,5 +968,6 @@ EXAMPLES
   feedmesh cache purge --uid 2803301701 --dry-run --json
   feedmesh serve --listen 127.0.0.1:3000
 `
-	fmt.Fprint(w, help)
+	_, err := fmt.Fprint(w, help)
+	return err
 }

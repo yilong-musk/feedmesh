@@ -300,21 +300,50 @@ func (c *Client) do(ctx context.Context, rawURL, referer string, mode requestMod
 	if c.cfg.Breaker != nil {
 		allowed, admittedProbe := c.cfg.Breaker.AllowRequest()
 		if !allowed {
-			return nil, 0, "", &Error{Code: CodeBreakerOpen,
-				Message: "upstream circuit breaker is open after a block; retry later"}
+			return nil, 0, "", breakerOpenError()
 		}
 		probe = admittedProbe
-		if probe {
-			defer c.cfg.Breaker.AbortProbe()
-		}
+	}
+	if c.cfg.Breaker != nil {
+		// The probe may also be admitted during a retry, so decide at return
+		// time whether it still needs releasing.
+		defer func() {
+			if probe {
+				c.cfg.Breaker.AbortProbe()
+			}
+		}()
 	}
 
 	attempts := c.cfg.Retries + 1
 	var lastErr error
 	cookieRetried := false
 
+	// checkBreaker is called before each retry. A visitor 418/403 opens the
+	// breaker from inside send; without this check the remaining attempts would
+	// keep hammering both the visitor and the timeline endpoints.
+	checkBreaker := func() error {
+		if c.cfg.Breaker == nil {
+			return nil
+		}
+		if c.cfg.Breaker.State().Open {
+			return breakerOpenError()
+		}
+		if probe {
+			return nil
+		}
+		allowed, admittedProbe := c.cfg.Breaker.AllowRequest()
+		if !allowed {
+			return breakerOpenError()
+		}
+		probe = admittedProbe
+		return nil
+	}
+
 	for i := 0; i < attempts; i++ {
 		if i > 0 {
+			if err := checkBreaker(); err != nil {
+				return nil, 0, "", err
+			}
 			delay := c.cfg.Backoff
 			for j := 1; j < i; j++ {
 				delay *= 2
@@ -328,12 +357,20 @@ func (c *Client) do(ctx context.Context, rawURL, referer string, mode requestMod
 				}
 				return nil, 0, "", timeoutError(ctx, "during retry backoff")
 			}
+			// The breaker may have opened while we were sleeping.
+			if err := checkBreaker(); err != nil {
+				return nil, 0, "", err
+			}
 		}
 
 		body, status, finalURL, err := c.send(ctx, rawURL, referer, mode)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, 0, "", timeoutError(ctx, "request cancelled")
+			}
+			if code := CodeOf(err); code == CodeUpstreamBlocked || code == CodeBreakerOpen {
+				// fetchVisitor trips the breaker itself; never retry a block.
+				return nil, StatusOf(err), "", err
 			}
 			lastErr = err
 			c.cfg.Log.Debug("upstream transport error", "url", rawURL, "attempt", i+1, "error", err.Error())
@@ -342,7 +379,7 @@ func (c *Client) do(ctx context.Context, rawURL, referer string, mode requestMod
 
 		switch {
 		case status == http.StatusTeapot || status == http.StatusForbidden:
-			if !cookieRetried {
+			if !cookieRetried && i+1 < attempts {
 				cookieRetried = true
 				c.cfg.Log.Warn("upstream blocked, refreshing visitor cookie", "status", status, "url", rawURL)
 				c.invalidateCookie()
@@ -375,6 +412,11 @@ func (c *Client) do(ctx context.Context, rawURL, referer string, mode requestMod
 		return nil, 0, "", networkError(ctx, lastErr)
 	}
 	return nil, 0, "", &Error{Code: CodeNetwork, Message: "upstream request failed"}
+}
+
+func breakerOpenError() *Error {
+	return &Error{Code: CodeBreakerOpen,
+		Message: "upstream circuit breaker is open after a block; retry later"}
 }
 
 func (c *Client) send(ctx context.Context, rawURL, referer string, mode requestMode) ([]byte, int, string, error) {

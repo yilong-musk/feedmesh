@@ -28,9 +28,9 @@ RSS 2.0 + Media RSS / JSON
 - 布局：一个 key 一个 JSON 文件，文件名由 key 净化（`profile:2803301701` → `profile_2803301701.json`）。
 - 权限：目录 0700，文件 0600；拒绝符号链接形式的缓存目录。
 - 原子写：临时文件 → `fsync` → `rename`；并发写有互斥锁，读方看不到半截文件。
-- 过期条目在启动时及服务运行期间每小时由 `GC()` 清理；读取时也会判定为 miss 并删除。损坏条目（非 JSON）读取时视为 miss；`GC()` 不会仅凭文件名前缀删除无法验证的损坏文件，并会清理超过 1 小时的 `.json.tmp*` 临时文件。
-- 清理范围：`cache purge --all` 只删除能验证 `Entry.Key` 与文件名对应的 feedmesh 条目，不会误删同目录下其他 `.json` 文件；`--uid` 删除 `longtext_<uid>_*`，并额外读取旧版 timeline 收集 longtext id、扫描 domain 条目；`--handle` 删除对应 X 时间线。
-- **limit 感知**：列表类缓存记录 `{items, want}`；请求条数大于已缓存宽度时回源并加宽，小 `limit` 不会把大 `limit` 的缓存截断；`refresh=1` 也会保持已有宽度并写入新数据。
+- 过期条目在启动时及服务运行期间每小时由 `GC()` 清理；读取时也会判定为 miss 并删除。损坏条目（非 JSON）或无法通过 `Entry.Key` 验证归属的文件读取时视为 miss，且不会被删除；`GC()` 同样不会仅凭文件名前缀删除无法验证的文件，并会清理超过 1 小时的 `.json.tmp*` 临时文件。`GC()` 删除前会重新读取并比对内容，避免删掉另一个进程刚写入的新条目。
+- 清理范围：`cache purge --all` 只删除能验证 `Entry.Key` 与文件名对应的 feedmesh 条目，不会误删同目录下其他 `.json` 文件；`--uid` 删除 `longtext_<uid>_*`，并额外读取旧版 timeline 收集 longtext id、扫描 domain 条目（发现阶段忽略过期时间，因此过期的 domain/timeline 也会被清理）；`--handle` 删除对应 X 时间线。
+- **limit 感知**：列表类缓存记录 `{items, want}`；请求条数大于已缓存宽度时回源并加宽，小 `limit` 不会把大 `limit` 的缓存截断；`refresh=1` 也会保持已有宽度并写入新数据。读取/加宽/写回按 key 串行化，避免不同 limit 的并发请求把缓存改窄。
 
 | key | TTL |
 |---|---|

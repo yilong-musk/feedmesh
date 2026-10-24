@@ -99,19 +99,42 @@ func managedEntry(e Entry, stem string) bool {
 }
 
 func (c *Cache) readEntry(key string) (Entry, bool) {
-	p, err := c.path(key)
+	e, _, _, ok, err := c.readStored(key)
 	if err != nil {
 		return Entry{}, false
 	}
-	raw, err := os.ReadFile(p)
+	return e, ok
+}
+
+// readStored loads the entry for key without checking expiry. raw is the exact
+// file contents, so a caller can remove the file only when it still matches.
+// Corrupt JSON is reported as a miss with ok=false; raw is still returned so
+// callers can distinguish it from a missing file without deleting it.
+func (c *Cache) readStored(key string) (e Entry, raw []byte, p string, ok bool, err error) {
+	p, err = c.path(key)
 	if err != nil {
-		return Entry{}, false
+		return Entry{}, nil, "", false, err
 	}
-	var e Entry
+	raw, err = os.ReadFile(p)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return Entry{}, nil, p, false, nil
+		}
+		return Entry{}, nil, p, false, err
+	}
 	if err := json.Unmarshal(raw, &e); err != nil {
-		return Entry{}, false
+		return Entry{}, raw, p, false, nil
 	}
-	return e, true
+	return e, raw, p, true, nil
+}
+
+// entryMatches reports whether e was written by this cache for key. A shared
+// cache directory can contain unrelated JSON files whose names happen to map
+// to one of our keys; only trust a file whose Entry.Key maps back to the same
+// filename.
+func entryMatches(e Entry, key string) bool {
+	safe := SafeKey(key)
+	return safe != "" && SafeKey(e.Key) == safe
 }
 
 // ListManaged enumerates entries that verify as feedmesh cache entries. Files
@@ -182,13 +205,15 @@ func (c *Cache) GC() (int, error) {
 		if !ManagedKey(stem) {
 			continue
 		}
-		e, ok := c.readEntry(stem)
-		if !ok || !managedEntry(e, stem) {
+		e, raw, p, ok, rerr := c.readStored(stem)
+		if rerr != nil || !ok || !managedEntry(e, stem) {
 			continue
 		}
 		if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
-			p := filepath.Join(c.dir, name)
-			if os.Remove(p) == nil {
+			// Another process may have replaced the expired file since we read
+			// it. Delete only the exact bytes we judged expired, otherwise a
+			// concurrent Set would lose its fresh entry.
+			if removeFileIfUnchanged(p, raw) {
 				removed++
 			}
 		}
@@ -222,39 +247,33 @@ func (c *Cache) path(key string) (string, error) {
 	return filepath.Join(c.dir, name+".json"), nil
 }
 
-// removeIfUnchanged removes p only when its contents still match raw. Get reads
-// a file before deciding to drop it; a concurrent Set may rename a fresh entry
-// into the same path in between, and an unconditional remove would delete that
-// fresh entry.
+// removeFileIfUnchanged removes p only when its contents still match raw. A
+// concurrent writer (even in another process) may have renamed a fresh entry
+// into the same path in between; an unconditional remove would delete it.
+func removeFileIfUnchanged(p string, raw []byte) bool {
+	current, err := os.ReadFile(p)
+	if err != nil || !bytes.Equal(current, raw) {
+		return false
+	}
+	return os.Remove(p) == nil
+}
+
+// removeIfUnchanged is the in-process locked variant of removeFileIfUnchanged.
 func (c *Cache) removeIfUnchanged(p string, raw []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	current, err := os.ReadFile(p)
-	if err != nil || !bytes.Equal(current, raw) {
-		return
-	}
-	_ = os.Remove(p)
+	_ = removeFileIfUnchanged(p, raw)
 }
 
 // Get decodes a fresh entry into out. The boolean reports a hit; expired and
 // unreadable entries are misses, and expired files are removed best-effort.
+// Files that do not verify as an entry for key are left untouched.
 func (c *Cache) Get(key string, out any) (bool, time.Time, error) {
-	p, err := c.path(key)
+	e, raw, p, ok, err := c.readStored(key)
 	if err != nil {
 		return false, time.Time{}, err
 	}
-	raw, err := os.ReadFile(p)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, time.Time{}, nil
-		}
-		return false, time.Time{}, err
-	}
-	var e Entry
-	if err := json.Unmarshal(raw, &e); err != nil {
-		// A corrupt entry is disposable: drop it and report a miss rather than
-		// failing the caller's request.
-		c.removeIfUnchanged(p, raw)
+	if !ok || !entryMatches(e, key) {
 		return false, time.Time{}, nil
 	}
 	if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
@@ -274,22 +293,25 @@ func (c *Cache) Get(key string, out any) (bool, time.Time, error) {
 // read-only paths such as `cache purge --dry-run`, where even an expired file
 // must remain untouched.
 func (c *Cache) Peek(key string, out any) (bool, error) {
-	p, err := c.path(key)
+	return c.peek(key, out, false)
+}
+
+// PeekStored decodes an entry regardless of its expiry, without deleting it.
+// Maintenance paths use it to inspect entries that are about to be purged even
+// after they have expired. Ownership is still verified.
+func (c *Cache) PeekStored(key string, out any) (bool, error) {
+	return c.peek(key, out, true)
+}
+
+func (c *Cache) peek(key string, out any, includeExpired bool) (bool, error) {
+	e, _, _, ok, err := c.readStored(key)
 	if err != nil {
 		return false, err
 	}
-	raw, err := os.ReadFile(p)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	var e Entry
-	if err := json.Unmarshal(raw, &e); err != nil {
+	if !ok || !entryMatches(e, key) {
 		return false, nil
 	}
-	if !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
+	if !includeExpired && !e.ExpiresAt.IsZero() && !time.Now().Before(e.ExpiresAt) {
 		return false, nil
 	}
 	if out != nil {

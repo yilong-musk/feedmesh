@@ -167,6 +167,113 @@ func TestBlockTripsBreakerAndShortCircuits(t *testing.T) {
 	}
 }
 
+func TestVisitorBlockIsNotRetried(t *testing.T) {
+	var visitorHits atomic.Int32
+	srv := fakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/visitor" {
+			visitorHits.Add(1)
+			w.WriteHeader(http.StatusTeapot)
+			return
+		}
+		t.Errorf("unexpected upstream call to %s", r.URL.Path)
+	})
+
+	breaker := guard.NewBreaker(10 * time.Minute)
+	c := weibo.New(weibo.Config{
+		BaseURL:    srv.URL,
+		VisitorURL: srv.URL + "/visitor",
+		Timeout:    2 * time.Second,
+		Backoff:    5 * time.Millisecond,
+		Breaker:    breaker,
+	})
+
+	_, err := c.Profile(context.Background(), "1")
+	if code := weibo.CodeOf(err); code != weibo.CodeUpstreamBlocked {
+		t.Fatalf("code = %q, want UPSTREAM_BLOCKED", code)
+	}
+	if got := visitorHits.Load(); got != 1 {
+		t.Fatalf("visitor hits = %d, want 1 (a block must not be retried)", got)
+	}
+	if !breaker.State().Open {
+		t.Fatal("breaker must be open after the visitor block")
+	}
+}
+
+func TestBlockOnFinalAttemptIsReported(t *testing.T) {
+	var timelineHits atomic.Int32
+	srv := fakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/visitor":
+			http.SetCookie(w, &http.Cookie{Name: "SUB", Value: "x", Path: "/"})
+			fmt.Fprint(w, `{"retcode":20000000}`)
+		case "/api/container/getIndex":
+			if timelineHits.Add(1) == 1 {
+				http.Error(w, "temporary", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusTeapot)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	breaker := guard.NewBreaker(10 * time.Minute)
+	c := weibo.New(weibo.Config{
+		BaseURL:    srv.URL,
+		VisitorURL: srv.URL + "/visitor",
+		Timeout:    2 * time.Second,
+		Retries:    1,
+		Backoff:    5 * time.Millisecond,
+		Breaker:    breaker,
+	})
+
+	_, err := c.Profile(context.Background(), "1")
+	if code := weibo.CodeOf(err); code != weibo.CodeUpstreamBlocked {
+		t.Fatalf("code = %q, want UPSTREAM_BLOCKED on the final attempt", code)
+	}
+	if got := timelineHits.Load(); got != 2 {
+		t.Fatalf("timeline hits = %d, want 2", got)
+	}
+	if !breaker.State().Open {
+		t.Fatal("a block on the final attempt must trip the breaker")
+	}
+}
+
+func TestRetryStopsWhenBreakerOpens(t *testing.T) {
+	breaker := guard.NewBreaker(10 * time.Minute)
+	var timelineHits atomic.Int32
+	srv := fakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/visitor":
+			http.SetCookie(w, &http.Cookie{Name: "SUB", Value: "x", Path: "/"})
+			fmt.Fprint(w, `{"retcode":20000000}`)
+		case "/api/container/getIndex":
+			timelineHits.Add(1)
+			breaker.Trip()
+			http.Error(w, "upstream failed", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	c := weibo.New(weibo.Config{
+		BaseURL:    srv.URL,
+		VisitorURL: srv.URL + "/visitor",
+		Timeout:    2 * time.Second,
+		Retries:    2,
+		Backoff:    time.Millisecond,
+		Breaker:    breaker,
+	})
+
+	_, err := c.Profile(context.Background(), "1")
+	if code := weibo.CodeOf(err); code != weibo.CodeBreakerOpen {
+		t.Fatalf("code = %q, want BREAKER_OPEN", code)
+	}
+	if got := timelineHits.Load(); got != 1 {
+		t.Fatalf("timeline hits = %d, want 1 (retry must stop once the breaker opens)", got)
+	}
+}
+
 func TestLongTextAndFallback(t *testing.T) {
 	srv := fakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -250,5 +357,7 @@ func TestResolveDomain(t *testing.T) {
 
 	if _, err := c.ResolveDomain(context.Background(), "no-such-domain"); err == nil {
 		t.Fatal("expected an error for an unknown domain")
+	} else if code := weibo.CodeOf(err); code != weibo.CodeUserNotFound {
+		t.Fatalf("unknown domain code = %q, want USER_NOT_FOUND", code)
 	}
 }

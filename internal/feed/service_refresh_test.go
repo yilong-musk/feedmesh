@@ -84,3 +84,78 @@ func TestFetchCachedListRefreshReplacesWiderCache(t *testing.T) {
 		t.Fatalf("shrinking refresh returned %v", shrunk)
 	}
 }
+
+// A narrow refresh that starts while the cache is empty must not overwrite a
+// wider entry written by a concurrent refresh. Before per-key serialisation,
+// refresh skipped the wider-entry merge and the last writer won.
+func TestConcurrentRefreshDoesNotNarrowCache(t *testing.T) {
+	c, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(Clients{}, c, nil, TTLs{})
+	ctx := context.Background()
+
+	items := func(version string, n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = fmt.Sprintf("%s-%d", version, i)
+		}
+		return out
+	}
+
+	type result struct {
+		items []string
+		err   error
+	}
+	narrowEntered := make(chan struct{})
+	releaseNarrow := make(chan struct{})
+	narrowDone := make(chan result, 1)
+	wideDone := make(chan result, 1)
+
+	go func() {
+		got, _, ferr := fetchCachedList(ctx, svc, "test:race", time.Hour, true, 5,
+			func(n int) ([]string, error) {
+				close(narrowEntered)
+				<-releaseNarrow
+				return items("narrow", n), nil
+			})
+		narrowDone <- result{got, ferr}
+	}()
+	<-narrowEntered
+
+	go func() {
+		got, _, ferr := fetchCachedList(ctx, svc, "test:race", time.Hour, true, 20,
+			func(n int) ([]string, error) { return items("wide", n), nil })
+		wideDone <- result{got, ferr}
+	}()
+
+	// Give the wide refresh time to finish its write under the old code. With
+	// per-key serialisation it is still waiting for the narrow refresh.
+	var early *result
+	select {
+	case r := <-wideDone:
+		early = &r
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	close(releaseNarrow)
+	narrow := <-narrowDone
+	var wide result
+	if early != nil {
+		wide = *early
+	} else {
+		wide = <-wideDone
+	}
+	if narrow.err != nil || wide.err != nil {
+		t.Fatalf("refresh errors: narrow=%v wide=%v", narrow.err, wide.err)
+	}
+
+	var stored cachedList[string]
+	if ok, _, err := c.Get("test:race", &stored); err != nil || !ok {
+		t.Fatalf("stored entry = %v, %v", ok, err)
+	}
+	if stored.Want < 20 || len(stored.Items) < 20 {
+		t.Fatalf("concurrent refresh narrowed the cache: want=%d items=%d", stored.Want, len(stored.Items))
+	}
+}

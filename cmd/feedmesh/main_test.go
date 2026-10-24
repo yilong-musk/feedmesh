@@ -312,6 +312,47 @@ func TestCachePurgeUIDIsPrecise(t *testing.T) {
 	}
 }
 
+func TestCachePurgeUIDIncludesExpiredEntries(t *testing.T) {
+	dir := t.TempDir()
+	c, err := cache.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired := time.Millisecond
+	timeline := weibo.Timeline{Items: []*weibo.MBlog{{ID: "1001", IsLongText: true}}}
+	for key, value := range map[string]any{
+		"profile:2803301701":       "p",
+		"domain:example":           "2803301701",
+		"timeline:2803301701":      timeline,
+		"longtext:1001":            "old long text",
+		"longtext:2803301701:1002": "new long text",
+	} {
+		ttl := expired
+		if key == "profile:2803301701" {
+			ttl = time.Hour
+		}
+		if err := c.Set(key, value, ttl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	var out, errBuf bytes.Buffer
+	if code := run([]string{"cache", "purge", "--uid", "2803301701", "--json", "--cache-dir", dir}, &out, &errBuf); code != exitOK {
+		t.Fatalf("exit = %d, stderr = %s", code, errBuf.String())
+	}
+	var result purgeResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Entries != 5 || result.Deleted != 5 {
+		t.Fatalf("purge result = %+v, want all five entries including expired ones", result)
+	}
+	if st, _ := c.Stat(); st.Entries != 0 {
+		t.Fatalf("entries left after purge = %d", st.Entries)
+	}
+}
+
 func TestCachePurgeRequiresScope(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	code := run([]string{"cache", "purge", "--json", "--cache-dir", t.TempDir()}, &out, &errBuf)
@@ -343,6 +384,20 @@ func TestCacheStatPlainText(t *testing.T) {
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("output closed") }
+
+func TestVersionAndHelpWriteFailuresExitNonZero(t *testing.T) {
+	var errBuf bytes.Buffer
+	if code := run([]string{"version"}, failingWriter{}, &errBuf); code != exitOther {
+		t.Fatalf("version exit = %d, want %d", code, exitOther)
+	}
+	errBuf.Reset()
+	if code := run([]string{"help"}, failingWriter{}, &errBuf); code != exitOther {
+		t.Fatalf("help exit = %d, want %d", code, exitOther)
+	}
+	if !strings.Contains(errBuf.String(), "help output failed") {
+		t.Fatalf("help failure was not logged: %q", errBuf.String())
+	}
+}
 
 func TestCacheJSONWriteFailureExitsNonZero(t *testing.T) {
 	dir := t.TempDir()

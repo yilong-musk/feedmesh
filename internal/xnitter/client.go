@@ -220,6 +220,29 @@ func (c *Client) dialContext(ctx context.Context, network, addr string) (net.Con
 	return nil, fmt.Errorf("refusing to connect to non-public host %q", host)
 }
 
+// nonPublicIPv6Prefixes are IPv6 transition and reserved ranges that
+// net.IP considers global unicast. NAT64 can embed a private IPv4 target
+// (64:ff9b::169.254.169.254), so treat these prefixes as non-public too.
+var nonPublicIPv6Prefixes = func() []*net.IPNet {
+	cidrs := []string{
+		"64:ff9b::/96",   // well-known NAT64
+		"64:ff9b:1::/48", // local-use NAT64
+		"2002::/16",      // 6to4
+		"2001::/32",      // Teredo
+		"100::/64",       // discard-only
+		"2001:db8::/32",  // documentation
+		"3fff::/20",      // documentation
+	}
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err == nil {
+			out = append(out, network)
+		}
+	}
+	return out
+}()
+
 // isPublicIP rejects addresses that a directory-poisoning attacker could use to
 // reach the host or its private network.
 func isPublicIP(ip net.IP) bool {
@@ -229,6 +252,13 @@ func isPublicIP(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
 		ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return false
+	}
+	if ip.To4() == nil {
+		for _, network := range nonPublicIPv6Prefixes {
+			if network.Contains(ip) {
+				return false
+			}
+		}
 	}
 	if ip4 := ip.To4(); ip4 != nil {
 		switch {
@@ -682,9 +712,14 @@ func parseRSS(body []byte, base, handle string) ([]Tweet, error) {
 	}
 	out := make([]Tweet, 0, len(doc.Channel.Items))
 	for _, it := range doc.Channel.Items {
-		id := strings.TrimSpace(it.GUID)
-		if id == "" {
-			id = statusID(it.Link)
+		// Nitter only emits a numeric <guid> for recent statuses. Older items
+		// carry the full mirror URL, sometimes with a trailing "#m", so prefer
+		// the status id from <link> and use <guid> only when it is itself
+		// numeric.
+		guid := strings.TrimSpace(it.GUID)
+		id := statusID(it.Link)
+		if id == "" && numericIDRe.MatchString(guid) {
+			id = guid
 		}
 		if id == "" {
 			continue
@@ -713,6 +748,8 @@ func parseRSS(body []byte, base, handle string) ([]Tweet, error) {
 }
 
 var statusRe = regexp.MustCompile(`/status/(\d+)`)
+
+var numericIDRe = regexp.MustCompile(`^\d+$`)
 
 func statusID(link string) string {
 	if m := statusRe.FindStringSubmatch(link); m != nil {
