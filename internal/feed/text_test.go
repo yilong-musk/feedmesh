@@ -80,7 +80,7 @@ func TestItemTitleTruncatesTo25Runes(t *testing.T) {
 }
 
 func TestItemTitleEmptyText(t *testing.T) {
-	if got := feed.ItemTitle("", "   "); got != "(无正文)" {
+	if got := feed.ItemTitle("", "   "); got != "(no content)" {
 		t.Fatalf("got %q", got)
 	}
 }

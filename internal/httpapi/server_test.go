@@ -393,10 +393,10 @@ func TestHotRoutes(t *testing.T) {
 		t.Fatalf("/rss/hot content-type = %q", ct)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "<title>微博热搜</title>") {
+	if !strings.Contains(body, "<title>Weibo Hot Search</title>") {
 		t.Fatalf("/rss/hot missing channel title:\n%s", body)
 	}
-	if !strings.Contains(body, "热度 148.9 万") {
+	if !strings.Contains(body, "Heat 1.5M") {
 		t.Fatalf("/rss/hot missing heat line:\n%s", body)
 	}
 
@@ -408,6 +408,7 @@ func TestHotRoutes(t *testing.T) {
 		Title string `json:"title"`
 		Items []struct {
 			Rank  int    `json:"rank"`
+			Heat  int64  `json:"heat"`
 			Title string `json:"title"`
 			URL   string `json:"url"`
 		} `json:"items"`
@@ -415,10 +416,10 @@ func TestHotRoutes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode /api/v1/hot: %v", err)
 	}
-	if out.Title != "微博热搜" || len(out.Items) != 2 {
+	if out.Title != "Weibo Hot Search" || len(out.Items) != 2 {
 		t.Fatalf("/api/v1/hot = %+v", out)
 	}
-	if out.Items[0].Rank != 1 || out.Items[0].Title != "1. 小城良方 剧情硬伤" {
+	if out.Items[0].Rank != 1 || out.Items[0].Heat != 1488601 || out.Items[0].Title != "1. 小城良方 剧情硬伤" {
 		t.Fatalf("/api/v1/hot first item = %+v", out.Items[0])
 	}
 
@@ -445,7 +446,7 @@ func TestSspaiRoutes(t *testing.T) {
 		t.Fatalf("/rss/sspai content-type = %q", ct)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"<title>少数派</title>", "少数派正文", "https://sspai.com/post/3001"} {
+	for _, want := range []string{"<title>sspai</title>", "少数派正文", "https://sspai.com/post/3001"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("/rss/sspai missing %q:\n%s", want, body)
 		}
@@ -467,7 +468,7 @@ func TestSspaiRoutes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.Title != "少数派" || len(out.Items) != 1 || out.Items[0].Title != "少数派文章" {
+	if out.Title != "sspai" || len(out.Items) != 1 || out.Items[0].Title != "少数派文章" {
 		t.Fatalf("api = %+v", out)
 	}
 	if len(out.Items[0].Images) != 1 {
@@ -483,7 +484,7 @@ func TestV2exRoutes(t *testing.T) {
 		t.Fatalf("/rss/v2ex status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "<title>V2EX 最新</title>") || !strings.Contains(body, "V2EX 正文") {
+	if !strings.Contains(body, "<title>V2EX Latest</title>") || !strings.Contains(body, "V2EX 正文") {
 		t.Fatalf("/rss/v2ex body unexpected:\n%s", body)
 	}
 
@@ -492,7 +493,7 @@ func TestV2exRoutes(t *testing.T) {
 		t.Fatalf("/rss/v2ex/hot status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	body = rec.Body.String()
-	if !strings.Contains(body, "<title>V2EX 最热</title>") || !strings.Contains(body, "热帖1") {
+	if !strings.Contains(body, "<title>V2EX Hot</title>") || !strings.Contains(body, "热帖1") {
 		t.Fatalf("/rss/v2ex/hot body unexpected:\n%s", body)
 	}
 	if strings.Index(body, "热帖1") > strings.Index(body, "热帖3") {
@@ -512,7 +513,7 @@ func TestV2exRoutes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.Title != "V2EX 最热" || len(out.Items) != 2 {
+	if out.Title != "V2EX Hot" || len(out.Items) != 2 {
 		t.Fatalf("api = %+v", out)
 	}
 }

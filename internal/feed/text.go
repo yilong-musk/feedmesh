@@ -47,7 +47,7 @@ func ItemTitle(statusTitle, plainText string) string {
 	}
 	text := strings.TrimSpace(wsRun.ReplaceAllString(plainText, " "))
 	if text == "" {
-		return "(无正文)"
+		return "(no content)"
 	}
 	return Truncate(text, 25)
 }

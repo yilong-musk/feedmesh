@@ -74,7 +74,7 @@ func TestGetV2exLatest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetV2ex: %v", err)
 	}
-	if f.Title() != "V2EX 最新" || f.Link() != "https://www.v2ex.com" {
+	if f.Title() != "V2EX Latest" || f.Link() != "https://www.v2ex.com" {
 		t.Fatalf("feed meta = %q / %q", f.Title(), f.Link())
 	}
 	if len(f.Items) != 5 {
@@ -97,7 +97,7 @@ func TestGetV2exHotSortsByReplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetV2ex hot: %v", err)
 	}
-	if f.Title() != "V2EX 最热" {
+	if f.Title() != "V2EX Hot" {
 		t.Fatalf("title = %q", f.Title())
 	}
 	if len(f.Items) != 5 {
@@ -106,7 +106,7 @@ func TestGetV2exHotSortsByReplies(t *testing.T) {
 	if f.Items[0].Title != "热帖1" {
 		t.Fatalf("first item = %q, want the 40-reply topic", f.Items[0].Title)
 	}
-	if !strings.Contains(f.Items[0].HTML, "40 条回复") || !strings.Contains(f.Items[0].HTML, "#程序员") {
+	if !strings.Contains(f.Items[0].HTML, "40 replies") || !strings.Contains(f.Items[0].HTML, "#程序员") {
 		t.Fatalf("hot meta missing: %s", f.Items[0].HTML)
 	}
 }

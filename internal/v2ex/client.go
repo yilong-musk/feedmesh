@@ -168,10 +168,14 @@ func (c *Client) Hot(ctx context.Context, limit int) ([]Article, error) {
 	return finishHot(items, limit), nil
 }
 
+// promotedNode is the upstream node title that marks advertising posts. It is
+// upstream data, not prose, so it stays in its original form.
+const promotedNode = "推广" // i18n-ignore: upstream data
+
 func finishHot(items []Article, limit int) []Article {
 	kept := items[:0]
 	for _, a := range items {
-		if a.Node == "推广" {
+		if a.Node == promotedNode {
 			continue
 		}
 		kept = append(kept, a)

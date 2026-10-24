@@ -6,7 +6,7 @@ CGO_ENABLED ?= 0
 VERSION := $(shell git describe --tags --always 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: all build test vet fmt check install clean run
+.PHONY: all build test vet fmt lang check install clean run
 
 all: check build
 
@@ -22,7 +22,10 @@ vet:
 fmt:
 	gofmt -l -w .
 
-check: vet test
+lang:
+	python3 scripts/check_language.py
+
+check: vet test lang
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
 
 install: build

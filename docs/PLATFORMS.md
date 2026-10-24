@@ -1,119 +1,119 @@
-# 支持的平台
+# Supported platforms
 
-当前接入 **4 个平台、6 类内容**。每个平台下列出它支持的内容与对应接口；新增平台只需加一个 provider，见文末。
+**4 platforms and 6 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
-| 平台 | 支持的内容 | RSS | JSON |
+| Platform | Content | RSS | JSON |
 |---|---|---|---|
-| <img src="assets/weibo.png" width="20" height="20" alt="微博"> **微博** | 账号时间线 | `/rss/user/{uid}`<br>`/rss/domain/{name}` | `/api/v1/feed?uid=` |
-| <img src="assets/weibo.png" width="20" height="20" alt="微博"> **微博** | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
-| <img src="assets/sspai.png" width="20" height="20" alt="少数派"> **少数派** | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
-| <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
-| <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
-| <img src="assets/x.png" width="20" height="20" alt="X"> **X** | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
+| <img src="assets/weibo.png" width="20" height="20" alt="Weibo"> **Weibo** | Account timeline | `/rss/user/{uid}`<br>`/rss/domain/{name}` | `/api/v1/feed?uid=` |
+| <img src="assets/weibo.png" width="20" height="20" alt="Weibo"> **Weibo** | Realtime hot search | `/rss/hot` | `/api/v1/hot` |
+| <img src="assets/sspai.png" width="20" height="20" alt="sspai"> **sspai** | Latest articles | `/rss/sspai` | `/api/v1/sspai` |
+| <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | Latest topics | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
+| <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | Hot topics | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
+| <img src="assets/x.png" width="20" height="20" alt="X"> **X** | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 
-通用参数：`limit`、`refresh=1`（跳过旧值缓存、强制回源，保留缓存宽度）；RSS 路径的 `.xml` 后缀与不带后缀等价。完整契约见 [API.md](API.md)。
-
----
-
-## <img src="assets/weibo.png" width="28" height="28" alt="微博"> 微博
-
-官网 <https://weibo.com> · 数据源 `m.weibo.cn`（visitor cookie，匿名）
-
-| 内容 | RSS | JSON | 默认 | 上限 | 缓存 |
-|---|---|---|---|---|---|
-| 账号时间线 | `/rss/user/{uid}`、`/rss/domain/{name}` | `/api/v1/feed?uid=` | 10 | 10 | 5 分钟 |
-| 实时热搜 | `/rss/hot`、`/rss/hot.xml` | `/api/v1/hot` | 20 | 50 | 5 分钟 |
-
-### 账号时间线
-
-- 参数：`limit` 1–10、`refresh=1`；`domain` 会先解析成 uid。
-- 输出：正文 HTML、配图（大图 + 真实宽高）、转发引用块、长文全文、视频 enclosure、外链卡片。
-- 上游：`container/getIndex`，单页最多 10 条；长文另走 `statuses/extend`（缓存 24 小时）。
-
-### 实时热搜
-
-- 规则：只保留 `realpos` 1–50 的正榜；过滤无 `realpos` 的「荐」推荐位；置顶 `hotgov` 不并入。
-- 名次用 `realpos` 而不是数组下标，推荐位不会让名次错位。
-- `guid` 用搜索 URL，名次变化不会让阅读器重复推送。
-
-### 限制
-
-- 视频直链是**签名 URL，约 1 小时过期**，且要求 `Referer: https://weibo.com/`；长期归档请用 `page_url`。
-- 时间线接口一页最多 10 条，无法通过 `limit` 翻页。
+Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
 ---
 
-## <img src="assets/sspai.png" width="28" height="28" alt="少数派"> 少数派
+## <img src="assets/weibo.png" width="28" height="28" alt="Weibo"> Weibo
 
-官网 <https://sspai.com> · 数据源 sspai.com JSON API（官方 RSS 只有摘要）
+Official site <https://weibo.com> · Data source `m.weibo.cn` (visitor cookie, anonymous)
 
-| 内容 | RSS | JSON | 默认 | 上限 | 缓存 |
+| Content | RSS | JSON | Default | Max | Cache |
 |---|---|---|---|---|---|
-| 最新文章 | `/rss/sspai`、`/rss/sspai.xml` | `/api/v1/sspai` | 10 | 30 | 列表 10 分钟 · 正文 24 小时 |
+| Account timeline | `/rss/user/{uid}`, `/rss/domain/{name}` | `/api/v1/feed?uid=` | 10 | 10 | 5 minutes |
+| Realtime hot search | `/rss/hot`, `/rss/hot.xml` | `/api/v1/hot` | 20 | 50 | 5 minutes |
 
-- 参数：`limit` 1–30、`full=1`（抓正文）、`refresh=1`。
-- 默认输出封面 + 作者 + 摘要；`full=1` 时抓正文并缓存 24 小时，同时补充关键词（列表接口不提供关键词）。
-- 上游较慢：列表 3–7 秒、正文单篇 3–20 秒，因此 `full` 默认关闭。
-- 会员文章只返回摘要，标注「会员文章，仅显示摘要」，不绕过付费墙。
+### Account timeline
+
+- Parameters: `limit` 1–10, `refresh=1`; `domain` is resolved to a uid first.
+- Output: post body HTML, images (large size with real width and height), repost quote block, full text of long posts, video enclosure, external link cards.
+- Upstream: `container/getIndex`, at most 10 posts per page; long posts additionally go through `statuses/extend` (cached for 24 hours).
+
+### Realtime hot search
+
+- Rules: keep only the main ranking with `realpos` 1–50; drop the "Recommended" slots that carry no `realpos`; the pinned `hotgov` entry is not merged in.
+- Ranking uses `realpos` rather than the array index, so recommended slots cannot shift the positions.
+- `guid` uses the search URL, so a rank change does not make readers push the item again.
+
+### Limitations
+
+- Video direct links are **signed URLs that expire in about 1 hour** and require `Referer: https://weibo.com/`; use `page_url` for long-term archiving.
+- The timeline endpoint returns at most 10 posts per page; `limit` cannot page beyond that.
+
+---
+
+## <img src="assets/sspai.png" width="28" height="28" alt="sspai"> sspai
+
+Official site <https://sspai.com> · Data source: sspai.com JSON API (the official RSS only carries summaries)
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Latest articles | `/rss/sspai`, `/rss/sspai.xml` | `/api/v1/sspai` | 10 | 30 | list 10 minutes · body 24 hours |
+
+- Parameters: `limit` 1–30, `full=1` (fetch the article body), `refresh=1`.
+- Default output is cover + author + summary; with `full=1` the body is fetched and cached for 24 hours, and keywords are added (the list API does not return them).
+- The upstream is slow: 3–7 s for the list and 3–20 s per article for the body, so `full` is off by default.
+- Member-only articles return just the summary, labelled "Member-only article; summary shown."; the paywall is not bypassed.
 
 ---
 
 ## <img src="assets/v2ex.png" width="28" height="28" alt="V2EX"> V2EX
 
-官网 <https://www.v2ex.com> · 数据源：官方 Atom + 最热页面解析
+Official site <https://www.v2ex.com> · Data sources: official Atom + hot page scraping
 
-| 内容 | RSS | JSON | 默认 | 上限 | 缓存 |
+| Content | RSS | JSON | Default | Max | Cache |
 |---|---|---|---|---|---|
-| 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` | 20 | 50 | 10 分钟 |
-| 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` | 20 | 50 | 10 分钟 |
+| Latest topics | `/rss/v2ex` | `/api/v1/v2ex?section=latest` | 20 | 50 | 10 minutes |
+| Hot topics | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` | 20 | 50 | 10 minutes |
 
-### 最新主题
+### Latest topics
 
-- 官方 Atom `https://www.v2ex.com/index.xml`，50 条，含完整正文、作者、发布时间。
-- 参数：`limit` 1–50、`refresh=1`。
+- Official Atom `https://www.v2ex.com/index.xml`, 50 entries, with full body, author, and publish time.
+- Parameters: `limit` 1–50, `refresh=1`.
 
-### 最热主题
+### Hot topics
 
-- 官方**没有**最热 feed：解析 `https://www.v2ex.com/?tab=hot`，过滤「推广」节点、按回复数降序。
-- 降级：页面解析不足 5 条时回退 `api/topics/hot.json`（10 条），两条都失败才报错。
-- 参数：`limit` 1–50、`refresh=1`。
+- The official site has **no** hot feed: we scrape `https://www.v2ex.com/?tab=hot`, filter out the "Promotions" node, and sort by reply count descending.
+- Fallback: when page scraping yields fewer than 5 topics, fall back to `api/topics/hot.json` (10 topics); only fail when both paths fail.
+- Parameters: `limit` 1–50, `refresh=1`.
 
 ---
 
-## <img src="assets/x.png" width="28" height="28" alt="X"> X（Twitter）
+## <img src="assets/x.png" width="28" height="28" alt="X"> X (Twitter)
 
-官网 <https://x.com> · 数据源：公共 Nitter 实例的 RSS（匿名，无账号、无 API key）
+Official site <https://x.com> · Data source: RSS from public Nitter instances (anonymous, no account, no API key)
 
-| 内容 | RSS | JSON | 默认 | 上限 | 缓存 |
+| Content | RSS | JSON | Default | Max | Cache |
 |---|---|---|---|---|---|
-| 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` | 20 | 20 | 40 分钟 |
+| Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` | 20 | 20 | 40 minutes |
 
-### 账号时间线
+### Account timeline
 
-- 实例池从 `https://status.d420.de/api/v1/instances` 拉取（筛 `rss=true`、`points ≥ 60`、非 bad host），30 分钟内复用；目录不可用或返回的节点全是私网/非法地址时回退内置列表（kareem.one、meowing.monster、netbub），失败结果缓存 30 秒。
-- 只接受 https、无 userinfo、非 IP 字面量、非 `.local/.internal` 的实例地址；实际拨号时还会校验解析出的 IP 不是 loopback、RFC1918、link-local 等非公网地址，避免第三方目录把请求引向本机或内网。显式配置的实例由运维自行信任。
-- 按得分顺序逐个尝试实例池节点（最多 3 个，单次尝试默认 20 秒、最多 25 秒）；某个实例超时、5xx、返回 0 条都会换下一个。实例池全部失败后仍会尝试内置 fallback。全部失败返回 `UPSTREAM_UNAVAILABLE`（HTTP 504）。
-- 部分实例有 Anubis 人机门（`anubis_challenge` / `preact_info`）：客户端自动解 SHA-256 PoW 并缓存 cookie 后重试，不需要浏览器。
-- 正文里的实例链接会改写成 `https://x.com/...`，并保留 query；Nitter 的 `/pic/` 代理图片会还原成 `pbs.twimg.com`，其他图片域名不改写。
-- 转发条目在标题前标 `🔁`，并去掉 Nitter 原始的 `RT by @user:` 前缀。
-- 参数：`limit` 1–20、`refresh=1`。
+- The instance pool is pulled from `https://status.d420.de/api/v1/instances` (filtered on `rss=true`, `points ≥ 60`, non-bad hosts) and reused for 30 minutes; if the directory is unavailable or every returned node is a private-network or invalid address, it falls back to the built-in list (kareem.one, meowing.monster, netbub), and failed results are cached for 30 seconds.
+- Instance addresses are accepted only if they are https, carry no userinfo, are not IP literals, and are not `.local`/`.internal`; at dial time the resolved IP is also checked to be a public address (not loopback, RFC1918, link-local, and so on), so a third-party directory cannot steer requests at the local host or the internal network. Instances configured explicitly are trusted by the operator.
+- Pool nodes are tried in score order (at most 3; 20 s per attempt by default, 25 s max); a timeout, a 5xx, or 0 returned items moves on to the next instance. After the whole pool fails it still tries the built-in fallback. If everything fails it returns `UPSTREAM_UNAVAILABLE` (HTTP 504).
+- Some instances sit behind an Anubis challenge (`anubis_challenge` / `preact_info`): the client solves the SHA-256 PoW itself, caches the cookie, and retries — no browser required.
+- Instance links in the body are rewritten to `https://x.com/...` with the query preserved; Nitter's `/pic/` image proxy is restored to `pbs.twimg.com`, while other image domains are left alone.
+- Repost entries are prefixed with `🔁` in the title, and Nitter's original `RT by @user:` prefix is stripped.
+- Parameters: `limit` 1–20, `refresh=1`.
 
-### 限制
+### Limitations
 
-- **依赖第三方公益实例**：池子只有个位数健康节点，随时可能整池失效。服务本身不会挂（其余平台不受影响），但 `/rss/x/*` 会返回上游错误。
-- 请按 `<ttl>40</ttl>` 低频轮询（服务端已缓存 40 分钟）；高频抓取会被实例限流。
-- 只覆盖公开账号；受保护账号、仅登录可见内容无法获取。
+- **Depends on third-party volunteer instances**: the pool holds only a handful of healthy nodes and can go down entirely at any time. The service itself stays up (the other platforms are unaffected), but `/rss/x/*` returns an upstream error.
+- Poll at a low rate, honoring `<ttl>40</ttl>` (the server already caches for 40 minutes); aggressive polling gets rate-limited by the instances.
+- Public accounts only; protected accounts and login-only content cannot be fetched.
 
 ---
 
-## 增加一个平台
+## Adding a platform
 
-1. 新建 `internal/<platform>/client.go`，只负责 HTTP 与解析，返回中立的 `Article` 结构。
-2. 在 `feed.Clients` 里加字段，实现 `feed.Get<Platform>()`，映射成 `feed.Item`（HTML、Images、CreatedAt、URL）。
-3. 在 `httpapi/server.go` 注册 RSS 与 JSON 两个路由。
-4. 用 `httptest` 固定响应，覆盖解析、排序/过滤、缓存命中、空响应。
-5. 更新本文件、[API.md](API.md) 与 README 的平台表，并把平台图标放进 `docs/assets/`。
+1. Create `internal/<platform>/client.go`; it only handles HTTP and parsing and returns the neutral `Article` struct.
+2. Add a field to `feed.Clients`, implement `feed.Get<Platform>()`, and map the result into `feed.Item` (HTML, Images, CreatedAt, URL).
+3. Register both the RSS and the JSON route in `httpapi/server.go`.
+4. Pin responses with `httptest`, covering parsing, sorting/filtering, cache hits, and empty responses.
+5. Update this file, [API.md](API.md), and the platform table in the README, and drop the platform icon into `docs/assets/`.
 
-## 商标说明
+## Trademarks
 
-平台图标为各自权利人的商标，仅用于标识数据来源，不代表任何隶属或背书关系。
+The platform icons are trademarks of their respective owners, used solely to identify the data source; they do not imply any affiliation or endorsement.

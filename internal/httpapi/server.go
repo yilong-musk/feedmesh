@@ -248,6 +248,7 @@ func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 
 type hotItemResponse struct {
 	Rank      int       `json:"rank"`
+	Heat      int64     `json:"heat"`
 	Title     string    `json:"title"`
 	Text      string    `json:"text"`
 	URL       string    `json:"url"`
@@ -294,7 +295,7 @@ func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
 			rank = i + 1
 		}
 		items = append(items, hotItemResponse{
-			Rank: rank, Title: it.Title, Text: it.Text,
+			Rank: rank, Heat: it.Heat, Title: it.Title, Text: it.Text,
 			URL: it.URL, HTML: it.HTML, CreatedAt: it.CreatedAt,
 		})
 	}

@@ -45,7 +45,7 @@ func TestGetHotBuildsFeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetHot: %v", err)
 	}
-	if f.Title() != "微博热搜" {
+	if f.Title() != "Weibo Hot Search" {
 		t.Fatalf("title = %q", f.Title())
 	}
 	if f.Link() != "https://s.weibo.com/top/summary" {
@@ -60,7 +60,7 @@ func TestGetHotBuildsFeed(t *testing.T) {
 	if f.Items[0].Rank != 1 || f.Items[1].Rank != 2 {
 		t.Fatalf("ranks = %d,%d", f.Items[0].Rank, f.Items[1].Rank)
 	}
-	if !strings.Contains(f.Items[0].HTML, "热度 148.9 万") || !strings.Contains(f.Items[0].HTML, "剧集") {
+	if !strings.Contains(f.Items[0].HTML, "Heat 1.5M") || !strings.Contains(f.Items[0].HTML, "剧集") {
 		t.Fatalf("description missing heat/category: %s", f.Items[0].HTML)
 	}
 	if !strings.Contains(f.Items[1].URL, "%23") {
@@ -68,7 +68,7 @@ func TestGetHotBuildsFeed(t *testing.T) {
 	}
 
 	raw := string(feed.RenderRSS(f))
-	if !strings.Contains(raw, "<title>微博热搜</title>") || !strings.Contains(raw, "在微博搜索") {
+	if !strings.Contains(raw, "<title>Weibo Hot Search</title>") || !strings.Contains(raw, "Search on Weibo") {
 		t.Fatalf("rendered hot feed is missing expected content:\n%s", raw)
 	}
 	if !strings.Contains(raw, "<ttl>5</ttl>") {
@@ -174,10 +174,12 @@ func TestFormatHeat(t *testing.T) {
 		want string
 	}{
 		{1, "1"},
-		{9999, "9999"},
-		{10000, "1.0 万"},
-		{1488601, "148.9 万"},
-		{123456789, "1.2 亿"},
+		{999, "999"},
+		{1000, "1.0K"},
+		{9999, "10.0K"},
+		{10000, "10.0K"},
+		{1488601, "1.5M"},
+		{123456789, "123.5M"},
 	}
 	for _, c := range cases {
 		if got := feed.FormatHeat(c.in); got != c.want {
