@@ -4,6 +4,8 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+English | [Chinese (Simplified)](README.zh-CN.md)
+
 Bridges content from multiple platforms into RSS — self-hosted, one static binary, no third-party dependencies (there is not a single `require` in `go.mod`), listening only on `127.0.0.1` by default. Supported platforms are listed below and detailed in [docs/PLATFORMS.md](docs/PLATFORMS.md); new platforms arrive as providers.
 
 ## Supported platforms
@@ -24,7 +26,7 @@ Parameters, data sources and limits live in **[docs/PLATFORMS.md](docs/PLATFORMS
 - **Complete RSS**: body HTML, images (real dimensions plus lazy loading), repost quotes, link cards, long-form full text; `content:encoded` and Media RSS in the same document, with `enclosure` for Weibo videos.
 - **Gentle on upstreams**: on-disk cache with limit-aware widening (a small request never truncates a larger cached one) and single-flight; Weibo concurrency stays at 1, cookies are refreshed on 418/403, and a persistent failure opens a 10-minute breaker.
 - **Two views**: RSS for readers, JSON for scripts and agents (one line per response).
-- **Single binary**: statically linked (CGO off), about 7.7 MB, roughly 15 MB of RSS at rest.
+- **Single binary**: statically linked (CGO off), about 8.2 MB, roughly 11 MB of RSS at rest.
 
 ## Quick start
 
@@ -68,7 +70,7 @@ The unit uses systemd's `%h` / `%C` expansion for the home and cache directories
 | `doctor [--uid <uid>]` | Probe visitor, getIndex and statuses in order |
 | `cache stat` | Cache entry count and size |
 | `cache purge --all` | Remove every feedmesh cache entry |
-| `cache purge --uid <uid>` | Remove one account's profile/timeline/domain/long-text entries |
+| `cache purge --uid <uid>` | Remove one account's profile/timeline/domain/feed/long-text entries |
 | `cache purge --handle <handle>` | Remove one X handle's timeline entries |
 | `--dry-run` | Report only, delete nothing |
 
@@ -79,6 +81,7 @@ Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--t
 - **[API](docs/API.md)**: endpoints, parameters, JSON shapes, error codes, RSS output details, cache TTLs
 - **[Platforms](docs/PLATFORMS.md)**: rules and limits per source, plus the steps for adding a provider
 - **[Architecture and operations](docs/ARCHITECTURE.md)**: cache implementation, upstream policy, security and privacy, layout, troubleshooting, development commands
+- **[Chinese (Simplified)](README.zh-CN.md)**: this README in Simplified Chinese; the English pages stay the source of truth
 
 ## License
 
