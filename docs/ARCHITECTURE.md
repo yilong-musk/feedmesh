@@ -72,6 +72,28 @@ deploy/             systemd user 单元
 docs/               API、平台列表、本文件
 ```
 
+## 部署（systemd user 单元）
+
+`deploy/feedmesh.service` 可直接装到 `~/.config/systemd/user/`：`%h` / `%C` 分别展开为用户主目录和 `~/.cache`，`CacheDirectory=feedmesh` 负责建目录（`0700`），`ReadWritePaths=` 只放开缓存目录，`ProtectSystem=strict` 让文件系统其余部分只读。
+
+```bash
+install -m0644 deploy/feedmesh.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now feedmesh
+```
+
+装完逐条核对（缺一项就不算交付）：
+
+```bash
+systemctl --user is-active feedmesh            # active
+systemctl --user show feedmesh -p Result -p NRestarts --value
+curl -s http://127.0.0.1:3000/healthz          # status/version/uptime/cache/breaker
+```
+
+**不要给这个 user 单元加 `ProtectKernelModules=`。** 该选项除了挂载 `/usr/lib/modules`，还会把 `CAP_SYS_MODULE` 从 capability bounding set 里摘掉（`systemctl show -p CapabilityBoundingSet` 可见差异）；修改 bounding set 需要 `CAP_SETPCAP`，而 user manager 以普通用户身份运行（`CapEff`/`CapPrm` 均为 0），`prctl(PR_CAPBSET_DROP)` 返回 EPERM，systemd 直接判定失败：`status=218/CAPABILITIES`、`Failed to drop capabilities: Operation not permitted`，`ExecStart` 里的二进制根本不会被执行。`PrivateUsers=yes` 也救不回来——它要先建 user namespace，而启用 `kernel.apparmor_restrict_unprivileged_userns=1` 的主机（Ubuntu 24.04 默认）连 uid 映射都会被拒。确实需要模块加载保护时，把单元改成 system 级（system manager 有 `CAP_SETPCAP`）。
+
+其余硬化项（`ProtectSystem` / `ProtectKernelTunables` / `ProtectControlGroups` / `RestrictAddressFamilies` / `RestrictSUIDSGID` / `LockPersonality` / `MemoryDenyWriteExecute` / `SystemCallArchitectures` / `UMask` / `NoNewPrivileges`）不修改 bounding set，user 单元下实测均可用。
+
 ## 排错
 
 **微博改接口时只需要改 `internal/weibo`。** 其余包只消费已解析结构体。
