@@ -55,13 +55,34 @@ A non-English version is allowed only as a separate, clearly named artifact:
 4. Localized files are listed in the docs index; they never replace the
    English entry point.
 
-## 2. Everything else stays as it is
+## 2. Merging is a human decision
 
-This file only adds the language rule. Existing conventions still apply:
+An agent may open pull requests, push commits to a branch and report results.
+It must never merge.
+
+1. Every merge needs an explicit instruction from the repository owner, given
+   after CI finished — "merge #12", or an equally unambiguous approval of that
+   specific pull request.
+2. A standing rule such as "merge every green pull request" does not count.
+   Neither does silence, nor the agent's own judgement that a change is safe.
+3. The agent reports the pull request number, the check results and a summary
+   of the diff, then stops and waits.
+4. No `--admin` merge, no direct push to `master`, no bypass of a required
+   review, even where branch protection would technically permit it.
+5. If a merge turns out to be wrong, open a revert pull request; never rewrite
+   the history of `master`.
+
+Rationale: branch protection on a single-account repository cannot require a
+second reviewer, so the owner's decision before the merge is the only real gate
+between an agent's work and `master`.
+
+## 3. Everything else stays as it is
+
+This file adds the language and merge rules. Existing conventions still apply:
 standard-library-only Go, a single static binary (`CGO_ENABLED=0`), the
 committed CI gates, and the deployment notes in `docs/ARCHITECTURE.md`.
 
-## 3. Enforcement
+## 4. Enforcement
 
 `make lang` (also wired into `make check` and the CI job) runs
 `scripts/check_language.py`, which fails when a tracked file contains
