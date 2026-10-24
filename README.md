@@ -4,6 +4,8 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+English | [Chinese (Simplified)](README.zh-CN.md)
+
 Bridges content from multiple platforms into RSS — self-hosted, one static binary, no third-party dependencies (there is not a single `require` in `go.mod`), listening only on `127.0.0.1` by default. Supported platforms are listed below and detailed in [docs/PLATFORMS.md](docs/PLATFORMS.md); new platforms arrive as providers.
 
 ## Supported platforms
