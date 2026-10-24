@@ -94,6 +94,16 @@ curl -s http://127.0.0.1:3000/healthz          # status/version/uptime/cache/bre
 
 其余硬化项（`ProtectSystem` / `ProtectKernelTunables` / `ProtectControlGroups` / `RestrictAddressFamilies` / `RestrictSUIDSGID` / `LockPersonality` / `MemoryDenyWriteExecute` / `SystemCallArchitectures` / `UMask` / `NoNewPrivileges`）不修改 bounding set，user 单元下实测均可用。
 
+## 安全与隐私
+
+- **监听与鉴权**：默认只监听 `127.0.0.1`；要暴露到局域网或公网，加 `--token`（`FEEDMESH_TOKEN`）并放在 TLS 反向代理之后。非 loopback 启动会打印警告，未显式配置时默认 120 次/分钟/IP 的限流（实现细节见「上游调用策略」）。
+- **上游内容**：在 provider 边界做 allowlist 清洗，`script`/`iframe`、`on*` 事件属性与 `javascript:` URL 会被丢弃；CDATA 输出前剥离 XML 非法控制字符。RSS 与 JSON 都不应被当作可信 HTML 渲染。
+- **出站请求**：Nitter 实例池来自第三方目录，只接受 https、无 userinfo、非私网地址，并在实际拨号时校验解析出的 IP 为公网地址；禁止跨 host 重定向。第三方目录仍可能被投毒，建议在主机/容器层加 egress 防火墙，禁止访问 loopback、RFC1918 与 link-local 地址。
+- **触发成本**：`refresh=1` 与 `full=1` 会触发真实上游请求，公网部署需限制访问频率。
+- **第三方可见性**：微博 UID 会发送给微博，X handle 会发送给 Nitter 实例池，少数派/V2EX 会看到服务器 IP；RSS 中的图片由阅读器直连第三方图床。自托管不等于匿名。
+- **本地数据**：缓存目录默认 `~/.cache/feedmesh`（macOS 为 `~/Library/Caches/feedmesh`），包含账号/域名/handle 标识与正文，目录权限 0700、文件 0600；过期条目在启动时及运行期间每小时清理；`os.UserCacheDir()` 不可用时使用随机私有临时目录并在进程退出时删除。`cache purge --all`、`--uid`、`--handle` 可做定向清理。
+- **合规**：抓取微博 visitor cookie、解 Anubis、抓取 V2EX/少数派全文可能涉及平台条款与内容版权，使用场景自行确认。
+
 ## 排错
 
 **微博改接口时只需要改 `internal/weibo`。** 其余包只消费已解析结构体。

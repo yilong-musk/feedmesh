@@ -74,23 +74,11 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 
 全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX 15 秒、X 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
 
-## 安全与隐私
-
-- **默认只监听 `127.0.0.1`。** 如果要暴露到局域网或公网，请加 `--token`（或 `FEEDMESH_TOKEN`）并放在 TLS 反向代理后面；非 loopback 启动会打印警告，并默认启用 120 次/分钟/IP 的限流。
-- 上游 HTML 会经过 allowlist 清洗，`script/iframe`、`on*` 事件属性和 `javascript:` URL 会被丢弃；RSS 和 JSON 不应被当作可信 HTML。
-- Nitter 实例池来自第三方目录；程序会拒绝私网 IP/明显内网域名，并在实际拨号时校验解析出的 IP 为公网地址，但仍建议在主机/容器层加 egress 防火墙，禁止访问 loopback、RFC1918 和 link-local 地址。
-- `refresh=1` 和 `full=1` 会触发真实上游请求；公网部署请限制访问频率。
-- **第三方请求**：微博 UID 会发送给微博；X handle 会发送给 Nitter 实例池；少数派/V2EX 会看到你的服务器 IP。RSS 图片由阅读器直接连接第三方图床。自托管不会让这些请求匿名。
-- **本地数据**：缓存目录默认 `~/.cache/feedmesh`（macOS 为 `~/Library/Caches/feedmesh`），包含账号/域名/handle 标识和正文。文件权限为 0600、目录为 0700；过期条目会在启动时及运行期间每小时清理。`os.UserCacheDir()` 不可用时使用随机私有临时目录，并在进程退出时删除。`cache purge --all` 会清掉所有能验证为 feedmesh 的条目，`cache purge --uid/--handle` 可做定向清理。
-- 抓取微博 visitor cookie、解 Anubis、抓取 V2EX/少数派全文可能涉及平台条款和内容版权；请自行确认使用场景。
-
-> 安全实现说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-
 ## 文档
 
 - **[API](docs/API.md)**：端点、参数、JSON 结构、错误码、RSS 输出细节、缓存 TTL
 - **[支持的平台](docs/PLATFORMS.md)**：每个来源的规则、限制与新增 provider 的步骤
-- **[架构与运维](docs/ARCHITECTURE.md)**：缓存实现、上游策略、目录结构、排错表、开发命令
+- **[架构与运维](docs/ARCHITECTURE.md)**：缓存实现、上游策略、安全与隐私、目录结构、排错表、开发命令
 
 ## License
 
