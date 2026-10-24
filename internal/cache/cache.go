@@ -42,8 +42,10 @@ type Stats struct {
 type Cache struct {
 	dir string
 	mu  sync.Mutex // serialises writes so temp-file naming cannot collide
-	// now is the clock used for expiry decisions. Tests replace it so expiry
-	// checks never depend on how long the scheduler took between two calls.
+	// now is the clock used for expiry decisions. It is test-only: New wires
+	// time.Now and a zero Cache falls back to it. GC's stale-temp sweep stays
+	// on the real clock on purpose, because it compares file mtimes rather
+	// than entry expiry.
 	now func() time.Time
 }
 
