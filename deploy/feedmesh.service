@@ -18,7 +18,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectKernelTunables=true
-ProtectKernelModules=true
+# ProtectKernelModules= is deliberately omitted: it narrows the capability
+# bounding set, which a user manager running without CAP_SETPCAP cannot do,
+# so the unit fails with status=218/CAPABILITIES before ExecStart runs.
+# Use a system unit if you need module-loading protection.
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 RestrictSUIDSGID=true
