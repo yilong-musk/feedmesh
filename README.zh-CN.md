@@ -26,7 +26,7 @@
 - **完整 RSS**：正文 HTML、配图（真实宽高 + 懒加载）、转发引用、外链卡片、长文全文；`content:encoded` 与 Media RSS 同文档输出，微博视频带 `enclosure`。
 - **对上游友好**：磁盘缓存 + 按 `limit` 加宽（小请求不会截断更宽的缓存）+ single-flight；微博并发恒为 1，遇 418/403 刷新 cookie，持续失败则熔断 10 分钟。
 - **两种视图**：RSS 给阅读器，JSON 给脚本与 agent（每次响应一行 JSON）。
-- **单二进制**：静态链接（CGO 关闭），约 7.7 MB，常驻内存约 15 MB。
+- **单二进制**：静态链接（CGO 关闭），约 8.2 MB，常驻内存约 11 MB。
 
 ## 快速开始
 
@@ -70,7 +70,7 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 | `doctor [--uid <uid>]` | 按顺序探活 visitor、getIndex、statuses |
 | `cache stat` | 缓存条目数与体积 |
 | `cache purge --all` | 清空所有 feedmesh 缓存条目 |
-| `cache purge --uid <uid>` | 清除某个微博账号的 profile/timeline/domain/长文缓存 |
+| `cache purge --uid <uid>` | 清除某个微博账号的 profile/timeline/domain/feed/长文缓存 |
 | `cache purge --handle <handle>` | 清除某个 X handle 的时间线缓存 |
 | `--dry-run` | 只报告，不删除 |
 
@@ -83,6 +83,7 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 - **[API](docs/API.md)**：端点、参数、JSON 结构、错误码、RSS 输出细节、缓存 TTL
 - **[支持的平台](docs/PLATFORMS.md)**：每个来源的规则与限制，以及新增 provider 的步骤
 - **[架构与运维](docs/ARCHITECTURE.md)**：缓存实现、上游策略、安全与隐私、目录结构、排错、开发命令
+- **[English](README.md)**：英文原文，唯一权威来源（本页是它的中文翻译）
 
 ## License
 
