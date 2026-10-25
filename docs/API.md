@@ -90,6 +90,20 @@ V2EX hot topics: the "promotions" node is filtered out and results are sorted by
 curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=20'
 ```
 
+### `GET /rss/smzdm`
+
+Selected deals from the official SMZDM RSS channel (`http://feed.smzdm.com`).
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/smzdm?limit=20'
+curl -s 'http://127.0.0.1:3000/rss/smzdm?limit=10&refresh=1'   # bypass the 5-minute cache
+```
+
+- 20 items by default, maximum 30 (one upstream slice); cached for 5 minutes, `Cache-Control: max-age=300`.
+- `guid`/`link` is the deal permalink (`https://www.smzdm.com/p/<id>/`); the cover (`focus_pic`) goes into the body and Media RSS.
+- `pubDate` is Beijing time when the feed omits the zone, and is converted to UTC in the JSON view.
+- The upstream slice rotates, so items that leave it disappear from the feed; readers that keep history collect a wider set.
+
 ### `GET /rss/x/{handle}`
 
 X (Twitter) account timeline, fetched through public Nitter instances; `{handle}` may include `@`.
@@ -147,6 +161,18 @@ Timestamps are always RFC 3339 (UTC); `images` is always an array (`[]` when the
  "items":[{"id":"1251126","title":"…","text":"…","url":"https://www.v2ex.com/t/1251126",
            "html":"…","images":[],"created_at":"…"}]}
 ```
+
+### `GET /api/v1/smzdm?limit=N`
+
+```json
+{"title":"SMZDM Deals","description":"Selected deals from SMZDM","fetched_at":"2026-10-25T14:12:08Z","cached":false,
+ "items":[{"id":"184734707","title":"Brand model 620ml 28.84 CNY (buy 2, coupon)","text":"",
+           "url":"https://www.smzdm.com/p/184734707/","html":"…",
+           "images":["https://y.zdmimg.com/…png_a200.jpg"],"created_at":"2026-10-25T13:39:37Z"}]}
+```
+
+- `limit` defaults to 20 with a maximum of 30; `refresh=1` behaves as on the RSS route.
+- `text` is empty for the common case (nickname-only entries); the price and conditions live in `title`.
 
 ### `GET /api/v1/x?handle=<handle>&limit=N`
 
@@ -213,6 +239,7 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | sspai list | `sspai:list` | 10 minutes |
 | sspai article body | `sspai:detail:<id>` | 24 hours |
 | V2EX latest/hot | `v2ex:latest` / `v2ex:hot` | 10 minutes |
+| SMZDM deals | `smzdm:deals` | 5 minutes |
 | X timeline | `x:<handle>` | 40 minutes |
 
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.

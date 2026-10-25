@@ -11,6 +11,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
@@ -51,6 +52,7 @@ type Clients struct {
 	Sspai *sspai.Client
 	V2ex  *v2ex.Client
 	X     *xnitter.Client
+	Smzdm *smzdm.Client
 }
 
 type Service struct {

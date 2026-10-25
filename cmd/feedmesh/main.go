@@ -27,6 +27,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
@@ -41,6 +42,7 @@ const (
 	defaultTimeout      = weibo.DefaultTimeout
 	defaultSspaiTimeout = 15 * time.Second
 	defaultV2exTimeout  = 15 * time.Second
+	defaultSmzdmTimeout = 15 * time.Second
 	defaultXTimeout     = 20 * time.Second
 	maxXTimeout         = 25 * time.Second
 	breakerCooloff      = 10 * time.Minute
@@ -363,25 +365,28 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		Retries: 3,
 		Backoff: 300 * time.Millisecond,
 	})
-	sspaiTimeout, v2exTimeout, xTimeout := providerTimeouts(o)
+	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout := providerTimeouts(o)
 	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
 	vx := v2ex.New(v2ex.Config{Timeout: v2exTimeout})
 	xn := xnitter.New(xnitter.Config{Timeout: xTimeout})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn}, c, logger, feed.DefaultTTLs())
+	sz := smzdm.New(smzdm.Config{Timeout: smzdmTimeout})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 
 // providerTimeouts resolves the per-provider request timeouts. X is capped even
 // when --timeout is larger, so a single X feed request cannot spend the whole
 // handler deadline on slow mirror attempts.
-func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout time.Duration) {
+func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout time.Duration) {
 	sspaiTimeout = defaultSspaiTimeout
 	v2exTimeout = defaultV2exTimeout
 	xTimeout = defaultXTimeout
+	smzdmTimeout = defaultSmzdmTimeout
 	if o.timeoutSet {
 		sspaiTimeout = o.timeout
 		v2exTimeout = o.timeout
 		xTimeout = o.timeout
+		smzdmTimeout = o.timeout
 	}
 	if sspaiTimeout <= 0 {
 		sspaiTimeout = defaultTimeout
@@ -392,10 +397,13 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout time.Dura
 	if xTimeout <= 0 {
 		xTimeout = defaultTimeout
 	}
+	if smzdmTimeout <= 0 {
+		smzdmTimeout = defaultTimeout
+	}
 	if xTimeout > maxXTimeout {
 		xTimeout = maxXTimeout
 	}
-	return sspaiTimeout, v2exTimeout, xTimeout
+	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout
 }
 
 func exitCodeFor(code string) int {
@@ -943,7 +951,7 @@ GLOBAL FLAGS
   --json                    Data output as exactly one line of JSON (jq-safe)
   --quiet, -q               Silence stderr logs
   --timeout <duration>      Per-upstream-request timeout; overrides all providers
-                            (default 9s weibo, 15s sspai/V2EX, 20s X; X capped at 25s)
+                            (default 9s weibo, 15s sspai/V2EX/SMZDM, 20s X; X capped at 25s)
   --cache-dir <dir>         Cache directory (env FEEDMESH_CACHE; legacy WEIBO_RSS_PRO_CACHE / WEIBO_RSS_CACHE)
   -h, --help                Print this text
 
