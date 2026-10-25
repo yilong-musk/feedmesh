@@ -13,7 +13,7 @@ import (
 // minutes, so a short TTL keeps the feed moving without hammering the CDN;
 // community articles change much more slowly.
 const (
-	DefaultSmzdmLimit = 20
+	DefaultSmzdmLimit = smzdm.DefaultLimit
 	MaxSmzdmLimit     = smzdm.MaxLimit
 	smzdmDealsTTL     = 5 * time.Minute
 	smzdmPostTTL      = 10 * time.Minute
@@ -77,6 +77,14 @@ func (s *Service) GetSmzdm(ctx context.Context, ch smzdm.Channel, limit int, ref
 		Items:       make([]Item, 0, len(deals)),
 	}
 	for _, d := range deals {
+		// The permalink is third-party input that ends up in <link>,
+		// <guid isPermaLink="true"> and an href, so it passes the same
+		// scheme allowlist as every other provider.
+		link := safeURLString(d.URL)
+		if link == "" {
+			continue
+		}
+		d.URL = link
 		created := d.Published
 		if created.IsZero() {
 			created = now

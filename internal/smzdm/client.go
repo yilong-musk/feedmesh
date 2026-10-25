@@ -271,7 +271,7 @@ func splitDealDescription(desc, summary string) (author, text string) {
 	}
 	// Without a clean summary, a short punctuation-free description is the
 	// nickname; anything longer is treated as the blurb itself.
-	if len([]rune(desc)) <= 14 && !strings.ContainsAny(desc, "，。！？；：、,.!?;:") {
+	if len([]rune(desc)) <= 14 && !strings.ContainsAny(desc, "，。！？；：、,.!?;:") { // i18n-ignore: upstream punctuation set, matched literally
 		return desc, ""
 	}
 	return "", desc

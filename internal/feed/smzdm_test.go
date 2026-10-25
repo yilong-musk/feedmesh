@@ -2,9 +2,13 @@ package feed
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 )
@@ -49,5 +53,45 @@ func TestSmzdmHTMLWithoutOptionalFields(t *testing.T) {
 	}
 	if !strings.Contains(html, "https://www.smzdm.com/p/1/") {
 		t.Fatalf("deal link missing:\n%s", html)
+	}
+}
+
+// unsafeLinkRSS puts a non-http permalink next to a valid one. The unsafe entry
+// still matches the /p/ pattern, so only the scheme allowlist can reject it.
+const unsafeLinkRSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel><title>deals</title>
+<item><title><![CDATA[unsafe]]></title>
+<link><![CDATA[javascript:alert('/p/1')]]></link>
+<pubDate><![CDATA[Sun, 25 Oct 2026 22:00:00]]></pubDate>
+</item>
+<item><title><![CDATA[safe]]></title>
+<link><![CDATA[https://www.smzdm.com/p/2/]]></link>
+<pubDate><![CDATA[Sun, 25 Oct 2026 21:00:00]]></pubDate>
+</item>
+</channel></rss>`
+
+func TestGetSmzdmDropsUnsafeLinks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(unsafeLinkRSS))
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache: %v", err)
+	}
+	svc := NewService(Clients{Smzdm: smzdm.New(smzdm.Config{BaseURL: srv.URL, Timeout: 2 * time.Second})},
+		c, logx.Discard(), DefaultTTLs())
+
+	f, err := svc.GetSmzdm(context.Background(), smzdm.ChannelDeals, 10, false)
+	if err != nil {
+		t.Fatalf("GetSmzdm: %v", err)
+	}
+	if len(f.Items) != 1 || f.Items[0].URL != "https://www.smzdm.com/p/2/" {
+		t.Fatalf("items = %+v, want only the http(s) entry", f.Items)
+	}
+	if strings.Contains(f.Items[0].HTML, "javascript") {
+		t.Fatalf("unsafe link survived into the body:\n%s", f.Items[0].HTML)
 	}
 }
