@@ -92,7 +92,7 @@ var (
 	dealID   = regexp.MustCompile(`/p/(\d+)`)
 	itemProp = regexp.MustCompile(`(?is)<p[^>]*itemprop="description"[^>]*>(.*?)</p>`)
 	htmlTags = regexp.MustCompile(`(?s)<[^>]+>`)
-	footer   = regexp.MustCompile(`本文来自\s*什么值得买网站\s*[（(]?\s*www\.smzdm\.com\s*[）)]?\s*。?`)
+	footer   = regexp.MustCompile(`本文来自\s*什么值得买网站\s*[（(]?\s*www\.smzdm\.com\s*[）)]?\s*。?`) // i18n-ignore: upstream footer text, matched literally
 )
 
 // List returns up to limit deals, newest first.
