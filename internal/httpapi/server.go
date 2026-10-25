@@ -12,6 +12,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
@@ -79,6 +80,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/v2ex/hot.xml", s.getOnly(s.handleV2exHot))
 	mux.HandleFunc("/rss/smzdm", s.getOnly(s.handleSmzdm))
 	mux.HandleFunc("/rss/smzdm.xml", s.getOnly(s.handleSmzdm))
+	mux.HandleFunc("/rss/smzdm/post", s.getOnly(s.handleSmzdmPost))
+	mux.HandleFunc("/rss/smzdm/post.xml", s.getOnly(s.handleSmzdmPost))
+	mux.HandleFunc("/rss/smzdm/haitao", s.getOnly(s.handleSmzdmHaitao))
+	mux.HandleFunc("/rss/smzdm/haitao.xml", s.getOnly(s.handleSmzdmHaitao))
 	mux.HandleFunc("/rss/x/{handle}", s.getOnly(s.handleX))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
 	mux.HandleFunc("/api/v1/hot", s.getOnly(s.handleAPIHot))
@@ -441,6 +446,7 @@ type smzdmItemResponse struct {
 }
 
 type smzdmResponse struct {
+	Channel     string              `json:"channel"`
 	Title       string              `json:"title"`
 	Description string              `json:"description"`
 	FetchedAt   time.Time           `json:"fetched_at"`
@@ -448,26 +454,48 @@ type smzdmResponse struct {
 	Items       []smzdmItemResponse `json:"items"`
 }
 
-func (s *Server) handleSmzdm(w http.ResponseWriter, r *http.Request) {
+// serveSmzdm renders one channel as RSS.
+func (s *Server) serveSmzdm(w http.ResponseWriter, r *http.Request, ch smzdm.Channel) {
 	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
 	refresh := r.URL.Query().Get("refresh") == "1"
 
-	f, err := s.cfg.Service.GetSmzdm(r.Context(), limit, refresh)
+	f, err := s.cfg.Service.GetSmzdm(r.Context(), ch, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCache(w, 300)
+	s.setRSSCache(w, int(feed.SmzdmTTL(ch).Seconds()))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
 
+func (s *Server) handleSmzdm(w http.ResponseWriter, r *http.Request) {
+	s.serveSmzdm(w, r, smzdm.ChannelDeals)
+}
+
+func (s *Server) handleSmzdmPost(w http.ResponseWriter, r *http.Request) {
+	s.serveSmzdm(w, r, smzdm.ChannelPost)
+}
+
+func (s *Server) handleSmzdmHaitao(w http.ResponseWriter, r *http.Request) {
+	s.serveSmzdm(w, r, smzdm.ChannelHaitao)
+}
+
 func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("channel")
+	ch, ok := smzdm.ParseChannel(raw)
+	if !ok {
+		s.writeError(w, &weibo.Error{
+			Code:    weibo.CodeBadRequest,
+			Message: "unknown smzdm channel " + strconv.Quote(raw),
+		})
+		return
+	}
 	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
 	refresh := r.URL.Query().Get("refresh") == "1"
 
-	f, err := s.cfg.Service.GetSmzdm(r.Context(), limit, refresh)
+	f, err := s.cfg.Service.GetSmzdm(r.Context(), ch, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return
@@ -480,7 +508,7 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, smzdmResponse{
-		Title: f.Title(), Description: f.Description,
+		Channel: string(ch), Title: f.Title(), Description: f.Description,
 		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
 	})
 }

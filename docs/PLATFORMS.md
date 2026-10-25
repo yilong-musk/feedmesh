@@ -1,6 +1,6 @@
 # Supported platforms
 
-**5 platforms and 7 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**5 platforms and 9 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -10,6 +10,8 @@
 | <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | Latest topics | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
 | <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | Hot topics | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
 | <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Selected deals | `/rss/smzdm` | `/api/v1/smzdm` |
+| <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Community articles | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
+| <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Overseas deals | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
 | <img src="assets/x.png" width="20" height="20" alt="X"> **X** | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
@@ -88,12 +90,15 @@ Official site <https://www.smzdm.com> · Data source: the official deal RSS on `
 | Content | RSS | JSON | Default | Max | Cache |
 |---|---|---|---|---|---|
 | Selected deals | `/rss/smzdm`, `/rss/smzdm.xml` | `/api/v1/smzdm` | 20 | 30 | 5 minutes |
+| Community articles | `/rss/smzdm/post`, `/rss/smzdm/post.xml` | `/api/v1/smzdm?channel=post` | 20 | 30 | 10 minutes |
+| Overseas deals | `/rss/smzdm/haitao`, `/rss/smzdm/haitao.xml` | `/api/v1/smzdm?channel=haitao` | 20 | 30 | 5 minutes |
 
-- The feed returns 30 entries per call and **rotates**: two fetches minutes apart can share 0–18 items, and entries inside one slice are not strictly time-ordered, so the client sorts by `pubDate` before truncating. A reader that keeps history sees a wider set than any single fetch.
-- Item fields: the title already carries brand, model, capacity and price; `link` points at the deal page (`/p/<id>/`); the cover comes from `focus_pic` and also goes into Media RSS.
-- `content:encoded` usually carries only the "this article comes from smzdm" footer. When it carries a real blurb in a paragraph marked `itemprop="description"`, that blurb becomes the item text; `description` itself is the poster's nickname.
-- `pubDate` has no zone suffix and is Beijing time; the API view converts it to UTC. An unparsable timestamp falls back to the fetch time.
-- Only the RSS channel is used. Search and category pages answer automated requests with a WAF challenge (HTTP 202 + `probe.js`, or a Tencent CAPTCHA), so they are never requested, and the service stays clear of that risk.
+- The subscription page advertises five channels; **three serve plain RSS** and are wired up. `faxian` and `news` answer 302/202 with a WAF challenge (`probe.js`) and are never requested.
+- Every channel returns 30 entries per call. The two deal channels **rotate**: two fetches minutes apart can share 0–18 items, and entries inside one slice are not strictly time-ordered, so the client sorts by `pubDate` before truncating. A reader that keeps history sees a wider set than any single fetch.
+- Selected and overseas deals: the title carries brand, model, capacity and price; `link` points at the deal page (`/p/<id>/`); the cover comes from `focus_pic` and also goes into Media RSS. `content:encoded` usually carries only the "this article comes from smzdm" footer — when it carries a real blurb (`itemprop="description"`), that becomes the item text, while `description` itself is the poster's nickname.
+- Community articles: permalinks are slugs (`/p/<slug>/`), `<author>` carries the writer and `<description>` the blurb; the feed ships no cover image.
+- `pubDate` is Beijing time when the zone is omitted; the API view converts it to UTC. An unparsable timestamp falls back to the fetch time.
+- Only the RSS channels are used. Search and category pages answer automated requests with a WAF challenge (HTTP 202 + `probe.js`, or a Tencent CAPTCHA), so they are never requested, and the service stays clear of that risk.
 - Parameters: `limit` 1–30, `refresh=1`.
 
 ---

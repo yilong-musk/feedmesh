@@ -68,6 +68,19 @@ const smzdmRSS = `<?xml version="1.0" encoding="UTF-8"?>
 <content:encoded><![CDATA[<p itemprop="description">德绒自发热，券后 99 元。</p><p>本文来自什么值得买网站（www.smzdm.com）。</p>]]></content:encoded></item>
 </channel></rss>`
 
+// smzdmPostRSS is a one-item article feed: slug permalink, author element and
+// the blurb in <description>.
+const smzdmPostRSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:content="http://purl.org/rss/1.0/modules/content/" version="2.0">
+<channel><title>社区</title><link>https://post.smzdm.com</link>
+<item><title><![CDATA[风暖浴霸5年只比灯暖多花900元]]></title>
+<link><![CDATA[https://post.smzdm.com/p/a3mxz8nr/]]></link>
+<pubDate><![CDATA[Sun, 25 Oct 2026 22:20:48 +0800]]></pubDate>
+<author><![CDATA[家电算账本]]></author>
+<description><![CDATA[先说结论：长江流域没暖气的家庭，风暖更划算。]]></description>
+<content:encoded><![CDATA[<p>正文</p>]]></content:encoded></item>
+</channel></rss>`
+
 // fakeWeibo serves just enough of weibo for the whole pipeline to run.
 func fakeWeibo(t *testing.T) http.HandlerFunc {
 	t.Helper()
@@ -138,6 +151,9 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 			w.Write(b)
 		case r.URL.Path == "/api/v1/article/info/get":
 			fmt.Fprint(w, `{"error":0,"data":{"body":"<p>少数派正文</p>","keywords":"效率,工具","is_pay":false,"is_free":true}}`)
+		case r.URL.Path == "/feed":
+			w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+			fmt.Fprint(w, smzdmPostRSS)
 		case r.URL.Path == "/" && r.URL.Query().Get("tab") == "":
 			w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 			fmt.Fprint(w, smzdmRSS)

@@ -2,6 +2,7 @@ package smzdm
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,7 +68,7 @@ func TestListParsesLiveShape(t *testing.T) {
 	srv := feedServer(t, feedXML, http.StatusOK)
 	c := New(Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
 
-	deals, err := c.List(context.Background(), 10)
+	deals, err := c.List(context.Background(), ChannelDeals, 10)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestListHonoursLimitAndClamp(t *testing.T) {
 	srv := feedServer(t, feedXML, http.StatusOK)
 	c := New(Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
 
-	deals, err := c.List(context.Background(), 1)
+	deals, err := c.List(context.Background(), ChannelDeals, 1)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestListHonoursLimitAndClamp(t *testing.T) {
 		t.Fatalf("limit 1 = %+v", deals)
 	}
 
-	deals, err = c.List(context.Background(), 0)
+	deals, err = c.List(context.Background(), ChannelDeals, 0)
 	if err != nil {
 		t.Fatalf("List(0): %v", err)
 	}
@@ -129,7 +130,7 @@ func TestListHonoursLimitAndClamp(t *testing.T) {
 		t.Fatalf("default limit returned %d, want all 3", len(deals))
 	}
 
-	deals, err = c.List(context.Background(), 500)
+	deals, err = c.List(context.Background(), ChannelDeals, 500)
 	if err != nil {
 		t.Fatalf("List(500): %v", err)
 	}
@@ -142,7 +143,7 @@ func TestListErrors(t *testing.T) {
 	t.Run("http error", func(t *testing.T) {
 		srv := feedServer(t, "blocked", http.StatusForbidden)
 		c := New(Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
-		if _, err := c.List(context.Background(), 5); err == nil || !strings.Contains(err.Error(), "HTTP 403") {
+		if _, err := c.List(context.Background(), ChannelDeals, 5); err == nil || !strings.Contains(err.Error(), "HTTP 403") {
 			t.Fatalf("err = %v, want an HTTP 403 error", err)
 		}
 	})
@@ -150,7 +151,7 @@ func TestListErrors(t *testing.T) {
 	t.Run("empty channel", func(t *testing.T) {
 		srv := feedServer(t, `<rss version="2.0"><channel><title>x</title></channel></rss>`, http.StatusOK)
 		c := New(Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
-		if _, err := c.List(context.Background(), 5); err == nil || !strings.Contains(err.Error(), "no entries") {
+		if _, err := c.List(context.Background(), ChannelDeals, 5); err == nil || !strings.Contains(err.Error(), "no entries") {
 			t.Fatalf("err = %v, want an empty-feed error", err)
 		}
 	})
@@ -158,7 +159,7 @@ func TestListErrors(t *testing.T) {
 	t.Run("malformed xml", func(t *testing.T) {
 		srv := feedServer(t, `<rss><channel>`, http.StatusOK)
 		c := New(Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
-		if _, err := c.List(context.Background(), 5); err == nil || !strings.Contains(err.Error(), "parse") {
+		if _, err := c.List(context.Background(), ChannelDeals, 5); err == nil || !strings.Contains(err.Error(), "parse") {
 			t.Fatalf("err = %v, want a parse error", err)
 		}
 	})
@@ -176,11 +177,76 @@ func TestSplitDescription(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			author, text := splitDescription(tc.desc, tc.summary)
+			author, text := splitDealDescription(tc.desc, tc.summary)
 			if author != tc.wantAuthor || text != tc.wantText {
 				t.Fatalf("splitDescription(%q, %q) = (%q, %q), want (%q, %q)",
 					tc.desc, tc.summary, author, text, tc.wantAuthor, tc.wantText)
 			}
 		})
+	}
+}
+
+// postXML mirrors the article channel: slug permalinks, the author in <author>
+// and the blurb in <description>.
+const postXML = `<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:content="http://purl.org/rss/1.0/modules/content/" version="2.0">
+<channel><title>社区</title>
+<item><title><![CDATA[风暖浴霸5年只比灯暖多花900元，为什么还有人坚持装灯暖？]]></title>
+<link><![CDATA[https://post.smzdm.com/p/a3mxz8nr/]]></link>
+<pubDate><![CDATA[Sun, 25 Oct 2026 22:20:48 +0800]]></pubDate>
+<author><![CDATA[家电算账本]]></author>
+<description><![CDATA[先说结论：长江流域没暖气的家庭，风暖更划算。<b>全文</b>见链接。]]></description>
+<content:encoded><![CDATA[<p>正文第一段</p>]]></content:encoded></item>
+</channel></rss>`
+
+func TestListPostChannel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/feed" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, postXML)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
+	deals, err := c.List(context.Background(), ChannelPost, 5)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(deals) != 1 {
+		t.Fatalf("got %d entries, want 1", len(deals))
+	}
+	d := deals[0]
+	if d.ID != "a3mxz8nr" {
+		t.Fatalf("id = %q, want the slug from the permalink", d.ID)
+	}
+	if d.Author != "家电算账本" {
+		t.Fatalf("author = %q", d.Author)
+	}
+	if d.Summary != "先说结论：长江流域没暖气的家庭，风暖更划算。 全文 见链接。" {
+		t.Fatalf("summary = %q", d.Summary)
+	}
+	if d.URL != "https://post.smzdm.com/p/a3mxz8nr/" {
+		t.Fatalf("url = %q", d.URL)
+	}
+	if !d.Published.Equal(time.Date(2026, 10, 25, 22, 20, 48, 0, beijing)) {
+		t.Fatalf("published = %v", d.Published)
+	}
+	if d.Image != "" {
+		t.Fatalf("article channel has no cover, got %q", d.Image)
+	}
+}
+
+func TestParseChannel(t *testing.T) {
+	for _, name := range []string{"", "deals", "POST", " haitao "} {
+		if _, ok := ParseChannel(name); !ok {
+			t.Fatalf("ParseChannel(%q) rejected a valid channel", name)
+		}
+	}
+	for _, name := range []string{"faxian", "news", "nope"} {
+		if _, ok := ParseChannel(name); ok {
+			t.Fatalf("ParseChannel(%q) accepted an unsupported channel", name)
+		}
 	}
 }

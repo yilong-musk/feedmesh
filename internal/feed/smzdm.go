@@ -9,16 +9,43 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
-// SMZDM feed bounds and cache lifetime. The upstream slice rotates every few
-// minutes, so a short TTL keeps the feed moving without hammering the CDN.
+// SMZDM feed bounds and cache lifetimes. The deal slices rotate every few
+// minutes, so a short TTL keeps the feed moving without hammering the CDN;
+// community articles change much more slowly.
 const (
 	DefaultSmzdmLimit = 20
 	MaxSmzdmLimit     = smzdm.MaxLimit
-	smzdmTTL          = 5 * time.Minute
+	smzdmDealsTTL     = 5 * time.Minute
+	smzdmPostTTL      = 10 * time.Minute
 )
 
-// GetSmzdm builds the SMZDM deals feed from the official RSS channel.
-func (s *Service) GetSmzdm(ctx context.Context, limit int, refresh bool) (*Feed, error) {
+type smzdmChannelInfo struct {
+	title       string
+	description string
+	link        string
+}
+
+// smzdmChannels carries the per-channel presentation metadata.
+var smzdmChannels = map[smzdm.Channel]smzdmChannelInfo{
+	smzdm.ChannelDeals:  {"SMZDM Deals", "Selected deals from SMZDM", "https://www.smzdm.com"},
+	smzdm.ChannelPost:   {"SMZDM Community", "Community articles from SMZDM", "https://post.smzdm.com"},
+	smzdm.ChannelHaitao: {"SMZDM Overseas Deals", "Overseas deals from SMZDM", "https://haitao.smzdm.com"},
+}
+
+// SmzdmTTL is the cache lifetime for one channel.
+func SmzdmTTL(ch smzdm.Channel) time.Duration {
+	if ch == smzdm.ChannelPost {
+		return smzdmPostTTL
+	}
+	return smzdmDealsTTL
+}
+
+// GetSmzdm builds one SMZDM channel from the official RSS feed.
+func (s *Service) GetSmzdm(ctx context.Context, ch smzdm.Channel, limit int, refresh bool) (*Feed, error) {
+	info, ok := smzdmChannels[ch]
+	if !ok {
+		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "unknown smzdm channel " + string(ch)}
+	}
 	if s.clients.Smzdm == nil {
 		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "smzdm provider is not configured"}
 	}
@@ -29,8 +56,9 @@ func (s *Service) GetSmzdm(ctx context.Context, limit int, refresh bool) (*Feed,
 		limit = MaxSmzdmLimit
 	}
 
-	deals, hit, err := fetchCachedList(ctx, s, "smzdm:deals", smzdmTTL, refresh, limit,
-		func(n int) ([]smzdm.Deal, error) { return s.clients.Smzdm.List(ctx, n) })
+	ttl := SmzdmTTL(ch)
+	deals, hit, err := fetchCachedList(ctx, s, "smzdm:"+string(ch), ttl, refresh, limit,
+		func(n int) ([]smzdm.Deal, error) { return s.clients.Smzdm.List(ctx, ch, n) })
 	if err != nil {
 		return nil, sspaiError(err)
 	}
@@ -40,12 +68,12 @@ func (s *Service) GetSmzdm(ctx context.Context, limit int, refresh bool) (*Feed,
 
 	now := s.now().UTC()
 	f := &Feed{
-		TitleText:   "SMZDM Deals",
-		LinkText:    "https://www.smzdm.com",
-		Description: "Selected deals from SMZDM",
+		TitleText:   info.title,
+		LinkText:    info.link,
+		Description: info.description,
 		FetchedAt:   now,
 		Cached:      hit,
-		TTL:         15,
+		TTL:         int(ttl.Minutes()),
 		Items:       make([]Item, 0, len(deals)),
 	}
 	for _, d := range deals {
@@ -64,7 +92,7 @@ func (s *Service) GetSmzdm(ctx context.Context, limit int, refresh bool) (*Feed,
 			ID:        d.ID,
 			Title:     d.Title,
 			Text:      d.Summary,
-			HTML:      smzdmHTML(d),
+			HTML:      smzdmHTML(ch, d),
 			URL:       d.URL,
 			CreatedAt: created,
 			Images:    images,
@@ -73,9 +101,9 @@ func (s *Service) GetSmzdm(ctx context.Context, limit int, refresh bool) (*Feed,
 	return f, nil
 }
 
-// smzdmHTML renders one deal: cover, blurb (when the feed carries one), the
-// poster nickname, and a link back to the deal page.
-func smzdmHTML(d smzdm.Deal) string {
+// smzdmHTML renders one entry: cover, blurb (when the feed carries one), the
+// author, and a link back to SMZDM.
+func smzdmHTML(ch smzdm.Channel, d smzdm.Deal) string {
 	var b strings.Builder
 	if img := safeURLString(d.Image); img != "" {
 		writeImage(&b, img, "", "")
@@ -90,8 +118,14 @@ func smzdmHTML(d smzdm.Deal) string {
 		b.WriteString(EscapeXML(who))
 		b.WriteString("</em></p>")
 	}
+	label := "View deal on SMZDM"
+	if ch == smzdm.ChannelPost {
+		label = "Read the article on SMZDM"
+	}
 	b.WriteString(`<p><a href="`)
 	b.WriteString(EscapeXML(d.URL))
-	b.WriteString(`">View deal on SMZDM</a></p>`)
+	b.WriteString(`">`)
+	b.WriteString(label)
+	b.WriteString(`</a></p>`)
 	return b.String()
 }
