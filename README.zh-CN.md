@@ -17,6 +17,9 @@
 | <img src="docs/assets/sspai.png" width="18" height="18" alt="少数派"> 少数派 | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
 | <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
 | <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 优惠精选（好价） | `/rss/smzdm` | `/api/v1/smzdm` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 社区文章 | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 海淘好价 | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
 | <img src="docs/assets/x.png" width="18" height="18" alt="X"> X | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 
 参数、数据源与限制见 **[docs/PLATFORMS.md](docs/PLATFORMS.md)**。

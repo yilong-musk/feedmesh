@@ -15,6 +15,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
@@ -46,6 +47,38 @@ const xRSS = `<?xml version="1.0" encoding="UTF-8"?>
 <description><![CDATA[<p>breaking news</p>]]></description>
 <pubDate>Thu, 22 Oct 2026 17:15:55 GMT</pubDate><guid>2113318444934562215</guid>
 <link>https://nitter.test/cb_doge/status/2113318444934562215#m</link></item>
+</channel></rss>`
+
+// smzdmRSS is a two-item SMZDM deal feed: one nickname-only entry and one with
+// a blurb in content:encoded, out of order on purpose.
+const smzdmRSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:content="http://purl.org/rss/1.0/modules/content/" version="2.0">
+<channel><title>什么值得买</title><link>http://www.smzdm.com</link><description>deals</description>
+<item><title><![CDATA[富光 保温杯 620ml 28.84元]]></title>
+<link><![CDATA[https://www.smzdm.com/p/184734707/]]></link>
+<pubDate><![CDATA[Sun, 25 Oct 2026 21:39:37]]></pubDate>
+<description><![CDATA[chromes]]></description>
+<focus_pic><![CDATA[https://y.zdmimg.com/a.png_a200.jpg]]></focus_pic>
+<content:encoded><![CDATA[<p>本文来自什么值得买网站（www.smzdm.com）。</p>]]></content:encoded></item>
+<item><title><![CDATA[保暖内衣套装 99 元包邮]]></title>
+<link><![CDATA[https://www.smzdm.com/p/184730001/]]></link>
+<pubDate><![CDATA[Sun, 25 Oct 2026 22:01:10]]></pubDate>
+<description><![CDATA[小值机器人德绒自发热，券后 99 元。]]></description>
+<focus_pic><![CDATA[https://y.zdmimg.com/b.png_a200.jpg]]></focus_pic>
+<content:encoded><![CDATA[<p itemprop="description">德绒自发热，券后 99 元。</p><p>本文来自什么值得买网站（www.smzdm.com）。</p>]]></content:encoded></item>
+</channel></rss>`
+
+// smzdmPostRSS is a one-item article feed: slug permalink, author element and
+// the blurb in <description>.
+const smzdmPostRSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:content="http://purl.org/rss/1.0/modules/content/" version="2.0">
+<channel><title>社区</title><link>https://post.smzdm.com</link>
+<item><title><![CDATA[风暖浴霸5年只比灯暖多花900元]]></title>
+<link><![CDATA[https://post.smzdm.com/p/a3mxz8nr/]]></link>
+<pubDate><![CDATA[Sun, 25 Oct 2026 22:20:48 +0800]]></pubDate>
+<author><![CDATA[家电算账本]]></author>
+<description><![CDATA[先说结论：长江流域没暖气的家庭，风暖更划算。]]></description>
+<content:encoded><![CDATA[<p>正文</p>]]></content:encoded></item>
 </channel></rss>`
 
 // fakeWeibo serves just enough of weibo for the whole pipeline to run.
@@ -118,6 +151,12 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 			w.Write(b)
 		case r.URL.Path == "/api/v1/article/info/get":
 			fmt.Fprint(w, `{"error":0,"data":{"body":"<p>少数派正文</p>","keywords":"效率,工具","is_pay":false,"is_free":true}}`)
+		case r.URL.Path == "/feed":
+			w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+			fmt.Fprint(w, smzdmPostRSS)
+		case r.URL.Path == "/" && r.URL.Query().Get("tab") == "":
+			w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+			fmt.Fprint(w, smzdmRSS)
 		case r.URL.Path == "/hot":
 			fmt.Fprint(w, `{"ok":1,"data":{"realtime":[
 				{"word":"小城良方 剧情硬伤","word_scheme":"小城良方 剧情硬伤","num":1488601,"label_name":"新","flag_desc":"剧集","topic_flag":0,"realpos":1},
@@ -161,7 +200,7 @@ func newTestServer(t *testing.T) http.Handler {
 		StatusURL: upstream.URL + "/status",
 		Timeout:   2 * time.Second,
 	})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn}, c, logx.Discard(), feed.DefaultTTLs())
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second})}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,

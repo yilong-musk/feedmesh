@@ -17,6 +17,9 @@ Bridges content from multiple platforms into RSS — self-hosted, one static bin
 | <img src="docs/assets/sspai.png" width="18" height="18" alt="sspai"> sspai | Latest articles | `/rss/sspai` | `/api/v1/sspai` |
 | <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | Latest topics | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
 | <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | Hot topics | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Selected deals | `/rss/smzdm` | `/api/v1/smzdm` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Community articles | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Overseas deals | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
 | <img src="docs/assets/x.png" width="18" height="18" alt="X"> X | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 
 Parameters, data sources and limits live in **[docs/PLATFORMS.md](docs/PLATFORMS.md)**.

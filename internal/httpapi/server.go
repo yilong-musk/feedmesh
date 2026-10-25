@@ -12,6 +12,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
@@ -77,11 +78,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/v2ex.xml", s.getOnly(s.handleV2exLatest))
 	mux.HandleFunc("/rss/v2ex/hot", s.getOnly(s.handleV2exHot))
 	mux.HandleFunc("/rss/v2ex/hot.xml", s.getOnly(s.handleV2exHot))
+	mux.HandleFunc("/rss/smzdm", s.getOnly(s.handleSmzdm))
+	mux.HandleFunc("/rss/smzdm.xml", s.getOnly(s.handleSmzdm))
+	mux.HandleFunc("/rss/smzdm/post", s.getOnly(s.handleSmzdmPost))
+	mux.HandleFunc("/rss/smzdm/post.xml", s.getOnly(s.handleSmzdmPost))
+	mux.HandleFunc("/rss/smzdm/haitao", s.getOnly(s.handleSmzdmHaitao))
+	mux.HandleFunc("/rss/smzdm/haitao.xml", s.getOnly(s.handleSmzdmHaitao))
 	mux.HandleFunc("/rss/x/{handle}", s.getOnly(s.handleX))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
 	mux.HandleFunc("/api/v1/hot", s.getOnly(s.handleAPIHot))
 	mux.HandleFunc("/api/v1/sspai", s.getOnly(s.handleAPISspai))
 	mux.HandleFunc("/api/v1/v2ex", s.getOnly(s.handleAPIV2ex))
+	mux.HandleFunc("/api/v1/smzdm", s.getOnly(s.handleAPISmzdm))
 	mux.HandleFunc("/api/v1/x", s.getOnly(s.handleAPIX))
 	mux.HandleFunc("/", s.handleNotFound)
 
@@ -423,6 +431,84 @@ func (s *Server) handleAPIV2ex(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, v2exResponse{
 		Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
+	})
+}
+
+type smzdmItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type smzdmResponse struct {
+	Channel     string              `json:"channel"`
+	Title       string              `json:"title"`
+	Description string              `json:"description"`
+	FetchedAt   time.Time           `json:"fetched_at"`
+	Cached      bool                `json:"cached"`
+	Items       []smzdmItemResponse `json:"items"`
+}
+
+// serveSmzdm renders one channel as RSS.
+func (s *Server) serveSmzdm(w http.ResponseWriter, r *http.Request, ch smzdm.Channel) {
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetSmzdm(r.Context(), ch, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	s.setRSSCache(w, int(feed.SmzdmTTL(ch).Seconds()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+func (s *Server) handleSmzdm(w http.ResponseWriter, r *http.Request) {
+	s.serveSmzdm(w, r, smzdm.ChannelDeals)
+}
+
+func (s *Server) handleSmzdmPost(w http.ResponseWriter, r *http.Request) {
+	s.serveSmzdm(w, r, smzdm.ChannelPost)
+}
+
+func (s *Server) handleSmzdmHaitao(w http.ResponseWriter, r *http.Request) {
+	s.serveSmzdm(w, r, smzdm.ChannelHaitao)
+}
+
+func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("channel")
+	ch, ok := smzdm.ParseChannel(raw)
+	if !ok {
+		s.writeError(w, &weibo.Error{
+			Code:    weibo.CodeBadRequest,
+			Message: "unknown smzdm channel " + strconv.Quote(raw),
+		})
+		return
+	}
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetSmzdm(r.Context(), ch, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]smzdmItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		items = append(items, smzdmItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, smzdmResponse{
+		Channel: string(ch), Title: f.Title(), Description: f.Description,
 		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
 	})
 }
