@@ -438,6 +438,7 @@ func (s *Server) handleAPIV2ex(w http.ResponseWriter, r *http.Request) {
 type smzdmItemResponse struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
+	Author    string    `json:"author"`
 	Text      string    `json:"text"`
 	URL       string    `json:"url"`
 	HTML      string    `json:"html"`
@@ -503,7 +504,7 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 	items := make([]smzdmItemResponse, 0, len(f.Items))
 	for _, it := range f.Items {
 		items = append(items, smzdmItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			ID: it.ID, Title: it.Title, Author: it.Author, Text: it.Text, URL: it.URL,
 			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
 		})
 	}
