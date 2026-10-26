@@ -70,6 +70,7 @@ internal/httpapi/   HTTP routing and error envelope
 internal/guard/     breaker + single-flight
 internal/logx/      stderr JSON line logging
 deploy/             systemd user unit
+tools/              repository gates: Go-only language check and RSS validator
 docs/               API, platform list, this file
 ```
 
@@ -134,9 +135,10 @@ journalctl --user -u feedmesh -n 50           # 3. service-side logs
 ```bash
 go build ./... && go vet ./... && go test ./...
 
-make check                       # vet + test + gofmt checks
+make check                       # vet + test + gofmt + language gate
 bash scripts/acceptance.sh       # full acceptance run (requires the service on :3000)
-python3 scripts/check_rss.py f.xml   # validate that the RSS is well-formed
+go run ./tools/rsscheck f.xml    # validate that the RSS is well-formed
 ```
 
-CI (GitHub Actions) runs the same `gofmt` / `vet` / `test -race` / static build checks.
+CI (GitHub Actions) runs the same `gofmt` / language / `vet` / `test -race` /
+static build checks.

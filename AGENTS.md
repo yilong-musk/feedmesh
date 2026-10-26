@@ -93,7 +93,7 @@ committed CI gates, and the deployment notes in `docs/ARCHITECTURE.md`.
 ## 4. Enforcement
 
 `make lang` (also wired into `make check` and the CI job) runs
-`scripts/check_language.py`, which fails when a tracked file contains
+`go run ./tools/langcheck`, which fails when a tracked file contains
 Cyrillic, Hebrew, Arabic, Devanagari, Thai, Kana, CJK or Hangul characters in
 authored text.
 

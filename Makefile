@@ -23,7 +23,7 @@ fmt:
 	gofmt -l -w .
 
 lang:
-	python3 scripts/check_language.py
+	go run ./tools/langcheck
 
 check: vet test lang
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
