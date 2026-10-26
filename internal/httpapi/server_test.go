@@ -49,8 +49,9 @@ const xRSS = `<?xml version="1.0" encoding="UTF-8"?>
 <link>https://nitter.test/cb_doge/status/2113318444934562215#m</link></item>
 </channel></rss>`
 
-// smzdmRSS is a two-item SMZDM deal feed: one nickname-only entry and one with
-// a blurb in content:encoded, out of order on purpose.
+// smzdmRSS is a three-item SMZDM deal feed: one nickname-only entry, one with
+// a blurb in content:encoded, and one with no description at all, out of order
+// on purpose.
 const smzdmRSS = `<?xml version="1.0" encoding="UTF-8"?>
 <rss xmlns:content="http://purl.org/rss/1.0/modules/content/" version="2.0">
 <channel><title>什么值得买</title><link>http://www.smzdm.com</link><description>deals</description>
@@ -66,6 +67,11 @@ const smzdmRSS = `<?xml version="1.0" encoding="UTF-8"?>
 <description><![CDATA[小值机器人德绒自发热，券后 99 元。]]></description>
 <focus_pic><![CDATA[https://y.zdmimg.com/b.png_a200.jpg]]></focus_pic>
 <content:encoded><![CDATA[<p itemprop="description">德绒自发热，券后 99 元。</p><p>本文来自什么值得买网站（www.smzdm.com）。</p>]]></content:encoded></item>
+<item><title><![CDATA[镜片 1.67 超薄非球面 2 片装]]></title>
+<link><![CDATA[https://www.smzdm.com/p/184720000/]]></link>
+<pubDate><![CDATA[Sun, 25 Oct 2026 20:10:00]]></pubDate>
+<description><![CDATA[]]></description>
+<content:encoded><![CDATA[]]></content:encoded></item>
 </channel></rss>`
 
 // smzdmPostRSS is a one-item article feed: slug permalink, author element and

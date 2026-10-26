@@ -179,7 +179,7 @@ Timestamps are always RFC 3339 (UTC); `images` is always an array (`[]` when the
 ```
 
 - `limit` defaults to 20 with a maximum of 30; `refresh=1` behaves as on the RSS routes.
-- `author` is the poster's nickname on the deal channels and the writer on the article channel; it is empty when upstream carries none, so callers never have to parse `html` for `Posted by …`.
+- `author` is the poster's nickname on the deal channels and the writer on the article channel. It is always present; it is empty when the feed carries no nickname, or when the nickname cannot be separated from the blurb (the deal channels pack both into one `<description>`). Callers never have to parse `html` for `Posted by …`.
 - `text` is empty for the common deal case (nickname-only entries); the price and conditions live in `title`. Article entries carry the blurb in `text`.
 
 ### `GET /api/v1/x?handle=<handle>&limit=N`

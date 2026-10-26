@@ -101,8 +101,22 @@ func TestSmzdmAPIRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode clamped call: %v", err)
 	}
-	if len(out.Items) != 2 {
-		t.Fatalf("clamped limit returned %d items, want 2", len(out.Items))
+	if len(out.Items) != 3 {
+		t.Fatalf("clamped limit returned %d items, want 3", len(out.Items))
+	}
+	if got := out.Items[2].Author; got != "" {
+		t.Fatalf("author = %q, want empty for the entry with no description", got)
+	}
+	// The key must stay present even when it is empty, so a JSON client can
+	// rely on a stable schema; decoding into a map catches a later `omitempty`.
+	var raw struct {
+		Items []map[string]json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw clamped call: %v", err)
+	}
+	if got, ok := raw.Items[2]["author"]; !ok || string(got) != `""` {
+		t.Fatalf("author key = %s (present %v), want an explicit empty string", got, ok)
 	}
 }
 
