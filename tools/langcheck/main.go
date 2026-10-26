@@ -1,8 +1,9 @@
 // Command langcheck fails when non-English scripts show up in authored text.
 //
 // AGENTS.md §1 requires every authored string in this repository to be
-// English. This check scans tracked files for characters outside the Latin
-// script and reports them, apart from:
+// English. This check scans tracked files for characters from the writing
+// systems listed in ranges (Cyrillic, Hebrew, Arabic, Devanagari, Thai, Kana,
+// CJK, Hangul) and reports them, apart from:
 //
 //   - test files (*_test.go), which reproduce upstream payloads byte for byte
 //   - lines carrying an explicit i18n-ignore marker
@@ -21,6 +22,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/yilong-musk/feedmesh/tools/internal/textutil"
 )
 
 // scriptRange names a writing system that must not appear in authored text.
@@ -88,7 +91,7 @@ func main() {
 				continue
 			}
 			hits++
-			fmt.Printf("%s:%d: %s text: %s\n", path, number+1, strings.Join(names, "/"), truncate(strings.TrimSpace(line), maxColumn))
+			fmt.Printf("%s:%d: %s text: %s\n", path, number+1, strings.Join(names, "/"), textutil.Head(strings.TrimSpace(line), maxColumn))
 		}
 	}
 
@@ -161,13 +164,4 @@ func offending(text string) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// truncate cuts s to at most n runes, mirroring the previous tool's output.
-func truncate(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n])
 }

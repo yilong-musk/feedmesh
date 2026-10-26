@@ -140,4 +140,5 @@ bash scripts/acceptance.sh       # full acceptance run (requires the service on 
 go run ./tools/rsscheck f.xml    # validate that the RSS is well-formed
 ```
 
-CI (GitHub Actions) runs the same `gofmt` / `vet` / `test -race` / static build checks.
+CI (GitHub Actions) runs the same `gofmt` / language / `vet` / `test -race` /
+static build checks.
