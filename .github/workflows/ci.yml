@@ -28,7 +28,7 @@ jobs:
           fi
 
       - name: language check
-        run: python3 scripts/check_language.py
+        run: go run ./tools/langcheck
 
       - name: vet
         run: go vet ./...
