@@ -18,6 +18,10 @@ type Item struct {
 	VideoURL  string    `json:"video_url,omitempty"`
 	PageURL   string    `json:"page_url,omitempty"`
 	Title     string    `json:"-"`
+	// Author is the upstream poster name for providers that expose one. The
+	// SMZDM JSON view publishes it; other providers leave it empty and keep
+	// their existing output.
+	Author string `json:"-"`
 	// Rank is the upstream display rank (hot search only); it is deliberately
 	// kept out of the generic item JSON.
 	Rank int `json:"-"`

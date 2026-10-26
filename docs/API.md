@@ -173,12 +173,13 @@ Timestamps are always RFC 3339 (UTC); `images` is always an array (`[]` when the
 
 ```json
 {"channel":"deals","title":"SMZDM Deals","description":"Selected deals from SMZDM","fetched_at":"2026-10-25T14:12:08Z","cached":false,
- "items":[{"id":"184734707","title":"Brand model 620ml 28.84 CNY (buy 2, coupon)","text":"",
+ "items":[{"id":"184734707","title":"Brand model 620ml 28.84 CNY (buy 2, coupon)","author":"chromes","text":"",
            "url":"https://www.smzdm.com/p/184734707/","html":"…",
            "images":["https://y.zdmimg.com/…png_a200.jpg"],"created_at":"2026-10-25T13:39:37Z"}]}
 ```
 
 - `limit` defaults to 20 with a maximum of 30; `refresh=1` behaves as on the RSS routes.
+- `author` is the poster's nickname on the deal channels and the writer on the article channel; it is empty when upstream carries none, so callers never have to parse `html` for `Posted by …`.
 - `text` is empty for the common deal case (nickname-only entries); the price and conditions live in `title`. Article entries carry the blurb in `text`.
 
 ### `GET /api/v1/x?handle=<handle>&limit=N`

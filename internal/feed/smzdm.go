@@ -100,6 +100,7 @@ func (s *Service) GetSmzdm(ctx context.Context, ch smzdm.Channel, limit int, ref
 			ID:        d.ID,
 			Title:     d.Title,
 			Text:      d.Summary,
+			Author:    d.Author,
 			HTML:      smzdmHTML(ch, d),
 			URL:       d.URL,
 			CreatedAt: created,

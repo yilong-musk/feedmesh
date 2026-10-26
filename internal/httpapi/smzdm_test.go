@@ -47,6 +47,7 @@ func TestSmzdmAPIRoute(t *testing.T) {
 		Items       []struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
+			Author    string    `json:"author"`
 			Text      string    `json:"text"`
 			URL       string    `json:"url"`
 			HTML      string    `json:"html"`
@@ -69,6 +70,9 @@ func TestSmzdmAPIRoute(t *testing.T) {
 	}
 	if it.Text != "德绒自发热，券后 99 元。" {
 		t.Fatalf("text = %q", it.Text)
+	}
+	if it.Author != "小值机器人" {
+		t.Fatalf("author = %q, want the poster nickname split out of description", it.Author)
 	}
 	if len(it.Images) != 1 || !strings.Contains(it.Images[0], "b.png") {
 		t.Fatalf("images = %v", it.Images)
@@ -131,11 +135,12 @@ func TestSmzdmPostRoutes(t *testing.T) {
 		Channel string `json:"channel"`
 		Title   string `json:"title"`
 		Items   []struct {
-			ID    string `json:"id"`
-			Text  string `json:"text"`
-			URL   string `json:"url"`
-			HTML  string `json:"html"`
-			Image string `json:"-"`
+			ID     string `json:"id"`
+			Author string `json:"author"`
+			Text   string `json:"text"`
+			URL    string `json:"url"`
+			HTML   string `json:"html"`
+			Image  string `json:"-"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
@@ -149,6 +154,9 @@ func TestSmzdmPostRoutes(t *testing.T) {
 	}
 	if !strings.HasPrefix(out.Items[0].Text, "先说结论") {
 		t.Fatalf("text = %q, want the article blurb", out.Items[0].Text)
+	}
+	if out.Items[0].Author != "家电算账本" {
+		t.Fatalf("author = %q, want the writer from <author>", out.Items[0].Author)
 	}
 	if !strings.Contains(out.Items[0].HTML, "Read the article on SMZDM") {
 		t.Fatalf("html did not use the article label:\n%s", out.Items[0].HTML)
