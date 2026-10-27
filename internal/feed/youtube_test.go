@@ -61,6 +61,10 @@ const ytFeedXML = `<?xml version="1.0" encoding="UTF-8"?>
 
 const ytChannelPage = `<html><script>{"metadata":{"channelMetadataRenderer":{"externalId":"` + ytChannelID + `","title":"Test Channel"}}}</script></html>`
 
+// ytBrowseJSON is the shape of the browse reply the client falls back to when
+// the Atom feed is in one of its outage windows.
+const ytBrowseJSON = `{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"title":"Videos","selected":true,"content":{"richGridRenderer":{"contents":[{"richItemRenderer":{"content":{"lockupViewModel":{"contentId":"dQw4w9WgXcQ","metadata":{"lockupMetadataViewModel":{"title":{"content":"Browse fallback upload"},"metadata":{"contentMetadataViewModel":{"metadataRows":[{"metadataParts":[{"text":{"content":"7.5K views"}},{"text":{"content":"2 days ago"}}]}]}}}},"contentImage":{"thumbnailViewModel":{"image":{"sources":[{"url":"https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg","width":720}]}}}}}}}]}}}}]}},"metadata":{"channelMetadataRenderer":{"title":"Test Channel"}}}`
+
 // ytUpstream is a controllable stand-in for youtube.com.
 type ytUpstream struct {
 	mu       sync.Mutex
@@ -261,6 +265,45 @@ func TestGetYouTubeRefreshReplacesList(t *testing.T) {
 	}
 	if f.Items[0].Title != "Refreshed upload" {
 		t.Fatalf("first title = %q", f.Items[0].Title)
+	}
+}
+
+func TestGetYouTubeUsesBrowseWhenFeedFails(t *testing.T) {
+	// The Atom endpoint is out; the browse endpoint answers instead, so the
+	// reader still gets a feed (with approximate timestamps) rather than 504.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/@testchannel":
+			_, _ = w.Write([]byte(ytChannelPage))
+		case "/feeds/videos.xml":
+			http.NotFound(w, r)
+		case "/youtubei/v1/browse":
+			_, _ = w.Write([]byte(ytBrowseJSON))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+
+	f, err := svc.GetYouTube(context.Background(), "@testchannel", 15, false)
+	if err != nil {
+		t.Fatalf("GetYouTube: %v", err)
+	}
+	if f.Degraded {
+		t.Fatal("degraded = true, want false: the fallback is a live read")
+	}
+	if len(f.Items) != 1 || f.Items[0].Title != "Browse fallback upload" {
+		t.Fatalf("items = %+v", f.Items)
+	}
+	if f.Items[0].Views != 7500 {
+		t.Fatalf("views = %d, want 7500", f.Items[0].Views)
+	}
+	if !strings.Contains(f.Items[0].HTML, "7.5K views") {
+		t.Fatalf("html = %s, want a compact view counter", f.Items[0].HTML)
+	}
+	if age := time.Since(f.Items[0].CreatedAt); age < 36*time.Hour || age > 60*time.Hour {
+		t.Fatalf("created_at age = %v, want about 2 days", age)
 	}
 }
 

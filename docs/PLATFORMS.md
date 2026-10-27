@@ -144,11 +144,12 @@ Official site <https://youtube.com> · Data source: the channel upload feed (`/f
 - The feed carries exactly 15 entries and has no pagination. A channel that uploads more than that between two polls loses the overflow; poll every 10 minutes or accept the ceiling.
 - Entries are the upload stream, so Shorts and livestream replays are mixed in with regular videos. `link`/`guid` is always `https://www.youtube.com/watch?v=<id>`, which resolves for both.
 - Fields: title, description, thumbnail (`hqdefault`, 480×360), publish time, view count. Duration is not in the feed and is not published.
-- One feed read is up to 3 attempts (2 s, then 4 s apart). When all attempts fail, the last good list is served with `X-Feedmesh-Degraded: 1` for up to 24 hours; with no such list the route returns `UPSTREAM_UNAVAILABLE`.
+- One feed read is up to 3 attempts (2 s, then 4 s apart). When all attempts fail, the client switches to the web client's browse endpoint, which returns up to 30 entries with relative timestamps ("5 days ago") and no description; those items carry approximate dates and repeat the title as their text. If that also fails, the last good list is served with `X-Feedmesh-Degraded: 1` for up to 24 hours.
 
 ### Limitations
 
-- **The endpoint is not always available**: it answers 404 or 500 for short windows even for channels that exist (RSS-Bridge #2113, newsboat #3269, Google's developer forum). The service retries and falls back, but a cold cache during such a window returns 504.
+- **The endpoint is not always available**: it answers 404 or 500 for short windows even for channels that exist (RSS-Bridge #2113, newsboat #3269, Google's developer forum). The service retries, then falls back to the web client endpoint, then to the last good list, so readers normally see a feed; only when both sources fail and nothing is cached does the route return 504.
+- The fallback's dates are approximate (day-level relative text) and its entries have no description, so a feed built during an outage looks thinner than one built from the Atom feed. The next successful Atom read replaces it.
 - Public channels only: members-only and private uploads never appear.
 - Metadata only: no duration, resolution or live status.
 

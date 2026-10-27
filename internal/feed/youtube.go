@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -204,13 +205,33 @@ func youtubeHTML(v youtube.Video, images []string) string {
 	}
 	if v.Views > 0 {
 		b.WriteString("<p><em>")
-		b.WriteString(FormatHeat(v.Views))
+		b.WriteString(formatViews(v.Views))
 		b.WriteString(" views</em></p>")
 	}
 	b.WriteString(`<p><a href="`)
 	b.WriteString(EscapeXML("https://www.youtube.com/watch?v=" + v.ID))
 	b.WriteString(`">Watch on YouTube</a></p>`)
 	return b.String()
+}
+
+// formatViews renders a play counter in compact units, dropping a trailing
+// ".0" so 32,000 reads as 32K rather than 32.0K.
+func formatViews(n int64) string {
+	switch {
+	case n >= 1_000_000_000:
+		return trimZero(n, 1e9, "B")
+	case n >= 1_000_000:
+		return trimZero(n, 1e6, "M")
+	case n >= 1_000:
+		return trimZero(n, 1e3, "K")
+	default:
+		return strconv.FormatInt(n, 10)
+	}
+}
+
+func trimZero(n int64, unit float64, suffix string) string {
+	s := strconv.FormatFloat(float64(n)/unit, 'f', 1, 64)
+	return strings.TrimSuffix(s, ".0") + suffix
 }
 
 // youtubeError maps client errors onto the API error envelope.

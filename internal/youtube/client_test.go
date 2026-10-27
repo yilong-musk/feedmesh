@@ -3,10 +3,12 @@ package youtube
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,6 +31,13 @@ func loadFixture(t *testing.T, name string) []byte {
 func newClient(t *testing.T, url string) *Client {
 	t.Helper()
 	return New(Config{BaseURL: url, Timeout: 2 * time.Second, RetryDelay: time.Millisecond})
+}
+
+// newFeedOnlyClient keeps the browse fallback out of the way so a test can
+// count Atom-feed requests without the fallback adding its own.
+func newFeedOnlyClient(t *testing.T, url string) *Client {
+	t.Helper()
+	return New(Config{BaseURL: url, Timeout: 2 * time.Second, RetryDelay: time.Millisecond, DisableFallback: true})
 }
 
 func TestVideosParsesFeed(t *testing.T) {
@@ -115,7 +124,7 @@ func TestVideosReportsExhaustedRetries(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newClient(t, srv.URL).Videos(context.Background(), testChannelID)
+	_, err := newFeedOnlyClient(t, srv.URL).Videos(context.Background(), testChannelID)
 	if err == nil {
 		t.Fatal("want an error after every attempt failed")
 	}
@@ -136,7 +145,7 @@ func TestVideosDoesNotRetryBadRequest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := newClient(t, srv.URL).Videos(context.Background(), testChannelID); err == nil {
+	if _, err := newFeedOnlyClient(t, srv.URL).Videos(context.Background(), testChannelID); err == nil {
 		t.Fatal("want an error")
 	}
 	if hits != 1 {
@@ -212,6 +221,155 @@ func TestChannelIDWithoutExternalID(t *testing.T) {
 func TestChannelIDRejectsEmptyReference(t *testing.T) {
 	if _, err := New(Config{}).ChannelID(context.Background(), "   "); err == nil {
 		t.Fatal("want an error for an empty reference")
+	}
+}
+
+func TestVideosFallsBackToBrowse(t *testing.T) {
+	browse := loadFixture(t, "testdata/browse.json")
+	var feedHits, browseHits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/feeds/videos.xml":
+			atomic.AddInt32(&feedHits, 1)
+			http.NotFound(w, r)
+		case r.URL.Path == "/youtubei/v1/browse":
+			atomic.AddInt32(&browseHits, 1)
+			if r.Method != http.MethodPost {
+				t.Errorf("browse method = %s, want POST", r.Method)
+			}
+			if r.URL.Query().Get("key") == "" {
+				t.Error("browse request has no key")
+			}
+			if r.Header.Get("X-YouTube-Client-Name") != "1" {
+				t.Errorf("client name header = %q", r.Header.Get("X-YouTube-Client-Name"))
+			}
+			if r.Header.Get("X-YouTube-Client-Version") == "" {
+				t.Error("client version header missing")
+			}
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), testChannelID) || !strings.Contains(string(body), videosTabParams) {
+				t.Errorf("browse body = %s", body)
+			}
+			_, _ = w.Write(browse)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	f, err := newClient(t, srv.URL).Videos(context.Background(), testChannelID)
+	if err != nil {
+		t.Fatalf("Videos: %v", err)
+	}
+	if feedHits != MaxAttempts || browseHits != 1 {
+		t.Fatalf("feed/browse requests = %d/%d, want %d/1", feedHits, browseHits, MaxAttempts)
+	}
+	if f.Title != "Google for Developers" {
+		t.Fatalf("title = %q", f.Title)
+	}
+	if len(f.Videos) != 2 {
+		t.Fatalf("videos = %d, want 2", len(f.Videos))
+	}
+	v := f.Videos[0]
+	if v.ID != "SOF3_evPje8" || v.URL != "https://www.youtube.com/watch?v=SOF3_evPje8" {
+		t.Fatalf("video = %+v", v)
+	}
+	if v.Views != 32000 {
+		t.Fatalf("views = %d, want 32000", v.Views)
+	}
+	if !strings.Contains(v.Thumbnail, "hq720") {
+		t.Fatalf("thumbnail = %q, want the widest source", v.Thumbnail)
+	}
+	if age := time.Since(v.Published); age < 4*24*time.Hour || age > 6*24*time.Hour {
+		t.Fatalf("published age = %v, want about 5 days", age)
+	}
+}
+
+func TestVideosPrefersAtomFeed(t *testing.T) {
+	feed := loadFixture(t, "testdata/feed.xml")
+	browse := loadFixture(t, "testdata/browse.json")
+	var browseHits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/feeds/videos.xml":
+			_, _ = w.Write(feed)
+		case "/youtubei/v1/browse":
+			atomic.AddInt32(&browseHits, 1)
+			_, _ = w.Write(browse)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	f, err := newClient(t, srv.URL).Videos(context.Background(), testChannelID)
+	if err != nil {
+		t.Fatalf("Videos: %v", err)
+	}
+	if browseHits != 0 {
+		t.Fatalf("browse requests = %d, want 0 while the feed is healthy", browseHits)
+	}
+	if f.Videos[0].ID != "CsF5oqVV5YE" {
+		t.Fatalf("first video = %q, want the Atom feed entry", f.Videos[0].ID)
+	}
+}
+
+func TestVideosFallbackFailureReturnsFeedError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	_, err := newClient(t, srv.URL).Videos(context.Background(), testChannelID)
+	var he *HTTPError
+	if !errors.As(err, &he) || he.StatusCode != http.StatusNotFound {
+		t.Fatalf("err = %v, want the feed's 404", err)
+	}
+}
+
+func TestParseRelativeText(t *testing.T) {
+	now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	cases := map[string]time.Duration{
+		"5 days ago":          5 * 24 * time.Hour,
+		"1 hour ago":          time.Hour,
+		"an hour ago":         time.Hour,
+		"2 weeks ago":         14 * 24 * time.Hour,
+		"Streamed 3 days ago": 3 * 24 * time.Hour,
+		"Premiered 1 day ago": 24 * time.Hour,
+		"11 months ago":       11 * 30 * 24 * time.Hour,
+		"1 year ago":          365 * 24 * time.Hour,
+		"32K views":           0,
+	}
+	for text, want := range cases {
+		got := parseRelativeText(text, now)
+		if want == 0 {
+			if !got.IsZero() {
+				t.Fatalf("parseRelativeText(%q) = %v, want zero", text, got)
+			}
+			continue
+		}
+		if age := now.Sub(got); age != want {
+			t.Fatalf("parseRelativeText(%q) age = %v, want %v", text, age, want)
+		}
+	}
+}
+
+func TestParseViews(t *testing.T) {
+	cases := map[string]int64{
+		"32K views":   32000,
+		"1,234 views": 1234,
+		"1.2M views":  1200000,
+		"2B views":    2000000000,
+		"No views":    0,
+		"5 days ago":  0,
+	}
+	for text, want := range cases {
+		if got := parseViews([]string{text}); got != want {
+			t.Fatalf("parseViews(%q) = %d, want %d", text, got, want)
+		}
+	}
+	if got := parseViews(nil); got != 0 {
+		t.Fatalf("parseViews(nil) = %d", got)
 	}
 }
 

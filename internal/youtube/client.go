@@ -12,8 +12,11 @@
 // The endpoint is not always available: it answers 404 or 500 for short
 // windows even for channels that exist (reported by RSS-Bridge, newsboat and
 // Google's developer forum). A single 404 therefore does not mean "channel
-// gone", so the client retries before it reports a failure and the feed layer
-// keeps serving the last good list when the retries are exhausted.
+// gone", so the client retries before it reports a failure. When the feed
+// keeps failing, the client reads the same list from the web client's browse
+// endpoint (InnerTube) instead of returning nothing: that reply carries about
+// 30 entries but only relative timestamps ("5 days ago"), so the Atom feed
+// stays the primary source and the fallback exists to survive outage windows.
 //
 // The feed only accepts a channel id. Handles (@name) and channel URLs are
 // resolved once against the public channel page; callers are expected to cache
@@ -21,7 +24,9 @@
 package youtube
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -39,10 +44,19 @@ const (
 	DefaultBaseURL = "https://www.youtube.com"
 	// DefaultLimit is the width of one feed.
 	DefaultLimit = 15
-	// MaxLimit is the widest answer the endpoint can give.
+	// MaxLimit is the widest answer the Atom feed can give.
 	MaxLimit = 15
 	// MaxAttempts bounds one request, including retries.
 	MaxAttempts = 3
+
+	// webAPIKey is the public key the YouTube web client ships with. It is not
+	// a secret and needs no registration; it only identifies the client.
+	webAPIKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+	// webClientVersion is sent with browse requests. YouTube accepts older
+	// versions for a long time; bump it when the reply shape changes.
+	webClientVersion = "2.20261026.01.00"
+	// videosTabParams selects the Videos tab of a channel page.
+	videosTabParams = "EgZ2aWRlb3PyBgQKAjoA"
 )
 
 // Video is one upload.
@@ -74,6 +88,9 @@ type Config struct {
 	// RetryDelay is the pause before the second attempt; every later attempt
 	// doubles it. Tests set a millisecond.
 	RetryDelay time.Duration
+	// DisableFallback keeps the client on the Atom feed only. Tests use it to
+	// assert that a healthy feed never costs a browse request.
+	DisableFallback bool
 }
 
 // Client reads YouTube over HTTP.
@@ -82,6 +99,7 @@ type Client struct {
 	ua         string
 	http       *http.Client
 	retryDelay time.Duration
+	fallback   bool
 }
 
 // New builds a Client with production defaults.
@@ -103,6 +121,7 @@ func New(cfg Config) *Client {
 		ua:         cfg.UserAgent,
 		http:       &http.Client{Timeout: cfg.Timeout},
 		retryDelay: cfg.RetryDelay,
+		fallback:   !cfg.DisableFallback,
 	}
 }
 
@@ -111,6 +130,10 @@ var (
 	channelIDShape = regexp.MustCompile(`^UC[A-Za-z0-9_-]{22}$`)
 	// channelIDFromPage finds the channel id in the public channel page.
 	channelIDFromPage = regexp.MustCompile(`"externalId":"(UC[A-Za-z0-9_-]{22})"`)
+	// relativePattern matches the fallback's timestamps ("5 days ago").
+	relativePattern = regexp.MustCompile(`(?i)(\d+|an?)\s+(second|minute|hour|day|week|month|year)s?\s+ago`)
+	// viewsPattern matches "32K views" and "1,234 views".
+	viewsPattern = regexp.MustCompile(`(?i)^([\d.,]+)\s*([KMB])?\s+views?$`)
 )
 
 // HTTPError is a non-2xx answer from YouTube.
@@ -163,16 +186,32 @@ func (c *Client) ChannelID(ctx context.Context, ref string) (string, error) {
 	return string(m[1]), nil
 }
 
-// Videos reads the upload feed for one channel id.
+// Videos reads the upload list for one channel id. The Atom feed is tried
+// first; when it keeps failing, the browse endpoint answers instead so an
+// outage window degrades to approximate timestamps rather than to no feed.
 func (c *Client) Videos(ctx context.Context, channelID string) (*Feed, error) {
 	channelID = strings.TrimSpace(channelID)
 	if !channelIDShape.MatchString(channelID) {
 		return nil, fmt.Errorf("youtube: invalid channel id %q", channelID)
 	}
-	body, err := c.get(ctx, "/feeds/videos.xml?channel_id="+url.QueryEscape(channelID))
-	if err != nil {
-		return nil, err
+	body, feedErr := c.get(ctx, "/feeds/videos.xml?channel_id="+url.QueryEscape(channelID))
+	if feedErr == nil {
+		feed, err := parseAtomFeed(channelID, body)
+		if err == nil {
+			return feed, nil
+		}
+		feedErr = err
 	}
+	if c.fallback {
+		if feed, err := c.browse(ctx, channelID); err == nil {
+			return feed, nil
+		}
+	}
+	return nil, feedErr
+}
+
+// parseAtomFeed turns one videos.xml body into a Feed.
+func parseAtomFeed(channelID string, body []byte) (*Feed, error) {
 	var doc atomDocument
 	if err := xml.Unmarshal(body, &doc); err != nil {
 		return nil, fmt.Errorf("youtube: feed parse: %w", err)
@@ -204,15 +243,182 @@ func (c *Client) Videos(ctx context.Context, channelID string) (*Feed, error) {
 	return out, nil
 }
 
-// get performs one request with retries for the failure modes the feed is
-// known for: 404/429/5xx and transport errors.
+// browse reads the channel's Videos tab through the web client's endpoint.
+// Its timestamps are relative, so they become an approximate instant; the Atom
+// feed remains the source of exact times.
+func (c *Client) browse(ctx context.Context, channelID string) (*Feed, error) {
+	payload, err := json.Marshal(map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName":    "WEB",
+				"clientVersion": webClientVersion,
+				"hl":            "en",
+				"gl":            "US",
+			},
+		},
+		"browseId": channelID,
+		"params":   videosTabParams,
+	})
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.post(ctx, "/youtubei/v1/browse?key="+webAPIKey+"&prettyPrint=false", payload)
+	if err != nil {
+		return nil, err
+	}
+	var doc browseDocument
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, fmt.Errorf("youtube: browse parse: %w", err)
+	}
+
+	now := time.Now().UTC()
+	out := &Feed{ChannelID: channelID, Title: strings.TrimSpace(doc.Metadata.Channel.Title)}
+	for _, tab := range doc.Contents.Browse.Tabs {
+		for _, row := range tab.Tab.Content.Grid.Contents {
+			lk := row.Item.Content.Lockup
+			if lk == nil || lk.ContentID == "" {
+				continue
+			}
+			title := strings.TrimSpace(lk.Metadata.Lockup.Title.Content)
+			if title == "" {
+				continue
+			}
+			texts := lk.metadataTexts()
+			out.Videos = append(out.Videos, Video{
+				ID:          lk.ContentID,
+				ChannelID:   channelID,
+				Title:       title,
+				Description: title,
+				URL:         "https://www.youtube.com/watch?v=" + lk.ContentID,
+				Thumbnail:   lk.bestThumbnail(),
+				Published:   parseRelative(texts, now),
+				Views:       parseViews(texts),
+			})
+		}
+	}
+	if len(out.Videos) == 0 {
+		return nil, fmt.Errorf("youtube: browse returned no videos for %s", channelID)
+	}
+	return out, nil
+}
+
+// metadataTexts flattens the metadata rows of one lockup: typically the
+// publisher, the view counter and the relative publish time.
+func (l *browseLockup) metadataTexts() []string {
+	var texts []string
+	for _, row := range l.Metadata.Lockup.Metadata.Content.Rows {
+		for _, part := range row.Parts {
+			if text := strings.TrimSpace(part.Text.Content); text != "" {
+				texts = append(texts, text)
+			}
+		}
+	}
+	return texts
+}
+
+// bestThumbnail returns the widest thumbnail source.
+func (l *browseLockup) bestThumbnail() string {
+	best, width := "", 0
+	for _, src := range l.ContentImage.Thumb.Image.Sources {
+		if src.URL != "" && src.Width >= width {
+			best, width = src.URL, src.Width
+		}
+	}
+	return best
+}
+
+// parseRelative turns "5 days ago" into an instant, using the first relative
+// text in texts. Anything else (an empty list, "Upcoming") yields the zero
+// time.
+func parseRelative(texts []string, now time.Time) time.Time {
+	for _, text := range texts {
+		if t := parseRelativeText(text, now); !t.IsZero() {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+func parseRelativeText(text string, now time.Time) time.Time {
+	text = strings.TrimSpace(text)
+	for _, prefix := range []string{"Streamed ", "Premiered ", "Scheduled for "} {
+		text = strings.TrimPrefix(text, prefix)
+	}
+	m := relativePattern.FindStringSubmatch(text)
+	if m == nil {
+		return time.Time{}
+	}
+	n := 1
+	if m[1] != "a" && m[1] != "an" {
+		parsed, err := strconv.Atoi(m[1])
+		if err != nil || parsed <= 0 {
+			return time.Time{}
+		}
+		n = parsed
+	}
+	var unit time.Duration
+	switch strings.ToLower(m[2]) {
+	case "second":
+		unit = time.Second
+	case "minute":
+		unit = time.Minute
+	case "hour":
+		unit = time.Hour
+	case "day":
+		unit = 24 * time.Hour
+	case "week":
+		unit = 7 * 24 * time.Hour
+	case "month":
+		unit = 30 * 24 * time.Hour
+	case "year":
+		unit = 365 * 24 * time.Hour
+	default:
+		return time.Time{}
+	}
+	return now.Add(-time.Duration(n) * unit)
+}
+
+// parseViews reads a counter out of the metadata rows.
+func parseViews(texts []string) int64 {
+	for _, text := range texts {
+		m := viewsPattern.FindStringSubmatch(text)
+		if m == nil {
+			continue
+		}
+		value, err := strconv.ParseFloat(strings.ReplaceAll(m[1], ",", ""), 64)
+		if err != nil {
+			return 0
+		}
+		switch strings.ToUpper(m[2]) {
+		case "K":
+			value *= 1e3
+		case "M":
+			value *= 1e6
+		case "B":
+			value *= 1e9
+		}
+		return int64(value)
+	}
+	return 0
+}
+
+// get performs a request with retries for the failure modes the feed is known
+// for: 404/429/5xx and transport errors.
 func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
+	return c.do(ctx, http.MethodGet, path, nil)
+}
+
+func (c *Client) post(ctx context.Context, path string, body []byte) ([]byte, error) {
+	return c.do(ctx, http.MethodPost, path, body)
+}
+
+func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
 	delay := c.retryDelay
 	var lastErr error
 	for attempt := 1; attempt <= MaxAttempts; attempt++ {
-		body, err := c.getOnce(ctx, path)
+		out, err := c.doOnce(ctx, method, path, body)
 		if err == nil {
-			return body, nil
+			return out, nil
 		}
 		lastErr = err
 		if !retryable(err) || ctx.Err() != nil || attempt == MaxAttempts {
@@ -228,13 +434,22 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 	return nil, lastErr
 }
 
-func (c *Client) getOnce(ctx context.Context, path string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+func (c *Client) doOnce(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, reader)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", c.ua)
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-YouTube-Client-Name", "1")
+		req.Header.Set("X-YouTube-Client-Version", webClientVersion)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
@@ -244,11 +459,11 @@ func (c *Client) getOnce(ctx context.Context, path string) ([]byte, error) {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 		return nil, &HTTPError{StatusCode: resp.StatusCode, URL: req.URL.String()}
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	out, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return nil, err
 	}
-	return body, nil
+	return out, nil
 }
 
 // retryable reports whether another attempt can plausibly succeed.
@@ -364,4 +579,70 @@ type atomStatistics struct {
 
 type atomRating struct {
 	Count string `xml:"count,attr"`
+}
+
+// browseDocument mirrors the browse reply: the channel title, then one tab per
+// channel section. Only the Videos tab carries a rich grid, and only its rows
+// with a lockup are videos (the last row is a pagination marker).
+type browseDocument struct {
+	Contents struct {
+		Browse struct {
+			Tabs []browseTab `json:"tabs"`
+		} `json:"twoColumnBrowseResultsRenderer"`
+	} `json:"contents"`
+	Metadata struct {
+		Channel struct {
+			Title string `json:"title"`
+		} `json:"channelMetadataRenderer"`
+	} `json:"metadata"`
+}
+
+type browseTab struct {
+	Tab struct {
+		Content struct {
+			Grid struct {
+				Contents []browseRow `json:"contents"`
+			} `json:"richGridRenderer"`
+		} `json:"content"`
+	} `json:"tabRenderer"`
+}
+
+type browseRow struct {
+	Item struct {
+		Content struct {
+			Lockup *browseLockup `json:"lockupViewModel"`
+		} `json:"content"`
+	} `json:"richItemRenderer"`
+}
+
+type browseLockup struct {
+	ContentID string `json:"contentId"`
+	Metadata  struct {
+		Lockup struct {
+			Title struct {
+				Content string `json:"content"`
+			} `json:"title"`
+			Metadata struct {
+				Content struct {
+					Rows []struct {
+						Parts []struct {
+							Text struct {
+								Content string `json:"content"`
+							} `json:"text"`
+						} `json:"metadataParts"`
+					} `json:"metadataRows"`
+				} `json:"contentMetadataViewModel"`
+			} `json:"metadata"`
+		} `json:"lockupMetadataViewModel"`
+	} `json:"metadata"`
+	ContentImage struct {
+		Thumb struct {
+			Image struct {
+				Sources []struct {
+					URL   string `json:"url"`
+					Width int    `json:"width"`
+				} `json:"sources"`
+			} `json:"image"`
+		} `json:"thumbnailViewModel"`
+	} `json:"contentImage"`
 }

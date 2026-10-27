@@ -137,7 +137,8 @@ curl -s 'http://127.0.0.1:3000/rss/youtube/UC_x5XG1OV2P6uZZ5FSM9Ttw.xml'
 - `link`/`guid` is always `https://www.youtube.com/watch?v=<videoId>`, including for entries upstream publishes as Shorts.
 - The cover is the upstream thumbnail (`i4.ytimg.com`); the body carries the description, a compact view count and a link back.
 - The channel page is read once to turn a handle into a channel id and the mapping is cached for 24 hours.
-- When the endpoint fails, the last good list (up to 24 hours old) is served instead with `X-Feedmesh-Degraded: 1` and a normal 200, because the endpoint answers 404/5xx in short windows for channels that exist. Without a cached list the request returns `UPSTREAM_UNAVAILABLE` (504).
+- A feed read is retried three times (2 s, then 4 s apart). If the Atom endpoint keeps failing, the service reads the same list from YouTube's web client endpoint instead: up to 30 entries, relative timestamps ("5 days ago") and no description, so those items carry approximate dates and repeat the title as their text. A cold cache during an outage therefore still answers; the first read takes a few seconds longer because the retries run first.
+- If both sources fail, the last good list (up to 24 hours old) is served with `X-Feedmesh-Degraded: 1` and a normal 200. With no cached list at all the request returns `UPSTREAM_UNAVAILABLE` (504).
 - A reference that does not resolve to a channel returns `USER_NOT_FOUND` (404).
 
 ---
