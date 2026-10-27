@@ -43,8 +43,12 @@ type Feed struct {
 	// Degraded marks a list served from the cache because the upstream read
 	// failed. Providers that can answer from a stale entry set it; the JSON
 	// views that publish it declare the field themselves.
-	Degraded bool   `json:"-"`
-	Items    []Item `json:"items"`
+	Degraded bool `json:"-"`
+	// Source names where the list came from when a provider has more than one
+	// upstream (YouTube: atom, browse, stale). The RSS route publishes it as a
+	// header, the JSON views that declare the field as a string.
+	Source string `json:"-"`
+	Items  []Item `json:"items"`
 	// TitleText/LinkText override the account-derived channel title and link;
 	// the hot search feed uses them because it has no account behind it.
 	TitleText string `json:"-"`

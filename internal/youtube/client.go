@@ -78,10 +78,23 @@ type Video struct {
 
 // Feed is one channel's upload list.
 type Feed struct {
-	ChannelID string  `json:"channel_id"`
-	Title     string  `json:"title"`
-	Videos    []Video `json:"videos"`
+	ChannelID string `json:"channel_id"`
+	Title     string `json:"title"`
+	// Source records where the list came from: SourceAtom or SourceBrowse.
+	// The feed layer publishes it so an operator can tell a healthy read from
+	// the outage fallback.
+	Source string  `json:"source"`
+	Videos []Video `json:"videos"`
 }
+
+// List sources reported in Feed.Source.
+const (
+	// SourceAtom is the official upload feed: exact times, descriptions.
+	SourceAtom = "atom"
+	// SourceBrowse is the web client's Videos tab: approximate times, no
+	// descriptions, used only when the official feed keeps failing.
+	SourceBrowse = "browse"
+)
 
 // Config tunes a Client.
 type Config struct {
@@ -154,10 +167,30 @@ type HTTPError struct {
 	URL        string
 }
 
-// ErrChannelNotFound reports a reference that YouTube does not resolve to a
-// channel. A 404 from the upload feed itself is not this error: that endpoint
-// is known to answer 404 for channels that exist.
+// ErrChannelNotFound reports a reference that YouTube resolves to no channel.
+// A 404 from the upload feed itself is not this error: that endpoint is known
+// to answer 404 for channels that exist.
 var ErrChannelNotFound = errors.New("youtube: channel not found")
+
+// ErrInvalidRef reports a reference that cannot name a channel at all: empty,
+// malformed, or a URL form this client does not resolve. It is a client error,
+// so callers must not report it as an upstream outage.
+var ErrInvalidRef = errors.New("youtube: invalid channel reference")
+
+// FallbackError is returned when both sources fail. Error and Unwrap report
+// the Atom failure, which is what the reader sees; Browse carries the
+// fallback's own error for the log, so a broken fallback is not hidden behind
+// "the feed answered 404".
+type FallbackError struct {
+	Feed   error
+	Browse error
+}
+
+// Error implements error.
+func (e *FallbackError) Error() string { return e.Feed.Error() }
+
+// Unwrap exposes the Atom failure to errors.Is and errors.As.
+func (e *FallbackError) Unwrap() error { return e.Feed }
 
 // Error implements error.
 func (e *HTTPError) Error() string {
@@ -165,34 +198,81 @@ func (e *HTTPError) Error() string {
 }
 
 // ChannelID resolves ref to a channel id. ref may be a UC... id, an @handle,
-// a bare handle, or a channel URL. Only the last form costs a request.
+// a bare handle, a channel URL, or one of the legacy /c/ and /user/ pages.
+// Only the forms that are not an id cost a request.
+//
+// The lookup shares the read budget with the feed call, so a hanging channel
+// page cannot hold a request for attempts x timeout.
 func (c *Client) ChannelID(ctx context.Context, ref string) (string, error) {
 	ref = NormalizeRef(ref)
 	if ref == "" {
-		return "", fmt.Errorf("youtube: empty channel reference")
+		return "", fmt.Errorf("%w: empty reference", ErrInvalidRef)
 	}
 	if channelIDShape.MatchString(ref) {
 		return ref, nil
 	}
-	handle := strings.TrimPrefix(ref, "@")
-	if handle == "" || strings.ContainsAny(handle, "/ ?#") {
-		return "", fmt.Errorf("youtube: invalid channel reference %q", ref)
+	path, err := channelPagePath(ref)
+	if err != nil {
+		return "", err
 	}
 
-	body, err := c.channelPage(ctx, "/@"+url.PathEscape(handle))
+	ctx, cancel := context.WithTimeout(ctx, c.budget)
+	defer cancel()
+	body, err := c.channelPage(ctx, path)
 	if err != nil {
 		var he *HTTPError
 		if errors.As(err, &he) && he.StatusCode == http.StatusNotFound {
-			return "", fmt.Errorf("youtube: channel %q not found: %w", handle, ErrChannelNotFound)
+			return "", fmt.Errorf("youtube: channel %q not found: %w", ref, ErrChannelNotFound)
 		}
 		return "", err
 	}
 	m := channelIDFromPage.FindSubmatch(body)
 	if m == nil {
-		return "", fmt.Errorf("youtube: no channel id on the page for %q: %w", handle, ErrChannelNotFound)
+		// A 200 page without the channel id is a consent or bot-check page,
+		// not a missing channel: report it as an upstream failure so a handle
+		// whose list is cached can still degrade to its last good list.
+		return "", fmt.Errorf("youtube: no channel id on the page for %q", ref)
 	}
 	return string(m[1]), nil
 }
+
+// channelPagePath maps a normalised reference onto the public page that
+// carries its channel id. Handles use /@name; the legacy /c/Name and
+// /user/Name pages are served directly (or redirect to the canonical channel
+// page), and the same regex finds the id either way.
+func channelPagePath(ref string) (string, error) {
+	form, name := "handle", ref
+	switch {
+	case strings.HasPrefix(ref, "@"):
+		name = strings.TrimPrefix(ref, "@")
+	case strings.HasPrefix(ref, "c/"), strings.HasPrefix(ref, "user/"):
+		kind := ref[:strings.Index(ref, "/")]
+		form, name = kind, ref[len(kind)+1:]
+	}
+	if name == "" || strings.ContainsAny(name, "/ ?#") || strings.Contains(name, "..") {
+		return "", fmt.Errorf("%w: %q", ErrInvalidRef, ref)
+	}
+	if form == "handle" {
+		return "/@" + url.PathEscape(name), nil
+	}
+	return "/" + form + "/" + url.PathEscape(name), nil
+}
+
+// MappingKey is the cache key for a resolved reference. Handles are
+// case-insensitive, so they are folded; channel ids are case-sensitive and
+// keep their case, or two distinct ids could collide on one entry.
+func MappingKey(ref string) string {
+	ref = NormalizeRef(ref)
+	if strings.HasPrefix(ref, "@") {
+		return strings.ToLower(ref)
+	}
+	return ref
+}
+
+// Budget reports the read bound the client applies to one lookup. Callers that
+// chain lookups — the channel page, then the feed — use it to put one deadline
+// around the whole chain instead of letting each step spend a full budget.
+func (c *Client) Budget() time.Duration { return c.budget }
 
 // Videos reads the upload list for one channel id. The Atom feed is tried
 // first; when it keeps failing, the browse endpoint answers instead so an
@@ -208,14 +288,21 @@ func (c *Client) Videos(ctx context.Context, channelID string) (*Feed, error) {
 	if feedErr == nil {
 		feed, err := parseAtomFeed(channelID, body)
 		if err == nil {
+			feed.Source = SourceAtom
 			return feed, nil
 		}
 		feedErr = err
 	}
 	if c.fallback {
-		if feed, err := c.browse(ctx, channelID); err == nil {
+		feed, err := c.browse(ctx, channelID)
+		if err == nil {
+			feed.Source = SourceBrowse
 			return feed, nil
 		}
+		// Report the Atom failure, which is what the reader acted on, but keep
+		// the fallback's own error so an operator can see a broken fallback in
+		// the log instead of only ever reading "the feed answered 404".
+		return nil, &FallbackError{Feed: feedErr, Browse: err}
 	}
 	return nil, feedErr
 }

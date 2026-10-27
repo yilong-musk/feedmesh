@@ -468,3 +468,166 @@ func TestParseHelpers(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestChannelIDResolvesLegacyURLs covers the /c/ and /user/ pages YouTube still
+// serves for older channels: they redirect to the canonical handle page, so the
+// same id regex finds the channel.
+func TestChannelIDResolvesLegacyURLs(t *testing.T) {
+	page := []byte(`<html><script>{"metadata":{"channelMetadataRenderer":{"externalId":"` + testChannelID + `"}}}</script></html>`)
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		_, _ = w.Write(page)
+	}))
+	defer srv.Close()
+
+	c := newClient(t, srv.URL)
+	for ref, want := range map[string]string{
+		"https://www.youtube.com/c/GoogleDevelopers":       "/c/GoogleDevelopers",
+		"https://www.youtube.com/user/GoogleDevelopers":    "/user/GoogleDevelopers",
+		"https://www.youtube.com/c/GoogleDevelopers/about": "/c/GoogleDevelopers",
+	} {
+		got, err := c.ChannelID(context.Background(), ref)
+		if err != nil {
+			t.Fatalf("ChannelID(%q): %v", ref, err)
+		}
+		if got != testChannelID {
+			t.Fatalf("ChannelID(%q) = %q", ref, got)
+		}
+		if last := paths[len(paths)-1]; last != want {
+			t.Fatalf("ChannelID(%q) requested %q, want %q", ref, last, want)
+		}
+	}
+}
+
+func TestChannelIDRejectsInvalidReference(t *testing.T) {
+	c := New(Config{})
+	for _, ref := range []string{"   ", "foo bar", "a/b", "c//x", "user//x"} {
+		_, err := c.ChannelID(context.Background(), ref)
+		if !errors.Is(err, ErrInvalidRef) {
+			t.Fatalf("ChannelID(%q) err = %v, want ErrInvalidRef", ref, err)
+		}
+	}
+}
+
+// TestChannelIDHonoursTheBudget pins the second half of the read bound: the
+// channel page shares the budget, so a hanging page cannot cost
+// attempts x timeout before the request is abandoned.
+func TestChannelIDHonoursTheBudget(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		time.Sleep(200 * time.Millisecond)
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Timeout: 5 * time.Second, RetryDelay: 10 * time.Millisecond, Budget: 50 * time.Millisecond})
+	start := time.Now()
+	if _, err := c.ChannelID(context.Background(), "@slowchannel"); err == nil {
+		t.Fatal("want an error")
+	}
+	if elapsed := time.Since(start); elapsed > 150*time.Millisecond {
+		t.Fatalf("ChannelID took %v, want the 50ms budget to cut it short", elapsed)
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("attempts = %d, want 1 (the budget is spent)", got)
+	}
+}
+
+// TestChannelIDWithoutExternalIDIsNotNotFound separates a bot/consent page from
+// a deleted channel: a 200 page without the id is an upstream failure, so a
+// handle with a cached list can still degrade instead of reporting 404.
+func TestChannelIDWithoutExternalIDIsNotNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("<html>no channel here</html>"))
+	}))
+	defer srv.Close()
+
+	_, err := newClient(t, srv.URL).ChannelID(context.Background(), "nosuchchannel")
+	if err == nil {
+		t.Fatal("want an error when the page carries no channel id")
+	}
+	if errors.Is(err, ErrChannelNotFound) {
+		t.Fatalf("err = %v, want an upstream failure rather than ErrChannelNotFound", err)
+	}
+}
+
+func TestMappingKeyFoldsOnlyHandles(t *testing.T) {
+	cases := map[string]string{
+		"@GoogleDevelopers":                                "@googledevelopers",
+		"GoogleDevelopers":                                 "@googledevelopers",
+		"https://www.youtube.com/@GoogleDevelopers":        "@googledevelopers",
+		testChannelID:                                      testChannelID,
+		"https://www.youtube.com/channel/" + testChannelID: testChannelID,
+	}
+	for ref, want := range cases {
+		if got := MappingKey(ref); got != want {
+			t.Fatalf("MappingKey(%q) = %q, want %q", ref, got, want)
+		}
+	}
+}
+
+func TestVideosReportsTheSource(t *testing.T) {
+	feed := loadFixture(t, "testdata/feed.xml")
+	browse := loadFixture(t, "testdata/browse.json")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/feeds/videos.xml":
+			http.NotFound(w, r)
+		case "/youtubei/v1/browse":
+			_, _ = w.Write(browse)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	f, err := newClient(t, srv.URL).Videos(context.Background(), testChannelID)
+	if err != nil {
+		t.Fatalf("Videos: %v", err)
+	}
+	if f.Source != SourceBrowse {
+		t.Fatalf("source = %q, want %q", f.Source, SourceBrowse)
+	}
+	if len(f.Videos) == 0 {
+		t.Fatal("no videos")
+	}
+
+	// And the Atom path reports its own source.
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(feed)
+	}))
+	defer healthy.Close()
+	f, err = newClient(t, healthy.URL).Videos(context.Background(), testChannelID)
+	if err != nil {
+		t.Fatalf("Videos: %v", err)
+	}
+	if f.Source != SourceAtom {
+		t.Fatalf("source = %q, want %q", f.Source, SourceAtom)
+	}
+}
+
+// TestVideosFallbackFailureCarriesTheBrowseFailure keeps the reader's error the
+// Atom one while making the fallback's own error available to the log.
+func TestVideosFallbackFailureCarriesTheBrowseFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	_, err := newClient(t, srv.URL).Videos(context.Background(), testChannelID)
+	var fb *FallbackError
+	if !errors.As(err, &fb) {
+		t.Fatalf("err = %v, want a FallbackError", err)
+	}
+	if fb.Browse == nil || fb.Browse.Error() == "" {
+		t.Fatalf("fallback error = %v, want the browse failure", fb.Browse)
+	}
+	var he *HTTPError
+	if !errors.As(err, &he) || he.StatusCode != http.StatusNotFound {
+		t.Fatalf("err = %v, want the Atom 404 still visible", err)
+	}
+	if err.Error() != fb.Feed.Error() {
+		t.Fatalf("message = %q, want the feed error %q", err.Error(), fb.Feed.Error())
+	}
+}

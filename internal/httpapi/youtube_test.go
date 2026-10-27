@@ -56,6 +56,9 @@ func TestYouTubeRSSRoute(t *testing.T) {
 		if got := rec.Header().Get("X-Feedmesh-Degraded"); got != "" {
 			t.Fatalf("%s degraded header = %q", path, got)
 		}
+		if got := rec.Header().Get("X-Feedmesh-Source"); got != "atom" {
+			t.Fatalf("%s source header = %q, want atom", path, got)
+		}
 		body := rec.Body.String()
 		for _, want := range []string{
 			"<title>Test Channel</title>",
@@ -85,6 +88,7 @@ func TestYouTubeAPIRoute(t *testing.T) {
 		Title     string `json:"title"`
 		Cached    bool   `json:"cached"`
 		Degraded  bool   `json:"degraded"`
+		Source    string `json:"source"`
 		Items     []struct {
 			ID     string   `json:"id"`
 			Title  string   `json:"title"`
@@ -101,6 +105,9 @@ func TestYouTubeAPIRoute(t *testing.T) {
 	}
 	if out.Degraded {
 		t.Fatal("degraded = true on a healthy upstream")
+	}
+	if out.Source != "atom" {
+		t.Fatalf("source = %q, want atom", out.Source)
 	}
 	if len(out.Items) != 1 {
 		t.Fatalf("items = %d, want 1", len(out.Items))
@@ -171,10 +178,25 @@ func TestYouTubeRSSDegradedHeader(t *testing.T) {
 	if got := rec.Header().Get("X-Feedmesh-Degraded"); got != "1" {
 		t.Fatalf("degraded header = %q, want 1", got)
 	}
+	if got := rec.Header().Get("X-Feedmesh-Source"); got != "stale" {
+		t.Fatalf("degraded source header = %q, want stale", got)
+	}
 	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "max-age=60") {
 		t.Fatalf("degraded Cache-Control = %q, want max-age=60", got)
 	}
 	if !strings.Contains(rec.Body.String(), "First upload") {
 		t.Fatalf("degraded body lost the last good item:\n%s", rec.Body.String())
+	}
+}
+
+func TestYouTubeAPIInvalidReference(t *testing.T) {
+	h := newTestServer(t)
+
+	rec := get(t, h, "/api/v1/youtube?ref=foo+bar")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "BAD_REQUEST") {
+		t.Fatalf("body = %s", rec.Body.String())
 	}
 }

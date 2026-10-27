@@ -44,7 +44,7 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 | `v2ex:latest` / `v2ex:hot` | 10 minutes |
 | `x:<handle>` | 40 minutes |
 | `youtube:feed:<channel_id>` | 10 minutes old counts as fresh; the entry is stored for 24 hours so the last good list survives an outage |
-| `youtube:channel:<ref>` | 24 hours |
+| `youtube:channel:<ref>` | 24 hours; an expired entry is reused when the channel page cannot be read |
 
 ## Upstream calling policy (Weibo)
 

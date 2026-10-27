@@ -70,12 +70,14 @@ const ytBrowseJSON = `{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"t
 
 // ytUpstream is a controllable stand-in for youtube.com.
 type ytUpstream struct {
-	mu       sync.Mutex
-	body     string
-	feedHits int32
-	pageHits int32
-	down     atomic.Bool
-	noPage   atomic.Bool
+	mu        sync.Mutex
+	body      string
+	feedHits  int32
+	pageHits  int32
+	down      atomic.Bool
+	noPage    atomic.Bool
+	pageDown  atomic.Bool
+	emptyFeed atomic.Bool
 }
 
 func (u *ytUpstream) setFeed(body string) {
@@ -89,6 +91,10 @@ func (u *ytUpstream) handler() http.HandlerFunc {
 		switch {
 		case r.URL.Path == "/@testchannel":
 			atomic.AddInt32(&u.pageHits, 1)
+			if u.pageDown.Load() {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
 			if u.noPage.Load() {
 				http.NotFound(w, r)
 				return
@@ -99,6 +105,10 @@ func (u *ytUpstream) handler() http.HandlerFunc {
 			if u.down.Load() {
 				// The production endpoint answers 404/5xx in short windows.
 				http.NotFound(w, r)
+				return
+			}
+			if u.emptyFeed.Load() {
+				_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Test Channel</title></feed>`))
 				return
 			}
 			u.mu.Lock()
@@ -417,5 +427,204 @@ func TestGetYouTubeRejectsEmptyReference(t *testing.T) {
 	var we *weibo.Error
 	if !errors.As(err, &we) || we.Code != weibo.CodeBadRequest {
 		t.Fatalf("err = %v, want BAD_REQUEST", err)
+	}
+}
+
+// ageYouTubeMappingEntry expires the stored handle mapping the way a day of no
+// traffic does: the file is still there, its expiry has passed.
+func ageYouTubeMappingEntry(t *testing.T, dir string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dir, "youtube_channel_*.json"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("mapping cache files = %v (err = %v), want exactly one", matches, err)
+	}
+	raw, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read mapping: %v", err)
+	}
+	var entry cache.Entry
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		t.Fatalf("decode mapping: %v", err)
+	}
+	entry.ExpiresAt = time.Now().Add(-time.Minute)
+	out, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("encode mapping: %v", err)
+	}
+	if err := os.WriteFile(matches[0], out, 0o600); err != nil {
+		t.Fatalf("write mapping: %v", err)
+	}
+}
+
+// TestGetYouTubeServesLastGoodWhenChannelPageFails pins the second half of the
+// last-good promise: the failure can be the channel page (the mapping lookup)
+// rather than the feed, and an expired mapping must still point at the list.
+func TestGetYouTubeServesLastGoodWhenChannelPageFails(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	dir := t.TempDir()
+	svc := newYouTubeServiceAt(t, srv.URL, dir)
+	ctx := context.Background()
+
+	if _, err := svc.GetYouTube(ctx, "@testchannel", 15, false); err != nil {
+		t.Fatalf("warm read: %v", err)
+	}
+	ageYouTubeMappingEntry(t, dir)
+	ageYouTubeFeedEntry(t, dir)
+	// The whole host is in an outage window: page and feed both fail.
+	up.pageDown.Store(true)
+	up.down.Store(true)
+
+	f, err := svc.GetYouTube(ctx, "@testchannel", 15, false)
+	if err != nil {
+		t.Fatalf("read with a stored mapping must serve the last good list: %v", err)
+	}
+	if !f.Degraded || f.Source != "stale" {
+		t.Fatalf("degraded/source = %v/%q, want true/stale", f.Degraded, f.Source)
+	}
+	if len(f.Items) != 2 {
+		t.Fatalf("items = %d, want the 2 stored items", len(f.Items))
+	}
+}
+
+// TestGetYouTubeKeepsLastGoodWhenFeedGoesEmpty covers a 200 answer with a
+// valid but entry-less document: it must not replace a list that has entries.
+func TestGetYouTubeKeepsLastGoodWhenFeedGoesEmpty(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+	ctx := context.Background()
+
+	if _, err := svc.GetYouTube(ctx, ytChannelID, 15, false); err != nil {
+		t.Fatalf("warm read: %v", err)
+	}
+	up.emptyFeed.Store(true)
+
+	f, err := svc.GetYouTube(ctx, ytChannelID, 15, true)
+	if err != nil {
+		t.Fatalf("empty upstream read must not fail: %v", err)
+	}
+	if len(f.Items) != 2 || !f.Degraded {
+		t.Fatalf("items/degraded = %d/%v, want 2/true", len(f.Items), f.Degraded)
+	}
+	// And the stored list is still there for the next ordinary read.
+	f, err = svc.GetYouTube(ctx, ytChannelID, 15, false)
+	if err != nil {
+		t.Fatalf("next read: %v", err)
+	}
+	if len(f.Items) != 2 {
+		t.Fatalf("items after the empty read = %d, want the kept list", len(f.Items))
+	}
+}
+
+func TestGetYouTubeInvalidReferenceIsBadRequest(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+
+	for _, ref := range []string{"foo bar", "c/a/b", "a/b"} {
+		_, err := svc.GetYouTube(context.Background(), ref, 15, false)
+		var we *weibo.Error
+		if !errors.As(err, &we) || we.Code != weibo.CodeBadRequest {
+			t.Fatalf("ref %q: err = %v, want BAD_REQUEST", ref, err)
+		}
+	}
+}
+
+// TestGetYouTubeReportsTheSource pins the operator signal: which upstream
+// answered, and whether the answer came from the last good list.
+func TestGetYouTubeReportsTheSource(t *testing.T) {
+	t.Run("atom", func(t *testing.T) {
+		up := &ytUpstream{body: ytFeedXML}
+		srv := httptest.NewServer(up.handler())
+		defer srv.Close()
+		f, err := newYouTubeService(t, srv.URL).GetYouTube(context.Background(), ytChannelID, 15, false)
+		if err != nil {
+			t.Fatalf("GetYouTube: %v", err)
+		}
+		if f.Source != "atom" {
+			t.Fatalf("source = %q, want atom", f.Source)
+		}
+	})
+
+	t.Run("browse", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/feeds/videos.xml":
+				http.NotFound(w, r)
+			case "/youtubei/v1/browse":
+				_, _ = w.Write([]byte(ytBrowseJSON))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer srv.Close()
+		f, err := newYouTubeService(t, srv.URL).GetYouTube(context.Background(), ytChannelID, 15, false)
+		if err != nil {
+			t.Fatalf("GetYouTube: %v", err)
+		}
+		if f.Source != "browse" || f.Degraded {
+			t.Fatalf("source/degraded = %q/%v, want browse/false", f.Source, f.Degraded)
+		}
+	})
+
+	t.Run("stale", func(t *testing.T) {
+		up := &ytUpstream{body: ytFeedXML}
+		srv := httptest.NewServer(up.handler())
+		defer srv.Close()
+		svc := newYouTubeService(t, srv.URL)
+		if _, err := svc.GetYouTube(context.Background(), ytChannelID, 15, false); err != nil {
+			t.Fatalf("warm: %v", err)
+		}
+		up.down.Store(true)
+		f, err := svc.GetYouTube(context.Background(), ytChannelID, 15, true)
+		if err != nil {
+			t.Fatalf("degraded read: %v", err)
+		}
+		if f.Source != "stale" || !f.Degraded {
+			t.Fatalf("source/degraded = %q/%v, want stale/true", f.Source, f.Degraded)
+		}
+	})
+}
+
+// TestGetYouTubeBoundsTheWholeLookup pins the shared deadline: the channel
+// page and the feed may not each spend a full budget, or a handle request
+// could cost twice the documented bound.
+func TestGetYouTubeBoundsTheWholeLookup(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/@testchannel":
+			time.Sleep(150 * time.Millisecond)
+			_, _ = w.Write([]byte(ytChannelPage))
+		case "/feeds/videos.xml":
+			time.Sleep(400 * time.Millisecond)
+			_, _ = w.Write([]byte(ytFeedXML))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache: %v", err)
+	}
+	yt := youtube.New(youtube.Config{
+		BaseURL: srv.URL, Timeout: 2 * time.Second,
+		RetryDelay: time.Millisecond, Budget: 200 * time.Millisecond,
+	})
+	svc := feed.NewService(feed.Clients{Youtube: yt}, c, logx.Discard(), feed.DefaultTTLs())
+
+	start := time.Now()
+	_, err = svc.GetYouTube(context.Background(), "@testchannel", 15, false)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("want an error: the feed cannot answer inside the budget")
+	}
+	if elapsed > 280*time.Millisecond {
+		t.Fatalf("lookup took %v, want one 200ms budget for the page and the feed together", elapsed)
 	}
 }

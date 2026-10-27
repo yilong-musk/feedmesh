@@ -28,13 +28,18 @@ const (
 	// stored TTL: the cache keeps the entry until it can no longer help.
 	youtubeStaleWindow = 24 * time.Hour
 	youtubeChannelTTL  = 24 * time.Hour
+	// youtubeSourceStale marks a list served from the cache because the
+	// upstream read failed; the other values come from the client.
+	youtubeSourceStale = "stale"
 )
 
 // cachedYouTube is one channel's upload list as stored in the cache. The
-// channel title travels with the videos because the feed carries it.
+// channel title travels with the videos because the feed carries it, and the
+// source travels along so a cached read still says where the list came from.
 type cachedYouTube struct {
 	ChannelID string          `json:"channel_id"`
 	Title     string          `json:"title"`
+	Source    string          `json:"source"`
 	Videos    []youtube.Video `json:"videos"`
 	FetchedAt time.Time       `json:"fetched_at"`
 }
@@ -63,6 +68,11 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 		limit = MaxYouTubeLimit
 	}
 
+	// One deadline for the whole lookup: the channel page and the feed each
+	// have their own budget, and without this the two would add up.
+	ctx, cancel := context.WithTimeout(ctx, s.clients.Youtube.Budget())
+	defer cancel()
+
 	channelID, err := s.youtubeChannelID(ctx, ref)
 	if err != nil {
 		return nil, youtubeError(err, ref)
@@ -80,9 +90,20 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 
 	upstream, err := s.clients.Youtube.Videos(ctx, channelID)
 	if err == nil {
+		if len(upstream.Videos) == 0 {
+			// A successful read with no entries is either a channel without
+			// uploads or a partial answer from the endpoint. Keeping the list
+			// the cache already has is the safer reading; a genuinely emptied
+			// channel ages out within the stale window.
+			if e, ok := s.readYouTube(key, true); ok {
+				s.log.Warn("youtube feed came back empty, keeping the last good list", "channel", channelID)
+				return s.youtubeFeed(e, limit, true, true), nil
+			}
+		}
 		e := cachedYouTube{
 			ChannelID: upstream.ChannelID,
 			Title:     upstream.Title,
+			Source:    upstream.Source,
 			Videos:    upstream.Videos,
 			FetchedAt: s.now().UTC(),
 		}
@@ -93,13 +114,24 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 			// last-good path needs during an outage.
 			_ = s.cache.Set(key, e, youtubeStaleWindow)
 		}
+		if upstream.Source == youtube.SourceBrowse {
+			s.log.Info("youtube feed built from the web client fallback", "channel", channelID)
+		}
 		return s.youtubeFeed(e, limit, false, false), nil
 	}
 
 	// The endpoint flaked or the network failed. Serving the last good list is
 	// better than failing the reader's poll; the flag keeps the degradation
 	// visible in the JSON view and the response header.
+	var fb *youtube.FallbackError
+	if errors.As(err, &fb) {
+		// Both sources failed. The Atom error is what the reader is told; the
+		// fallback's own error only reaches the log, so a rotated web-client
+		// key is visible instead of surfacing as a feed 404 forever.
+		s.log.Warn("youtube web client fallback failed", "channel", channelID, "error", fb.Browse.Error())
+	}
 	if e, ok := s.readYouTube(key, true); ok {
+		s.log.Warn("youtube feed degraded to the last good list", "channel", channelID, "error", err.Error())
 		return s.youtubeFeed(e, limit, true, true), nil
 	}
 	return nil, youtubeError(err, ref)
@@ -108,24 +140,56 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 // youtubeChannelID resolves a channel reference once per day. The public
 // channel page is about 1.4 MB, so resolving it on every poll would be both
 // slow and needlessly rude; the feed itself only needs the id. The key uses
-// the normalised reference, so "@name", "name" and a pasted channel URL share
-// one mapping instead of triggering a page read each.
+// the normalised reference, so "@name", "name" and a pasted /@name URL share
+// one mapping instead of triggering a page read each; the legacy /c/ and
+// /user/ forms keep a key of their own, because that name can point at a
+// different channel.
+//
+// When the page cannot be read — an outage window hits it just as the 24-hour
+// mapping expires, or it answers a consent page — a stale mapping is used
+// instead: it still names the right channel, and the list it points at is
+// what the caller came for.
 func (s *Service) youtubeChannelID(ctx context.Context, ref string) (string, error) {
-	key := "youtube:channel:" + strings.ToLower(youtube.NormalizeRef(ref))
+	key := "youtube:channel:" + youtube.MappingKey(ref)
 	if s.cache != nil {
 		var id string
-		if hit, _, err := s.cache.Get(key, &id); err == nil && hit && id != "" {
+		// Peek, not Get: Get deletes an expired entry, and an expired mapping
+		// is exactly the one the failure path below needs.
+		if hit, err := s.cache.Peek(key, &id); err == nil && hit && id != "" {
 			return id, nil
 		}
 	}
 	id, err := s.clients.Youtube.ChannelID(ctx, ref)
 	if err != nil {
+		if errors.Is(err, youtube.ErrInvalidRef) {
+			return "", err
+		}
+		if stale, ok := s.staleChannelID(key); ok {
+			s.log.Warn("youtube channel page unavailable, using the stored mapping", "ref", ref, "error", err.Error())
+			return stale, nil
+		}
 		return "", err
 	}
 	if s.cache != nil {
 		_ = s.cache.Set(key, id, youtubeChannelTTL)
 	}
 	return id, nil
+}
+
+// staleChannelID reads a mapping regardless of its expiry. A channel id is
+// stable across renames, so an expired mapping is still better than blanking a
+// feed whose list is cached; the entry is only consulted when the live page
+// read failed.
+func (s *Service) staleChannelID(key string) (string, bool) {
+	if s.cache == nil {
+		return "", false
+	}
+	var id string
+	hit, err := s.cache.PeekStored(key, &id)
+	if err != nil || !hit || id == "" {
+		return "", false
+	}
+	return id, true
 }
 
 // readYouTube reads the cached list. includeExpired selects the last-good
@@ -167,6 +231,13 @@ func (s *Service) youtubeFeed(e cachedYouTube, limit int, cached, degraded bool)
 		title = "YouTube " + e.ChannelID
 	}
 	link := "https://www.youtube.com/channel/" + e.ChannelID
+	source := e.Source
+	if degraded || source == "" {
+		// A degraded read is served from the cache because the upstream
+		// failed, which is a state of its own; an entry written before Source
+		// existed reports nothing better than "stale".
+		source = youtubeSourceStale
+	}
 	f := &Feed{
 		UID:         e.ChannelID,
 		ScreenName:  title,
@@ -174,6 +245,7 @@ func (s *Service) youtubeFeed(e cachedYouTube, limit int, cached, degraded bool)
 		FetchedAt:   e.FetchedAt,
 		Cached:      cached,
 		Degraded:    degraded,
+		Source:      source,
 		TitleText:   title,
 		LinkText:    link,
 		TTL:         int(youtubeTTL.Minutes()),
@@ -250,6 +322,13 @@ func youtubeError(err error, ref string) error {
 	var we *weibo.Error
 	if errors.As(err, &we) {
 		return err
+	}
+	if errors.Is(err, youtube.ErrInvalidRef) {
+		return &weibo.Error{
+			Code:    weibo.CodeBadRequest,
+			Message: err.Error(),
+			Err:     err,
+		}
 	}
 	if errors.Is(err, youtube.ErrChannelNotFound) {
 		return &weibo.Error{

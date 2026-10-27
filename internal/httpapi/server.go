@@ -598,7 +598,17 @@ type youtubeResponse struct {
 	FetchedAt   time.Time             `json:"fetched_at"`
 	Cached      bool                  `json:"cached"`
 	Degraded    bool                  `json:"degraded"`
+	Source      string                `json:"source"`
 	Items       []youtubeItemResponse `json:"items"`
+}
+
+// setYouTubeSource publishes where a list came from: atom (official feed),
+// browse (the web client fallback) or stale (the last good cached list). It is
+// the only signal an operator gets that an outage window is in progress.
+func setYouTubeSource(w http.ResponseWriter, source string) {
+	if source != "" {
+		w.Header().Set("X-Feedmesh-Source", source)
+	}
 }
 
 // handleYouTube renders one channel's upload feed as RSS.
@@ -613,6 +623,7 @@ func (s *Server) handleYouTube(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	setYouTubeSource(w, f.Source)
 	maxAge := int(feed.YouTubeTTL().Seconds())
 	if f.Degraded {
 		// The list is the last good one because the upstream read failed. The
@@ -645,7 +656,8 @@ func (s *Server) handleAPIYouTube(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, youtubeResponse{
 		Ref: ref, ChannelID: f.UID, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
+		Source: f.Source, Items: items,
 	})
 }
 
