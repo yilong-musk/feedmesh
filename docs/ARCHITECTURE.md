@@ -43,6 +43,8 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 | `sspai:detail:<id>` | 24 hours |
 | `v2ex:latest` / `v2ex:hot` | 10 minutes |
 | `x:<handle>` | 40 minutes |
+| `youtube:feed:<channel_id>` | 10 minutes |
+| `youtube:channel:<ref>` | 24 hours |
 
 ## Upstream calling policy (Weibo)
 

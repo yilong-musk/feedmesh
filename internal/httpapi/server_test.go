@@ -20,6 +20,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
+	"github.com/yilong-musk/feedmesh/internal/youtube"
 )
 
 const profileJSON = `{"ok":1,"data":{"userInfo":{"id":2803301701,"screen_name":"人民日报",
@@ -160,6 +161,11 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 		case r.URL.Path == "/feed":
 			w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 			fmt.Fprint(w, smzdmPostRSS)
+		case r.URL.Path == "/feeds/videos.xml":
+			w.Header().Set("Content-Type", "application/atom+xml")
+			fmt.Fprint(w, youtubeFeedXML)
+		case r.URL.Path == "/@testchannel":
+			fmt.Fprint(w, youtubeChannelPage)
 		case r.URL.Path == "/" && r.URL.Query().Get("tab") == "":
 			w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 			fmt.Fprint(w, smzdmRSS)
@@ -206,7 +212,7 @@ func newTestServer(t *testing.T) http.Handler {
 		StatusURL: upstream.URL + "/status",
 		Timeout:   2 * time.Second,
 	})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second})}, c, logx.Discard(), feed.DefaultTTLs())
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond})}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,

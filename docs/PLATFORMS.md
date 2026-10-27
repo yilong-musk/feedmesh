@@ -129,6 +129,31 @@ Official site <https://x.com> · Data source: RSS from public Nitter instances (
 
 ---
 
+## <img src="assets/youtube.png" width="28" height="28" alt="YouTube"> YouTube
+
+Official site <https://youtube.com> · Data source: the channel upload feed (`/feeds/videos.xml`; anonymous, no API key, no account)
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Channel uploads | `/rss/youtube/{ref}` | `/api/v1/youtube?ref=` | 15 | 15 | 10 minutes |
+
+### Channel uploads
+
+- `{ref}` in the RSS path is a channel id (24 characters) or a handle (`@` optional); a pasted channel URL carries slashes and only works through the JSON endpoint's `ref=` parameter, where `/videos`, `/shorts`, `/streams` tails and query strings are ignored.
+- Turning a handle into an id costs one channel-page read (about 1.4 MB) and is cached for 24 hours; ids cost no extra request.
+- The feed carries exactly 15 entries and has no pagination. A channel that uploads more than that between two polls loses the overflow; poll every 10 minutes or accept the ceiling.
+- Entries are the upload stream, so Shorts and livestream replays are mixed in with regular videos. `link`/`guid` is always `https://www.youtube.com/watch?v=<id>`, which resolves for both.
+- Fields: title, description, thumbnail (`hqdefault`, 480×360), publish time, view count. Duration is not in the feed and is not published.
+- One feed read is up to 3 attempts (2 s, then 4 s apart). When all attempts fail, the last good list is served with `X-Feedmesh-Degraded: 1` for up to 24 hours; with no such list the route returns `UPSTREAM_UNAVAILABLE`.
+
+### Limitations
+
+- **The endpoint is not always available**: it answers 404 or 500 for short windows even for channels that exist (RSS-Bridge #2113, newsboat #3269, Google's developer forum). The service retries and falls back, but a cold cache during such a window returns 504.
+- Public channels only: members-only and private uploads never appear.
+- Metadata only: no duration, resolution or live status.
+
+---
+
 ## Adding a platform
 
 1. Create `internal/<platform>/client.go`; it only handles HTTP and parsing and returns the neutral `Article` struct.

@@ -1,0 +1,281 @@
+package feed_test
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/cache"
+	"github.com/yilong-musk/feedmesh/internal/feed"
+	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/youtube"
+)
+
+const ytChannelID = "UC_x5XG1OV2P6uZZ5FSM9Ttw"
+
+// ytFeedXML is a two-entry upload feed in the production shape: namespaces,
+// media group, and the counters nested under media:community.
+const ytFeedXML = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=` + ytChannelID + `"/>
+ <title>Test Channel</title>
+ <entry>
+  <id>yt:video:vid00000001</id>
+  <yt:videoId>vid00000001</yt:videoId>
+  <yt:channelId>` + ytChannelID + `</yt:channelId>
+  <title>First upload</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=vid00000001"/>
+  <published>2026-10-21T23:00:08+00:00</published>
+  <updated>2026-10-24T22:10:34+00:00</updated>
+  <media:group>
+   <media:title>First upload</media:title>
+   <media:description>First description body.</media:description>
+   <media:thumbnail url="https://i4.ytimg.com/vi/vid00000001/hqdefault.jpg" width="480" height="360"/>
+   <media:community>
+    <media:starRating count="325" average="5.00" min="1" max="5"/>
+    <media:statistics views="9862"/>
+   </media:community>
+  </media:group>
+ </entry>
+ <entry>
+  <id>yt:video:vid00000002</id>
+  <yt:videoId>vid00000002</yt:videoId>
+  <yt:channelId>` + ytChannelID + `</yt:channelId>
+  <title>Second upload</title>
+  <link rel="alternate" href="https://www.youtube.com/shorts/vid00000002"/>
+  <published>2026-10-20T10:00:00+00:00</published>
+  <media:group>
+   <media:description>Second description body.</media:description>
+   <media:thumbnail url="https://i4.ytimg.com/vi/vid00000002/hqdefault.jpg" width="480" height="360"/>
+   <media:community><media:statistics views="42"/></media:community>
+  </media:group>
+ </entry>
+</feed>`
+
+const ytChannelPage = `<html><script>{"metadata":{"channelMetadataRenderer":{"externalId":"` + ytChannelID + `","title":"Test Channel"}}}</script></html>`
+
+// ytUpstream is a controllable stand-in for youtube.com.
+type ytUpstream struct {
+	mu       sync.Mutex
+	body     string
+	feedHits int32
+	pageHits int32
+	down     atomic.Bool
+	noPage   atomic.Bool
+}
+
+func (u *ytUpstream) setFeed(body string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.body = body
+}
+
+func (u *ytUpstream) handler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/@testchannel":
+			atomic.AddInt32(&u.pageHits, 1)
+			if u.noPage.Load() {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write([]byte(ytChannelPage))
+		case r.URL.Path == "/feeds/videos.xml":
+			atomic.AddInt32(&u.feedHits, 1)
+			if u.down.Load() {
+				// The production endpoint answers 404/5xx in short windows.
+				http.NotFound(w, r)
+				return
+			}
+			u.mu.Lock()
+			body := u.body
+			u.mu.Unlock()
+			w.Header().Set("Content-Type", "application/atom+xml")
+			_, _ = w.Write([]byte(body))
+		default:
+			http.NotFound(w, r)
+		}
+	}
+}
+
+func newYouTubeService(t *testing.T, base string) *feed.Service {
+	t.Helper()
+	c, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache: %v", err)
+	}
+	yt := youtube.New(youtube.Config{BaseURL: base, Timeout: 2 * time.Second, RetryDelay: time.Millisecond})
+	return feed.NewService(feed.Clients{Youtube: yt}, c, logx.Discard(), feed.DefaultTTLs())
+}
+
+func TestGetYouTubeMapsItems(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+
+	f, err := svc.GetYouTube(context.Background(), "@testchannel", 15, false)
+	if err != nil {
+		t.Fatalf("GetYouTube: %v", err)
+	}
+	if f.UID != ytChannelID || f.Title() != "Test Channel" {
+		t.Fatalf("channel = %q / %q", f.UID, f.Title())
+	}
+	if f.Degraded || f.Cached {
+		t.Fatalf("degraded/cached = %v/%v, want false/false", f.Degraded, f.Cached)
+	}
+	if len(f.Items) != 2 {
+		t.Fatalf("items = %d, want 2", len(f.Items))
+	}
+	it := f.Items[0]
+	if it.ID != "vid00000001" || it.Title != "First upload" {
+		t.Fatalf("item = %+v", it)
+	}
+	if it.URL != "https://www.youtube.com/watch?v=vid00000001" {
+		t.Fatalf("url = %q", it.URL)
+	}
+	if it.Views != 9862 {
+		t.Fatalf("views = %d", it.Views)
+	}
+	if len(it.Images) != 1 || !strings.Contains(it.Images[0], "hqdefault.jpg") {
+		t.Fatalf("images = %v", it.Images)
+	}
+	if !strings.Contains(it.HTML, "Watch on YouTube") || !strings.Contains(it.HTML, "9.9K views") {
+		t.Fatalf("html = %s", it.HTML)
+	}
+	if it.CreatedAt.IsZero() {
+		t.Fatal("created_at is zero")
+	}
+
+	// Second read comes from the cache, and the handle mapping is reused.
+	if _, err := svc.GetYouTube(context.Background(), "@testchannel", 15, false); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if got := atomic.LoadInt32(&up.feedHits); got != 1 {
+		t.Fatalf("feed requests = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&up.pageHits); got != 1 {
+		t.Fatalf("channel page requests = %d, want 1 (mapping is cached)", got)
+	}
+}
+
+func TestGetYouTubeClampsLimit(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+
+	f, err := svc.GetYouTube(context.Background(), ytChannelID, 1, false)
+	if err != nil {
+		t.Fatalf("GetYouTube: %v", err)
+	}
+	if len(f.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(f.Items))
+	}
+	if got := atomic.LoadInt32(&up.pageHits); got != 0 {
+		t.Fatalf("channel page requests = %d, want 0 for a raw id", got)
+	}
+}
+
+func TestGetYouTubeDegradesToLastGoodList(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+
+	if _, err := svc.GetYouTube(context.Background(), "@testchannel", 15, false); err != nil {
+		t.Fatalf("warm: %v", err)
+	}
+	up.down.Store(true)
+
+	f, err := svc.GetYouTube(context.Background(), "@testchannel", 15, true)
+	if err != nil {
+		t.Fatalf("degraded read must not fail: %v", err)
+	}
+	if !f.Degraded {
+		t.Fatal("degraded = false, want true")
+	}
+	if !f.Cached || len(f.Items) != 2 {
+		t.Fatalf("cached/items = %v/%d, want true/2", f.Cached, len(f.Items))
+	}
+}
+
+func TestGetYouTubeFailsColdWithoutCache(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	up.down.Store(true)
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+
+	_, err := svc.GetYouTube(context.Background(), "@testchannel", 15, false)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	var we *weibo.Error
+	if !errors.As(err, &we) || we.Code != weibo.CodeUpstreamUnavailable {
+		t.Fatalf("err = %v, want UPSTREAM_UNAVAILABLE", err)
+	}
+}
+
+func TestGetYouTubeUnknownChannel(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	up.noPage.Store(true)
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+
+	_, err := svc.GetYouTube(context.Background(), "@nosuchchannel", 15, false)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	var we *weibo.Error
+	if !errors.As(err, &we) || we.Code != weibo.CodeUserNotFound {
+		t.Fatalf("err = %v, want USER_NOT_FOUND", err)
+	}
+}
+
+func TestGetYouTubeRefreshReplacesList(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+
+	if _, err := svc.GetYouTube(context.Background(), ytChannelID, 15, false); err != nil {
+		t.Fatalf("warm: %v", err)
+	}
+	up.setFeed(strings.Replace(ytFeedXML, "First upload", "Refreshed upload", 1))
+
+	f, err := svc.GetYouTube(context.Background(), ytChannelID, 15, true)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if f.Cached || f.Degraded {
+		t.Fatalf("cached/degraded = %v/%v, want false/false", f.Cached, f.Degraded)
+	}
+	if f.Items[0].Title != "Refreshed upload" {
+		t.Fatalf("first title = %q", f.Items[0].Title)
+	}
+}
+
+func TestGetYouTubeRejectsEmptyReference(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+
+	_, err := svc.GetYouTube(context.Background(), "  ", 15, false)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	var we *weibo.Error
+	if !errors.As(err, &we) || we.Code != weibo.CodeBadRequest {
+		t.Fatalf("err = %v, want BAD_REQUEST", err)
+	}
+}

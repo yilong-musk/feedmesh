@@ -28,6 +28,9 @@ type Item struct {
 	// Heat is the upstream heat counter (hot search only). The hot JSON view
 	// exposes it as a number so clients never have to parse display text.
 	Heat int64 `json:"-"`
+	// Views is the upstream play counter (YouTube only); the YouTube JSON
+	// view publishes it.
+	Views int64 `json:"-"`
 }
 
 // Feed is a rendered timeline for one account.
@@ -37,7 +40,11 @@ type Feed struct {
 	Description string    `json:"description"`
 	FetchedAt   time.Time `json:"fetched_at"`
 	Cached      bool      `json:"cached"`
-	Items       []Item    `json:"items"`
+	// Degraded marks a list served from the cache because the upstream read
+	// failed. Providers that can answer from a stale entry set it; the JSON
+	// views that publish it declare the field themselves.
+	Degraded bool   `json:"-"`
+	Items    []Item `json:"items"`
 	// TitleText/LinkText override the account-derived channel title and link;
 	// the hot search feed uses them because it has no account behind it.
 	TitleText string `json:"-"`

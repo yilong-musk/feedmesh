@@ -32,20 +32,22 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
+	"github.com/yilong-musk/feedmesh/internal/youtube"
 )
 
 // version is injected at build time with -X main.version=...
 var version = "dev"
 
 const (
-	defaultListen       = "127.0.0.1:3000"
-	defaultTimeout      = weibo.DefaultTimeout
-	defaultSspaiTimeout = 15 * time.Second
-	defaultV2exTimeout  = 15 * time.Second
-	defaultSmzdmTimeout = 15 * time.Second
-	defaultXTimeout     = 20 * time.Second
-	maxXTimeout         = 25 * time.Second
-	breakerCooloff      = 10 * time.Minute
+	defaultListen         = "127.0.0.1:3000"
+	defaultTimeout        = weibo.DefaultTimeout
+	defaultSspaiTimeout   = 15 * time.Second
+	defaultV2exTimeout    = 15 * time.Second
+	defaultSmzdmTimeout   = 15 * time.Second
+	defaultXTimeout       = 20 * time.Second
+	maxXTimeout           = 25 * time.Second
+	defaultYouTubeTimeout = 20 * time.Second
+	breakerCooloff        = 10 * time.Minute
 )
 
 // Exit codes, fixed by the CLI contract.
@@ -365,28 +367,31 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		Retries: 3,
 		Backoff: 300 * time.Millisecond,
 	})
-	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout := providerTimeouts(o)
+	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout := providerTimeouts(o)
 	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
 	vx := v2ex.New(v2ex.Config{Timeout: v2exTimeout})
 	xn := xnitter.New(xnitter.Config{Timeout: xTimeout})
 	sz := smzdm.New(smzdm.Config{Timeout: smzdmTimeout})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz}, c, logger, feed.DefaultTTLs())
+	yt := youtube.New(youtube.Config{Timeout: youtubeTimeout})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 
 // providerTimeouts resolves the per-provider request timeouts. X is capped even
 // when --timeout is larger, so a single X feed request cannot spend the whole
 // handler deadline on slow mirror attempts.
-func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout time.Duration) {
+func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout time.Duration) {
 	sspaiTimeout = defaultSspaiTimeout
 	v2exTimeout = defaultV2exTimeout
 	xTimeout = defaultXTimeout
 	smzdmTimeout = defaultSmzdmTimeout
+	youtubeTimeout = defaultYouTubeTimeout
 	if o.timeoutSet {
 		sspaiTimeout = o.timeout
 		v2exTimeout = o.timeout
 		xTimeout = o.timeout
 		smzdmTimeout = o.timeout
+		youtubeTimeout = o.timeout
 	}
 	if sspaiTimeout <= 0 {
 		sspaiTimeout = defaultTimeout
@@ -403,7 +408,10 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 	if xTimeout > maxXTimeout {
 		xTimeout = maxXTimeout
 	}
-	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout
+	if youtubeTimeout <= 0 {
+		youtubeTimeout = defaultTimeout
+	}
+	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout
 }
 
 func exitCodeFor(code string) int {
