@@ -17,6 +17,7 @@ The mapping between platforms and routes is in [PLATFORMS.md](PLATFORMS.md).
 | `full=1` | sspai only: fetch the article body (off by default) |
 | `section=latest\|hot` | `/api/v1/v2ex` only: select latest or hot |
 | `handle` | `/api/v1/x` only: X username (`@` allowed, 1–15 letters, digits or underscores) |
+| `ref` | `/api/v1/youtube` only: channel id, `@handle` or channel URL — `/@name`, `/channel/UC…`, `/c/…`, `/user/…` (the RSS route takes only a single path segment, so URL forms belong here) |
 
 The `.xml` path suffix is equivalent to no suffix only on RSS routes (such as `/rss/hot.xml`); `/api/v1/*` does not accept a `.xml` suffix.
 
@@ -122,6 +123,26 @@ curl -s 'http://127.0.0.1:3000/rss/x/elonmusk?limit=20'
 - Repost titles are prefixed with `🔁`; images go through Media RSS.
 - When every instance fails, returns `UPSTREAM_UNAVAILABLE` (504).
 
+### `GET /rss/youtube/{ref}`
+
+A channel's upload feed, read from YouTube's official Atom endpoint; no API key and no account. `{ref}` is a channel id (`UC…`) or a handle (`@name`, `@` optional) — a channel URL has slashes and cannot travel in a path segment, so pass that form as `ref=` to the JSON endpoint instead.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/youtube/@GoogleDevelopers?limit=15'
+curl -s 'http://127.0.0.1:3000/rss/youtube/UC_x5XG1OV2P6uZZ5FSM9Ttw.xml'
+```
+
+- 15 items by default, maximum 15: the upstream feed carries 15 entries and cannot be paginated, so a channel that uploads more between two polls tops out.
+- Cached for 10 minutes, `Cache-Control: max-age=600`; a degraded document is sent with `max-age=60` so readers retry soon after the upstream recovers.
+- `X-Feedmesh-Source` says which upstream answered: `atom` (official feed), `browse` (the web-client fallback) or `stale` (the last good cached list). It is how an outage window shows up in a reader or a proxy log.
+- `link`/`guid` is always `https://www.youtube.com/watch?v=<videoId>`, including for entries upstream publishes as Shorts.
+- The cover is the upstream thumbnail (`i4.ytimg.com` on the Atom path, `i.ytimg.com` on the fallback); the body carries the description, a compact view count and a link back.
+- The channel page is read once to turn a handle into a channel id and the mapping is cached for 24 hours; a handle and every spelling of it (`@name`, `name`, a pasted `/@name` URL) share one mapping, while `/c/…` and `/user/…` URLs cost one lookup of their own (the same name can point at a different channel there). An expired mapping is reused when the page cannot be read, so an outage does not blank a channel whose list is cached.
+- A feed read is retried three times (2 s, then 4 s apart), and the 30-second budget covers the whole lookup — channel page and feed, retries and the fallback included — so a hanging endpoint cannot hold a request for minutes. If the Atom endpoint keeps failing, the service reads the same list from YouTube's web client endpoint instead: up to 30 entries, relative timestamps ("5 days ago") and no description, so those items carry approximate dates and repeat the title as their text. A cold cache during an outage therefore still answers; the first read takes a few seconds longer because the retries run first.
+- If both sources fail, the last good list (up to 24 hours old) is served with `X-Feedmesh-Degraded: 1` and a normal 200. With no cached list at all the request returns `UPSTREAM_UNAVAILABLE` (504).
+- A successful read that comes back with no entries keeps the list already cached (served as degraded) instead of replacing it; a channel with no uploads and no cache still gets an empty feed.
+- A reference that does not resolve to a channel returns `USER_NOT_FOUND` (404); one that cannot name a channel at all (empty, malformed, an unsupported URL form) returns `BAD_REQUEST` (400).
+
 ---
 
 ## JSON endpoints
@@ -195,6 +216,24 @@ Timestamps are always RFC 3339 (UTC); `images` is always an array (`[]` when the
 - `handle` is required (`@` allowed); `limit` defaults to 20 with a maximum of 20.
 - `refresh=1` is supported and behaves the same as on the RSS routes.
 
+### `GET /api/v1/youtube?ref=<channel>&limit=N`
+
+```json
+{"ref":"@GoogleDevelopers","channel_id":"UC_x5XG1OV2P6uZZ5FSM9Ttw","title":"Google for Developers",
+ "description":"Latest videos from Google for Developers","fetched_at":"…","cached":false,"degraded":false,
+ "source":"atom",
+ "items":[{"id":"vid00000001","title":"…","text":"…","url":"https://www.youtube.com/watch?v=vid00000001",
+           "html":"…","images":["https://i4.ytimg.com/vi/vid00000001/hqdefault.jpg"],
+           "views":9862,"created_at":"2026-10-21T23:00:08Z"}]}
+```
+
+- `ref` is required and accepts a channel id, an `@handle`, or a channel URL — `/@name`, `/channel/UC…`, and the legacy `/c/…` and `/user/…` forms (YouTube serves them directly or redirects to the canonical channel page); `limit` defaults to 15 with a maximum of 15.
+- `refresh=1` is supported and behaves the same as on the RSS routes.
+- `source` is `atom`, `browse` or `stale`, the same value as the RSS route's `X-Feedmesh-Source` header.
+- `views` is the play counter as an integer: exact on the Atom path, rounded on the fallback (`32K views` becomes `32000`).
+- `degraded: true` means the list came from the last good cache entry because the upstream read failed; `cached` tells whether the TTL was still valid.
+- `created_at` is exact on the Atom path; fallback items carry a day-granular approximation, so several uploads can share one timestamp and their order follows the upstream list.
+
 ---
 
 ## Errors
@@ -251,6 +290,8 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | SMZDM articles | `smzdm:post` | 10 minutes |
 | SMZDM overseas | `smzdm:haitao` | 5 minutes |
 | X timeline | `x:<handle>` | 40 minutes |
+| YouTube uploads | `youtube:feed:<channel_id>` | 10 minutes (last good kept for 24 hours) |
+| YouTube handle mapping | `youtube:channel:<ref>` | 24 hours |
 
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).

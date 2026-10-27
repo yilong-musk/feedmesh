@@ -19,6 +19,11 @@ import (
 // probeFreshness is how long a /healthz?probe=1 result is reused.
 const probeFreshness = 30 * time.Second
 
+// degradedYouTubeMaxAge is the cache lifetime of a YouTube document served
+// from the last good list: short enough that readers pick the real feed up
+// once the upstream recovers, even though the list itself may be hours old.
+const degradedYouTubeMaxAge = 60
+
 // Config wires the HTTP layer.
 type Config struct {
 	Version string
@@ -85,12 +90,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/smzdm/haitao", s.getOnly(s.handleSmzdmHaitao))
 	mux.HandleFunc("/rss/smzdm/haitao.xml", s.getOnly(s.handleSmzdmHaitao))
 	mux.HandleFunc("/rss/x/{handle}", s.getOnly(s.handleX))
+	mux.HandleFunc("/rss/youtube/{ref}", s.getOnly(s.handleYouTube))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
 	mux.HandleFunc("/api/v1/hot", s.getOnly(s.handleAPIHot))
 	mux.HandleFunc("/api/v1/sspai", s.getOnly(s.handleAPISspai))
 	mux.HandleFunc("/api/v1/v2ex", s.getOnly(s.handleAPIV2ex))
 	mux.HandleFunc("/api/v1/smzdm", s.getOnly(s.handleAPISmzdm))
 	mux.HandleFunc("/api/v1/x", s.getOnly(s.handleAPIX))
+	mux.HandleFunc("/api/v1/youtube", s.getOnly(s.handleAPIYouTube))
 	mux.HandleFunc("/", s.handleNotFound)
 
 	var h http.Handler = mux
@@ -569,6 +576,88 @@ func (s *Server) handleAPIX(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, xResponse{
 		Handle: f.UID, Title: f.Title(), Description: f.Description,
 		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
+	})
+}
+
+type youtubeItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	Views     int64     `json:"views"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type youtubeResponse struct {
+	Ref         string                `json:"ref"`
+	ChannelID   string                `json:"channel_id"`
+	Title       string                `json:"title"`
+	Description string                `json:"description"`
+	FetchedAt   time.Time             `json:"fetched_at"`
+	Cached      bool                  `json:"cached"`
+	Degraded    bool                  `json:"degraded"`
+	Source      string                `json:"source"`
+	Items       []youtubeItemResponse `json:"items"`
+}
+
+// setYouTubeSource publishes where a list came from: atom (official feed),
+// browse (the web client fallback) or stale (the last good cached list). It is
+// the only signal an operator gets that an outage window is in progress.
+func setYouTubeSource(w http.ResponseWriter, source string) {
+	if source != "" {
+		w.Header().Set("X-Feedmesh-Source", source)
+	}
+}
+
+// handleYouTube renders one channel's upload feed as RSS.
+func (s *Server) handleYouTube(w http.ResponseWriter, r *http.Request) {
+	ref := strings.TrimSuffix(r.PathValue("ref"), ".xml")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultYouTubeLimit, feed.MaxYouTubeLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetYouTube(r.Context(), ref, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	setYouTubeSource(w, f.Source)
+	maxAge := int(feed.YouTubeTTL().Seconds())
+	if f.Degraded {
+		// The list is the last good one because the upstream read failed. The
+		// readers still get a document, and a short max-age lets them pick the
+		// real feed up soon after the upstream recovers.
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+		maxAge = degradedYouTubeMaxAge
+	}
+	s.setRSSCache(w, maxAge)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+func (s *Server) handleAPIYouTube(w http.ResponseWriter, r *http.Request) {
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultYouTubeLimit, feed.MaxYouTubeLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetYouTube(r.Context(), ref, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]youtubeItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		items = append(items, youtubeItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, Views: it.Views, CreatedAt: it.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, youtubeResponse{
+		Ref: ref, ChannelID: f.UID, Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
+		Source: f.Source, Items: items,
 	})
 }
 

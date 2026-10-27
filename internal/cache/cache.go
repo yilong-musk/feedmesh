@@ -88,7 +88,7 @@ func New(dir string) (*Cache, error) {
 var managedPrefixes = []string{
 	"profile_", "timeline_", "longtext_", "domain_", "hot_",
 	"sspai_list", "sspai_detail_", "v2ex_latest", "v2ex_hot",
-	"x_", "feed_",
+	"x_", "feed_", "youtube_",
 }
 
 // ManagedKey reports whether a cache file stem matches a feedmesh key prefix.

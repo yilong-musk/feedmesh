@@ -16,6 +16,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
+	"github.com/yilong-musk/feedmesh/internal/youtube"
 )
 
 // Limits and cache lifetimes.
@@ -48,11 +49,12 @@ func DefaultTTLs() TTLs {
 // Service coordinates the upstream client and the on-disk cache.
 // Clients bundles the upstream providers a Service can serve.
 type Clients struct {
-	Weibo *weibo.Client
-	Sspai *sspai.Client
-	V2ex  *v2ex.Client
-	X     *xnitter.Client
-	Smzdm *smzdm.Client
+	Weibo   *weibo.Client
+	Sspai   *sspai.Client
+	V2ex    *v2ex.Client
+	X       *xnitter.Client
+	Smzdm   *smzdm.Client
+	Youtube *youtube.Client
 }
 
 type Service struct {

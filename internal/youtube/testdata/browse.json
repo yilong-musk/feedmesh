@@ -1,0 +1,167 @@
+{
+ "contents": {
+  "twoColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "title": "Home"
+     }
+    },
+    {
+     "tabRenderer": {
+      "title": "Videos",
+      "selected": true,
+      "content": {
+       "richGridRenderer": {
+        "contents": [
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "SOF3_evPje8",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "Design and replicate voices with Gemini 3.8 Flash TTS"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "32K views"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "5 days ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/SOF3_evPje8/hq720.jpg?sqp=-oaymwEjCOgCEMoBSFryq4qpAxUIARUAAAAAGAElAADIQj0AgKJDeAE=&rs=AOn4CLD75_b1S32Gr_Gu5G4cCtaez8GjXw",
+                  "width": 360,
+                  "height": 202
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/SOF3_evPje8/hq720.jpg?sqp=-oaymwEXCNAFEJQDSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLBGa73_LyVR6LbDWiK5xjfyrjVPbQ",
+                  "width": 720,
+                  "height": 404
+                 }
+                ]
+               }
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "richItemRenderer": {
+           "content": {
+            "lockupViewModel": {
+             "contentId": "i3X7Fv0Z3Uc",
+             "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+             "metadata": {
+              "lockupMetadataViewModel": {
+               "title": {
+                "content": "Turning raw hardware sensor data into music with Gemini"
+               },
+               "metadata": {
+                "contentMetadataViewModel": {
+                 "metadataRows": [
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "Google for Developers and Google Gemini"
+                     }
+                    }
+                   ]
+                  },
+                  {
+                   "metadataParts": [
+                    {
+                     "text": {
+                      "content": "14K views"
+                     }
+                    },
+                    {
+                     "text": {
+                      "content": "11 days ago"
+                     }
+                    }
+                   ]
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "contentImage": {
+              "thumbnailViewModel": {
+               "image": {
+                "sources": [
+                 {
+                  "url": "https://i.ytimg.com/vi/i3X7Fv0Z3Uc/hq720.jpg?sqp=-oaymwEjCOgCEMoBSFryq4qpAxUIARUAAAAAGAElAADIQj0AgKJDeAE=&rs=AOn4CLBe_ZllTTkgYg3OR3HBIqhdINfLvg",
+                  "width": 360,
+                  "height": 202
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/i3X7Fv0Z3Uc/hq720.jpg?sqp=-oaymwEXCNAFEJQDSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLD-kCS5XUuk8DXclHDdCUVhb4THXw",
+                  "width": 720,
+                  "height": 404
+                 }
+                ]
+               }
+              }
+             }
+            }
+           }
+          }
+         },
+         {
+          "continuationItemRenderer": {
+           "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+           "continuationEndpoint": {
+            "clickTrackingParams": "CCoQ8eIEIhMI7L7m5cnZlwMV6CeDAx03qTTmygEEpzallA==",
+            "commandMetadata": {
+             "webCommandMetadata": {
+              "sendPost": true,
+              "apiUrl": "/youtubei/v1/browse"
+             }
+            },
+            "continuationCommand": {
+             "token": "4qmFsgLZCRIYVUNfeDVYRzFPVjJQNnVaWjVGU005VHR3GrwJOGdhRUJ4cUJCM3ItQmpyN0Jnb2tObU0xTkRRNE16UXRNREF3TUMweU9UTTNMV0U0WkdJdE5UZ3lOREk1WVRjd05qUTBFdEFHUVdOV09GWmtXRXBXTUdOR1ptNHpkRkUxTldaMVlUVmxWMFpHT0ZwV1FrTlVhekYxWDNaRVJHYzJjM2x6V0RocFpIWkpOa3RQV25wTlN6SlhNazVxV1hoWFJFeDJjMUJvV1dFd1RtSmhRelJtYldORU4yeGpiekl6TFVGc1QyaHZaRWhsVDFSMU5VUXRlbTQxWVhrd1ppMDJPRkpJVGt4cFlVaEtka05tTFVWME1XWkpNbGhPVUdReWNIZFJWMHRIWHpJd1F6ZzFkMGczZDNoVFVFZzBiRk5ZTTNWZk1GQkhTRWM0UWxoc2J6a3haVFJGVXpjdGRXZFVTVGxZTFdWWmVpMVdPRXhYZFRCRlkwMWlSRUZmYWtWTldWZGpNV2RVTkhadmNHMUViSHBRV21VMk1UaEdXR0V5YmtaVFltNUJPV1p4Tm5WVE1GazFTbWRPUTNwQlQwWjZSSEJzZUdoellYZDVhVVpKZFY5MU4ySnBSbUZTVEZwV1VUTm9kMjltWmtjeFRWcDRNUzAzV1daeFJrVmtNMnRqYzNvMFV6RmZibmhrZFhGblJtTkNWV1JqY2t3dGRGOXJaV3RrUVZWS1dTMTJjRmh2TjBSMVZIaFRUbUZJTnpWWmFEUkpZMXA0Y1VoQlkzVTVlbnB1VlRWaFR6SXRXbEkxZUY4eE9XSmtSM0oyU1ZGblNUbGpXakJxTmtWc1pqaE5lblV3WlZkMldIRXlUbnBsU21SQlVWaEViRGh4Wm1OamFtdENPVXhvYUdRNGR6UnlkRU51WDBkWlZIWk1ibVJEWDNseVRXeEZVV1ZVTUhoVmJWVXRaRzEwY2t0dVYzWlhUakpTZVZOS1QydG1XWE5zV25Rd1pIQkRXVmsxVTI4eU1rWkNjSGx2TW5SS1EzbEJRVXB4UmpSMExWcFNOM1U0T0ZkTlptTmlaR0ZyYWkxM2RYbHVWbFZmV2pSellWQnJVMU5yYms1aVNUbENWRkZDZEc1WFoybG9iRk5zUzJwWFdqUnpkRWs1UW5VMWFUUjJiMG8xYVVoTlMxcEpSbEY0UWxWWGJDMWFMV2hEZDJGU09HbFJiRGc0TUZKVmIzWlRjVEp1WXpGcGEzZEJTek41V2xoRmNrd3hhUzFFYUdaa00xaGlTVTFXU0RrNWVrdHRjbTB5V0VOdE9WRjRTRTl1WTNOWVZVVTBXV3R1U1Zac2FraHZjRWRRTVVoUFRsaDBjazF2VUc5MmIzbEdkVkIwVG1wVFJsTnlNbEppYkhock1XbDBWemcxZGxjMlEwVnlhR05MVkVSWFVuSkxNakJyWkhsa2VsZExZMjUyTjA5Qk5WTnBXbFJRWDNNeFVFOVpjM1p6VkV0U00ySktSaTFPU1hsUlZrTTBXVXA1ZFY5TlVFWjBXa0ZCUm5Sak5qYzJka3hhY1hsclpsSnplSEpZUkRWaFVIWmxhM3BWYWw5cmNVRjVZbkY0VVZCMFMyNVJhM1kxV0c4d01FRXpVRVZsUkhNWUJBJTNEJTNE",
+             "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+            }
+           }
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "metadata": {
+  "channelMetadataRenderer": {
+   "title": "Google for Developers"
+  }
+ }
+}
