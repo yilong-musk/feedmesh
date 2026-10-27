@@ -153,6 +153,77 @@ func TestVideosDoesNotRetryBadRequest(t *testing.T) {
 	}
 }
 
+// TestVideosHonoursTheBudget keeps a hanging endpoint from holding a request
+// for attempts x timeout: the whole call has one deadline.
+func TestVideosHonoursTheBudget(t *testing.T) {
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+	}))
+	defer hang.Close()
+	c := New(Config{BaseURL: hang.URL, Timeout: 3 * time.Second, RetryDelay: time.Millisecond, Budget: 50 * time.Millisecond})
+
+	start := time.Now()
+	_, err := c.Videos(context.Background(), testChannelID)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("want an error when the budget expires")
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("Videos took %v, want it to stop near the 50 ms budget", elapsed)
+	}
+}
+
+// TestChannelIDDoesNotRetryMissingPage keeps the 404 retry rule for the upload
+// feed from making a typo cost three channel-page reads.
+func TestChannelIDDoesNotRetryMissingPage(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	c := New(Config{BaseURL: srv.URL, Timeout: time.Second, RetryDelay: time.Millisecond})
+
+	if _, err := c.ChannelID(context.Background(), "@missing"); !errors.Is(err, ErrChannelNotFound) {
+		t.Fatalf("err = %v, want ErrChannelNotFound", err)
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("channel page requests = %d, want 1", got)
+	}
+}
+
+// TestNormalizeRefUnifiesForms pins the property the channel-mapping cache
+// depends on: every spelling of one channel normalises to one string.
+func TestNormalizeRefUnifiesForms(t *testing.T) {
+	handles := []string{
+		"@testchannel",
+		"testchannel",
+		"https://www.youtube.com/@testchannel",
+		"https://www.youtube.com/@testchannel/videos",
+		"https://www.youtube.com/@testchannel?sub_confirmation=1",
+		"youtube.com/@testchannel/",
+		"  @testchannel  ",
+	}
+	for _, in := range handles {
+		if got := NormalizeRef(in); got != "@testchannel" {
+			t.Errorf("NormalizeRef(%q) = %q, want @testchannel", in, got)
+		}
+	}
+	ids := []string{
+		testChannelID,
+		"https://www.youtube.com/channel/" + testChannelID,
+		"https://www.youtube.com/channel/" + testChannelID + "/videos",
+	}
+	for _, in := range ids {
+		if got := NormalizeRef(in); got != testChannelID {
+			t.Errorf("NormalizeRef(%q) = %q, want %q", in, got, testChannelID)
+		}
+	}
+	if got := NormalizeRef(""); got != "" {
+		t.Errorf("NormalizeRef(\"\") = %q, want empty", got)
+	}
+}
+
 func TestVideosRejectsMalformedChannelID(t *testing.T) {
 	if _, err := New(Config{}).Videos(context.Background(), "notachannel"); err == nil {
 		t.Fatal("want an error for a malformed channel id")

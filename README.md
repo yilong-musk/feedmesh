@@ -78,7 +78,7 @@ The unit uses systemd's `%h` / `%C` expansion for the home and cache directories
 | `cache purge --handle <handle>` | Remove one X handle's timeline entries |
 | `--dry-run` | Report only, delete nothing |
 
-Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX and 20s for X; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
+Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX/SMZDM and 20s for X/YouTube; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
 
 ## Documentation
 

@@ -1,6 +1,6 @@
 # Supported platforms
 
-**5 platforms and 9 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**6 platforms and 10 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -140,11 +140,11 @@ Official site <https://youtube.com> · Data source: the channel upload feed (`/f
 ### Channel uploads
 
 - `{ref}` in the RSS path is a channel id (24 characters) or a handle (`@` optional); a pasted channel URL carries slashes and only works through the JSON endpoint's `ref=` parameter, where `/videos`, `/shorts`, `/streams` tails and query strings are ignored.
-- Turning a handle into an id costs one channel-page read (about 1.4 MB) and is cached for 24 hours; ids cost no extra request.
+- Turning a handle into an id costs one channel-page read (about 1.4 MB) and is cached for 24 hours; every spelling of the same channel (`@name`, `name`, a pasted URL) shares one mapping, and ids cost no extra request. A page that answers 404 is not retried.
 - The feed carries exactly 15 entries and has no pagination. A channel that uploads more than that between two polls loses the overflow; poll every 10 minutes or accept the ceiling.
 - Entries are the upload stream, so Shorts and livestream replays are mixed in with regular videos. `link`/`guid` is always `https://www.youtube.com/watch?v=<id>`, which resolves for both.
-- Fields: title, description, thumbnail (`hqdefault`, 480×360), publish time, view count. Duration is not in the feed and is not published.
-- One feed read is up to 3 attempts (2 s, then 4 s apart). When all attempts fail, the client switches to the web client's browse endpoint, which returns up to 30 entries with relative timestamps ("5 days ago") and no description; those items carry approximate dates and repeat the title as their text. If that also fails, the last good list is served with `X-Feedmesh-Degraded: 1` for up to 24 hours.
+- Fields: title, description, thumbnail (the Atom entries carry `hqdefault`, 480×360; the fallback carries its own, up to `hq720`), publish time, view count. Duration is not in the feed and is not published.
+- One feed read is up to 3 attempts (2 s, then 4 s apart), and the whole read — retries plus the fallback — is bounded to 30 seconds. When all attempts fail, the client switches to the web client's browse endpoint, which returns up to 30 entries with relative timestamps ("5 days ago") and no description; those items carry approximate dates and repeat the title as their text. If that also fails, the last good list is served with `X-Feedmesh-Degraded: 1` for up to 24 hours.
 
 ### Limitations
 

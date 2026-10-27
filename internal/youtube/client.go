@@ -48,6 +48,9 @@ const (
 	MaxLimit = 15
 	// MaxAttempts bounds one request, including retries.
 	MaxAttempts = 3
+	// DefaultBudget bounds one Videos call: three attempts plus the fallback
+	// per-attempt timeout would otherwise add up to minutes.
+	DefaultBudget = 30 * time.Second
 
 	// webAPIKey is the public key the YouTube web client ships with. It is not
 	// a secret and needs no registration; it only identifies the client.
@@ -91,6 +94,10 @@ type Config struct {
 	// DisableFallback keeps the client on the Atom feed only. Tests use it to
 	// assert that a healthy feed never costs a browse request.
 	DisableFallback bool
+	// Budget bounds one Videos call across retries and the fallback, so a
+	// hanging endpoint cannot hold a request for attempts x timeout. Tests set
+	// a small one.
+	Budget time.Duration
 }
 
 // Client reads YouTube over HTTP.
@@ -100,6 +107,7 @@ type Client struct {
 	http       *http.Client
 	retryDelay time.Duration
 	fallback   bool
+	budget     time.Duration
 }
 
 // New builds a Client with production defaults.
@@ -116,12 +124,16 @@ func New(cfg Config) *Client {
 	if cfg.RetryDelay <= 0 {
 		cfg.RetryDelay = 2 * time.Second
 	}
+	if cfg.Budget <= 0 {
+		cfg.Budget = DefaultBudget
+	}
 	return &Client{
 		base:       strings.TrimRight(cfg.BaseURL, "/"),
 		ua:         cfg.UserAgent,
 		http:       &http.Client{Timeout: cfg.Timeout},
 		retryDelay: cfg.RetryDelay,
 		fallback:   !cfg.DisableFallback,
+		budget:     cfg.Budget,
 	}
 }
 
@@ -155,14 +167,10 @@ func (e *HTTPError) Error() string {
 // ChannelID resolves ref to a channel id. ref may be a UC... id, an @handle,
 // a bare handle, or a channel URL. Only the last form costs a request.
 func (c *Client) ChannelID(ctx context.Context, ref string) (string, error) {
-	ref = strings.TrimSpace(ref)
+	ref = NormalizeRef(ref)
 	if ref == "" {
 		return "", fmt.Errorf("youtube: empty channel reference")
 	}
-	if i := strings.Index(ref, "youtube.com/"); i >= 0 {
-		ref = ref[i+len("youtube.com/"):]
-	}
-	ref = normalizeRef(ref)
 	if channelIDShape.MatchString(ref) {
 		return ref, nil
 	}
@@ -171,7 +179,7 @@ func (c *Client) ChannelID(ctx context.Context, ref string) (string, error) {
 		return "", fmt.Errorf("youtube: invalid channel reference %q", ref)
 	}
 
-	body, err := c.get(ctx, "/@"+url.PathEscape(handle))
+	body, err := c.channelPage(ctx, "/@"+url.PathEscape(handle))
 	if err != nil {
 		var he *HTTPError
 		if errors.As(err, &he) && he.StatusCode == http.StatusNotFound {
@@ -194,6 +202,8 @@ func (c *Client) Videos(ctx context.Context, channelID string) (*Feed, error) {
 	if !channelIDShape.MatchString(channelID) {
 		return nil, fmt.Errorf("youtube: invalid channel id %q", channelID)
 	}
+	ctx, cancel := context.WithTimeout(ctx, c.budget)
+	defer cancel()
 	body, feedErr := c.get(ctx, "/feeds/videos.xml?channel_id="+url.QueryEscape(channelID))
 	if feedErr == nil {
 		feed, err := parseAtomFeed(channelID, body)
@@ -413,6 +423,25 @@ func (c *Client) post(ctx context.Context, path string, body []byte) ([]byte, er
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	return c.doWith(ctx, method, path, body, retryable)
+}
+
+// channelPage reads the public channel page. A 404 there means the reference
+// does not exist -- unlike the upload feed, which answers 404 for channels
+// that exist during its outage windows -- so it is not retried.
+func (c *Client) channelPage(ctx context.Context, path string) ([]byte, error) {
+	return c.doWith(ctx, http.MethodGet, path, nil, func(err error) bool {
+		var he *HTTPError
+		if errors.As(err, &he) && he.StatusCode == http.StatusNotFound {
+			return false
+		}
+		return retryable(err)
+	})
+}
+
+// doWith retries while shouldRetry approves. The caller passes a policy when a
+// status code is not transient for one endpoint.
+func (c *Client) doWith(ctx context.Context, method, path string, body []byte, shouldRetry func(error) bool) ([]byte, error) {
 	delay := c.retryDelay
 	var lastErr error
 	for attempt := 1; attempt <= MaxAttempts; attempt++ {
@@ -421,7 +450,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 			return out, nil
 		}
 		lastErr = err
-		if !retryable(err) || ctx.Err() != nil || attempt == MaxAttempts {
+		if !shouldRetry(err) || ctx.Err() != nil || attempt == MaxAttempts {
 			break
 		}
 		select {
@@ -487,6 +516,22 @@ var tabSegments = map[string]bool{
 	"about":     true,
 	"featured":  true,
 	"community": true,
+}
+
+// NormalizeRef reduces a channel reference to the id or handle it names.
+// A channel URL loses its host, query, fragment and tab segment; a bare handle
+// gains the "@" so every form of the same channel produces one string.
+// Callers cache this value, so the normalisation has to be stable.
+func NormalizeRef(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if i := strings.Index(ref, "youtube.com/"); i >= 0 {
+		ref = ref[i+len("youtube.com/"):]
+	}
+	ref = normalizeRef(ref)
+	if ref == "" || channelIDShape.MatchString(ref) || strings.Contains(ref, "/") || strings.HasPrefix(ref, "@") {
+		return ref
+	}
+	return "@" + ref
 }
 
 // normalizeRef reduces a channel URL tail to the channel id or handle it

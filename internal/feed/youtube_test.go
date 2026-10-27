@@ -257,6 +257,26 @@ func TestGetYouTubeDegradesToLastGoodList(t *testing.T) {
 	}
 }
 
+// TestGetYouTubeSharesOneChannelMapping pins the cache key: the same channel
+// pasted as a handle and as a URL must not cost a second channel-page read.
+func TestGetYouTubeSharesOneChannelMapping(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newYouTubeService(t, srv.URL)
+	ctx := context.Background()
+
+	if _, err := svc.GetYouTube(ctx, "@testchannel", 5, false); err != nil {
+		t.Fatalf("handle read: %v", err)
+	}
+	if _, err := svc.GetYouTube(ctx, "https://www.youtube.com/@testchannel/videos", 5, false); err != nil {
+		t.Fatalf("URL read: %v", err)
+	}
+	if got := atomic.LoadInt32(&up.pageHits); got != 1 {
+		t.Fatalf("channel page requests = %d, want 1 for one channel", got)
+	}
+}
+
 // TestGetYouTubeServesLastGoodListPastTTL covers the ordinary read path (no
 // refresh=1): once the entry is older than the freshness window and the
 // upstream is failing, the reader must still get the last good list, marked

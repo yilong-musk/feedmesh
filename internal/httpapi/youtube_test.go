@@ -171,6 +171,9 @@ func TestYouTubeRSSDegradedHeader(t *testing.T) {
 	if got := rec.Header().Get("X-Feedmesh-Degraded"); got != "1" {
 		t.Fatalf("degraded header = %q, want 1", got)
 	}
+	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "max-age=60") {
+		t.Fatalf("degraded Cache-Control = %q, want max-age=60", got)
+	}
 	if !strings.Contains(rec.Body.String(), "First upload") {
 		t.Fatalf("degraded body lost the last good item:\n%s", rec.Body.String())
 	}

@@ -19,6 +19,11 @@ import (
 // probeFreshness is how long a /healthz?probe=1 result is reused.
 const probeFreshness = 30 * time.Second
 
+// degradedYouTubeMaxAge is the cache lifetime of a YouTube document served
+// from the last good list: short enough that readers pick the real feed up
+// once the upstream recovers, even though the list itself may be hours old.
+const degradedYouTubeMaxAge = 60
+
 // Config wires the HTTP layer.
 type Config struct {
 	Version string
@@ -608,12 +613,15 @@ func (s *Server) handleYouTube(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	maxAge := int(feed.YouTubeTTL().Seconds())
 	if f.Degraded {
 		// The list is the last good one because the upstream read failed. The
-		// readers still get a document; operators can spot it here.
+		// readers still get a document, and a short max-age lets them pick the
+		// real feed up soon after the upstream recovers.
 		w.Header().Set("X-Feedmesh-Degraded", "1")
+		maxAge = degradedYouTubeMaxAge
 	}
-	s.setRSSCache(w, int(feed.YouTubeTTL().Seconds()))
+	s.setRSSCache(w, maxAge)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }

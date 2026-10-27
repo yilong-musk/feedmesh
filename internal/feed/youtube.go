@@ -107,9 +107,11 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 
 // youtubeChannelID resolves a channel reference once per day. The public
 // channel page is about 1.4 MB, so resolving it on every poll would be both
-// slow and needlessly rude; the feed itself only needs the id.
+// slow and needlessly rude; the feed itself only needs the id. The key uses
+// the normalised reference, so "@name", "name" and a pasted channel URL share
+// one mapping instead of triggering a page read each.
 func (s *Service) youtubeChannelID(ctx context.Context, ref string) (string, error) {
-	key := "youtube:channel:" + strings.ToLower(ref)
+	key := "youtube:channel:" + strings.ToLower(youtube.NormalizeRef(ref))
 	if s.cache != nil {
 		var id string
 		if hit, _, err := s.cache.Get(key, &id); err == nil && hit && id != "" {
