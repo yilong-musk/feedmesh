@@ -15,14 +15,19 @@ import (
 // YouTube feed bounds and cache lifetimes. The upload feed carries 15 entries
 // with no pagination, so the ceiling is the feed width. Ten minutes keeps a
 // active channel fresh while staying far away from the endpoint's flaky
-// windows; a stale entry is kept for a day so a bad window degrades to the
-// last good list instead of an error.
+// windows; the entry itself is stored for the whole stale window so a bad
+// window degrades to the last good list instead of an error.
 const (
 	DefaultYouTubeLimit = youtube.DefaultLimit
 	MaxYouTubeLimit     = youtube.MaxLimit
-	youtubeTTL          = 10 * time.Minute
-	youtubeStaleWindow  = 24 * time.Hour
-	youtubeChannelTTL   = 24 * time.Hour
+	// youtubeTTL is how long a stored list counts as fresh. It is enforced in
+	// readYouTube, not by the cache expiry, so an expired entry survives to
+	// serve the last-good path.
+	youtubeTTL = 10 * time.Minute
+	// youtubeStaleWindow is both the age limit of the last-good list and the
+	// stored TTL: the cache keeps the entry until it can no longer help.
+	youtubeStaleWindow = 24 * time.Hour
+	youtubeChannelTTL  = 24 * time.Hour
 )
 
 // cachedYouTube is one channel's upload list as stored in the cache. The
@@ -82,7 +87,11 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 			FetchedAt: s.now().UTC(),
 		}
 		if s.cache != nil {
-			_ = s.cache.Set(key, e, youtubeTTL)
+			// The entry is stored for the whole stale window; freshness is
+			// enforced by readYouTube from FetchedAt. Storing it with the
+			// ten-minute TTL would let the cache delete the copy the
+			// last-good path needs during an outage.
+			_ = s.cache.Set(key, e, youtubeStaleWindow)
 		}
 		return s.youtubeFeed(e, limit, false, false), nil
 	}
@@ -123,27 +132,24 @@ func (s *Service) readYouTube(key string, includeExpired bool) (cachedYouTube, b
 	if s.cache == nil {
 		return cachedYouTube{}, false
 	}
-	var (
-		e   cachedYouTube
-		hit bool
-		err error
-	)
-	if includeExpired {
-		hit, err = s.cache.PeekStored(key, &e)
-	} else {
-		hit, _, err = s.cache.Get(key, &e)
-	}
+	var e cachedYouTube
+	// PeekStored, not Get: Get deletes an expired entry, and the last-good
+	// path below needs that entry to outlive the freshness window. The stored
+	// TTL is the stale window, so freshness is decided here from FetchedAt.
+	hit, err := s.cache.PeekStored(key, &e)
 	if err != nil || !hit {
 		return cachedYouTube{}, false
 	}
+	age := s.now().Sub(e.FetchedAt)
 	if includeExpired {
 		// The last-good path only helps when there is something to serve.
-		if len(e.Videos) == 0 {
+		if len(e.Videos) == 0 || age > youtubeStaleWindow {
 			return cachedYouTube{}, false
 		}
-		if s.now().Sub(e.FetchedAt) > youtubeStaleWindow {
-			return cachedYouTube{}, false
-		}
+		return e, true
+	}
+	if age > youtubeTTL {
+		return cachedYouTube{}, false
 	}
 	return e, true
 }

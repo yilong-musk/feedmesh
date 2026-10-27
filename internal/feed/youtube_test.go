@@ -2,9 +2,12 @@ package feed_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -111,12 +114,55 @@ func (u *ytUpstream) handler() http.HandlerFunc {
 
 func newYouTubeService(t *testing.T, base string) *feed.Service {
 	t.Helper()
-	c, err := cache.New(t.TempDir())
+	return newYouTubeServiceAt(t, base, t.TempDir())
+}
+
+// newYouTubeServiceAt is newYouTubeService with a caller-owned cache directory,
+// so a test can age the stored entry on disk.
+func newYouTubeServiceAt(t *testing.T, base, dir string) *feed.Service {
+	t.Helper()
+	c, err := cache.New(dir)
 	if err != nil {
 		t.Fatalf("cache: %v", err)
 	}
 	yt := youtube.New(youtube.Config{BaseURL: base, Timeout: 2 * time.Second, RetryDelay: time.Millisecond})
 	return feed.NewService(feed.Clients{Youtube: yt}, c, logx.Discard(), feed.DefaultTTLs())
+}
+
+// ageYouTubeFeedEntry rewrites the stored upload list so it looks fetched
+// eleven minutes ago: past the ten-minute freshness window and past its cache
+// expiry. Both fields move together, exactly as a real write ten minutes ago
+// would leave them.
+func ageYouTubeFeedEntry(t *testing.T, dir string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dir, "youtube_feed_*.json"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("feed cache files = %v (err = %v), want exactly one", matches, err)
+	}
+	raw, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read entry: %v", err)
+	}
+	var entry cache.Entry
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		t.Fatalf("decode entry: %v", err)
+	}
+	entry.ExpiresAt = time.Now().Add(-time.Minute)
+	var value map[string]any
+	if err := json.Unmarshal(entry.Value, &value); err != nil {
+		t.Fatalf("decode value: %v", err)
+	}
+	value["fetched_at"] = time.Now().Add(-11 * time.Minute).UTC().Format(time.RFC3339Nano)
+	if entry.Value, err = json.Marshal(value); err != nil {
+		t.Fatalf("encode value: %v", err)
+	}
+	out, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("encode entry: %v", err)
+	}
+	if err := os.WriteFile(matches[0], out, 0o600); err != nil {
+		t.Fatalf("write entry: %v", err)
+	}
 }
 
 func TestGetYouTubeMapsItems(t *testing.T) {
@@ -202,6 +248,37 @@ func TestGetYouTubeDegradesToLastGoodList(t *testing.T) {
 	f, err := svc.GetYouTube(context.Background(), "@testchannel", 15, true)
 	if err != nil {
 		t.Fatalf("degraded read must not fail: %v", err)
+	}
+	if !f.Degraded {
+		t.Fatal("degraded = false, want true")
+	}
+	if !f.Cached || len(f.Items) != 2 {
+		t.Fatalf("cached/items = %v/%d, want true/2", f.Cached, len(f.Items))
+	}
+}
+
+// TestGetYouTubeServesLastGoodListPastTTL covers the ordinary read path (no
+// refresh=1): once the entry is older than the freshness window and the
+// upstream is failing, the reader must still get the last good list, marked
+// degraded. The cache layer deletes expired entries on a normal read, so a
+// read path that goes through it loses the copy this fallback depends on.
+func TestGetYouTubeServesLastGoodListPastTTL(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	dir := t.TempDir()
+	svc := newYouTubeServiceAt(t, srv.URL, dir)
+	ctx := context.Background()
+
+	if _, err := svc.GetYouTube(ctx, "@testchannel", 15, false); err != nil {
+		t.Fatalf("warm read: %v", err)
+	}
+	ageYouTubeFeedEntry(t, dir)
+	up.down.Store(true)
+
+	f, err := svc.GetYouTube(ctx, "@testchannel", 15, false)
+	if err != nil {
+		t.Fatalf("read past the freshness window must serve the last good list: %v", err)
 	}
 	if !f.Degraded {
 		t.Fatal("degraded = false, want true")

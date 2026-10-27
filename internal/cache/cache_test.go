@@ -241,6 +241,56 @@ func TestStatListAndDelete(t *testing.T) {
 	}
 }
 
+// TestEveryProviderPrefixIsManaged guards the maintenance paths: a key that no
+// prefix matches is invisible to Stat, List, GC and purge, so its entries stay
+// on disk forever and /healthz undercounts. Every provider's key shape belongs
+// in this list.
+func TestEveryProviderPrefixIsManaged(t *testing.T) {
+	keys := []string{
+		"profile:2803301701",
+		"timeline:2803301701",
+		"longtext:2803301701:Q4rX",
+		"domain:testdomain",
+		"hot:top",
+		"sspai_list",
+		"sspai_detail:12345",
+		"v2ex_latest",
+		"v2ex_hot",
+		"x:handle",
+		"feed:2803301701:10",
+		"youtube:feed:UC_x5XG1OV2P6uZZ5FSM9Ttw",
+		"youtube:channel:@googledevelopers",
+	}
+	for _, key := range keys {
+		// ManagedKey takes the filename stem, so the key goes through SafeKey
+		// exactly as the maintenance paths pass it.
+		if stem := SafeKey(key); !ManagedKey(stem) {
+			t.Errorf("ManagedKey(SafeKey(%q)) = false (%q): Stat, List, GC and purge would ignore this entry", key, stem)
+		}
+	}
+
+	c := newTestCache(t)
+	now := time.Now()
+	c.now = func() time.Time { return now }
+	for _, key := range keys {
+		if err := c.Set(key, "value", time.Minute); err != nil {
+			t.Fatalf("Set(%q): %v", key, err)
+		}
+	}
+	if st, err := c.Stat(); err != nil || st.Entries != len(keys) {
+		t.Fatalf("Stat = %+v, %v; want %d entries", st, err, len(keys))
+	}
+
+	now = now.Add(2 * time.Minute)
+	removed, err := c.GC()
+	if err != nil {
+		t.Fatalf("GC: %v", err)
+	}
+	if removed != len(keys) {
+		t.Fatalf("GC removed %d expired entries, want %d", removed, len(keys))
+	}
+}
+
 func mustList(t *testing.T, c *Cache) []KeyInfo {
 	t.Helper()
 	list, err := c.List()
