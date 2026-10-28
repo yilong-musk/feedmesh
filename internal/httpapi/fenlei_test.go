@@ -99,20 +99,22 @@ func TestSmzdmFenleiAPIRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		Channel string `json:"channel"`
-		Slug    string `json:"slug"`
-		Title   string `json:"title"`
-		Cached  bool   `json:"cached"`
-		Items   []struct {
-			ID        string    `json:"id"`
-			Title     string    `json:"title"`
-			Text      string    `json:"text"`
-			URL       string    `json:"url"`
-			HTML      string    `json:"html"`
-			Images    []string  `json:"images"`
-			Price     *float64  `json:"price"`
-			Slug      string    `json:"slug"`
-			CreatedAt time.Time `json:"created_at"`
+		Channel   string    `json:"channel"`
+		Slug      string    `json:"slug"`
+		Title     string    `json:"title"`
+		Cached    bool      `json:"cached"`
+		FetchedAt time.Time `json:"fetched_at"`
+		Items     []struct {
+			ID         string    `json:"id"`
+			Title      string    `json:"title"`
+			Text       string    `json:"text"`
+			URL        string    `json:"url"`
+			HTML       string    `json:"html"`
+			Images     []string  `json:"images"`
+			Price      *float64  `json:"price"`
+			Slug       string    `json:"slug"`
+			DateSource string    `json:"date_source"`
+			CreatedAt  time.Time `json:"created_at"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
@@ -143,17 +145,33 @@ func TestSmzdmFenleiAPIRoute(t *testing.T) {
 	if len(first.Images) != 1 || !strings.HasPrefix(first.Images[0], "https://") {
 		t.Fatalf("items[0].images = %v", first.Images)
 	}
+	if first.DateSource != "fetched" {
+		t.Fatalf("items[0].date_source = %q, want the value that says the time is the read time", first.DateSource)
+	}
 
-	// The page is read once an hour: the second read is a cache hit.
+	// The page is read once an hour: the second read is a cache hit, and it
+	// keeps the read time instead of re-stamping the batch.
 	rec = get(t, h, "/api/v1/smzdm?channel=fenlei&slug=tixuhuli&limit=20")
 	var again struct {
-		Cached bool `json:"cached"`
+		Cached    bool      `json:"cached"`
+		FetchedAt time.Time `json:"fetched_at"`
+		Items     []struct {
+			CreatedAt time.Time `json:"created_at"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &again); err != nil {
 		t.Fatalf("decode second: %v", err)
 	}
 	if !again.Cached {
 		t.Fatal("second read is not a cache hit")
+	}
+	if !again.FetchedAt.Equal(out.FetchedAt) {
+		t.Fatalf("cached fetched_at = %v, want the read time %v", again.FetchedAt, out.FetchedAt)
+	}
+	for i, it := range again.Items {
+		if !it.CreatedAt.Equal(first.CreatedAt) {
+			t.Fatalf("cached items[%d].created_at = %v, want the read time %v", i, it.CreatedAt, first.CreatedAt)
+		}
 	}
 }
 

@@ -457,6 +457,10 @@ type smzdmItemResponse struct {
 	Price *float64 `json:"price"`
 	// Slug names the category a card came from (category channel only).
 	Slug string `json:"slug,omitempty"`
+	// DateSource says how created_at was derived (category channel only):
+	// "fetched" when the page read time stands in for a missing publish
+	// timestamp, "card" when the card carried its own.
+	DateSource string `json:"date_source,omitempty"`
 }
 
 type smzdmResponse struct {
@@ -476,7 +480,7 @@ func smzdmItems(items []feed.Item) []smzdmItemResponse {
 		out = append(out, smzdmItemResponse{
 			ID: it.ID, Title: it.Title, Author: it.Author, Text: it.Text, URL: it.URL,
 			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
-			Price: it.Price, Slug: it.Slug,
+			Price: it.Price, Slug: it.Slug, DateSource: it.DateSource,
 		})
 	}
 	return out

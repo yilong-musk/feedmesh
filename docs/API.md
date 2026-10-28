@@ -125,7 +125,8 @@ curl -s 'http://127.0.0.1:3000/rss/smzdm/fenlei/tixuhuli.xml'
 - **One upstream read per slug per hour.** The cache lifetime is exactly that budget (60 minutes) and `Cache-Control: max-age=3600` follows it. `refresh=1` inside the window is served from the cache instead of reading the page again: at most one page read per slug per hour is a hard constraint, not a target.
 - Reads are serialised across slugs: the service keeps one category page request in flight at a time.
 - Only good-price cards are kept. The page also carries article, review and repost cards; those (and any card without a readable price) are dropped.
-- The page publishes no timestamp for a good-price card, so `pubDate` falls back to the read time.
+- The page publishes no timestamp for a good-price card, so `pubDate` falls back to the read time. `fetched_at` is that same instant: reads served from the cache keep the time the page was read instead of advancing to the request time, so a polling reader sees a stable timestamp for the batch.
+- A failed read (HTTP error, transport error, or a large page with no cards) costs one upstream request and spends the rest of the hour: further calls in the window return `UPSTREAM_UNAVAILABLE` (504) with the retry time in the message instead of reading the page again. The marker is one budget window, not a cooldown.
 - A challenge answer (HTTP 202, `TCaptcha`, or an empty shell under 20 KB with no cards) is reported as `UPSTREAM_BLOCKED` (502), and the slug is skipped for six hours (`BREAKER_OPEN`, 503). Nothing is retried, and no WAF challenge is ever solved.
 - Category slugs must be 2–32 lowercase letters or digits, and the three paths that `robots.txt` disallows (`3cjiadian`, `jujiashenghuo`, `shishangyundong`) are refused with `BAD_REQUEST`.
 - A cold read takes tens of seconds (the page is 600–720 KB): expect 8–50 s for the first request after the cache expires, then milliseconds.
@@ -235,14 +236,14 @@ One SMZDM category page. `slug` is required for this channel (`BAD_REQUEST` with
  "items":[{"id":"184919040","title":"Gillette classic razor 1 handle 3 blades","author":"",
            "text":"7.9 CNY (coupon)","url":"https://www.smzdm.com/p/184919040/","html":"…",
            "images":["https://y.zdmimg.com/…jpg_a100.jpg"],"created_at":"2026-10-28T06:51:57Z",
-           "price":7.9,"slug":"tixuhuli"}]}
+           "price":7.9,"slug":"tixuhuli","date_source":"fetched"}]}
 ```
 
 - `price` is the leading amount of the card's display price as a number (`7.9`), or `null` when the card carries none. `text` keeps the full display string (`7.9 CNY (coupon)`), so the conditions survive.
 - `slug` repeats the category on every item and on the envelope, which makes a mixed feed of several categories self-describing.
 - `author` is always empty: category cards carry no poster.
-- `created_at` is the read time (the page publishes no per-card timestamp for a good price); it is always UTC.
-- One upstream read per slug per hour, `refresh=1` inside the window served from the cache, the six-hour slug cooldown on a challenge: the same rules as the RSS route above.
+- `created_at` is the page read time (the page publishes no per-card timestamp for a good price), so every item of one read shares the same instant and `fetched_at` repeats it. A cached read keeps that instant — it does not advance to the request time — so a polling reader can tell one batch from the next. It is always UTC. `date_source` says which of the two it is: `fetched` (read time standing in for a missing timestamp) or `card` (the card published its own). The field is absent on the RSS channels.
+- One upstream read per slug per hour, `refresh=1` inside the window served from the cache, the six-hour slug cooldown on a challenge, and a failed read spending the rest of the hour: the same rules as the RSS route above.
 
 ### `GET /api/v1/x?handle=<handle>&limit=N`
 
@@ -331,6 +332,7 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | SMZDM articles | `smzdm:post` | 10 minutes |
 | SMZDM overseas | `smzdm:haitao` | 5 minutes |
 | SMZDM category page | `smzdm:fenlei:<slug>` | 60 minutes (also the per-slug upstream budget) |
+| SMZDM category failure marker | `smzdm:fenlei:<slug>:retry` | 60 minutes: the rest of the budget window after a failed read |
 | X timeline | `x:<handle>` | 40 minutes |
 | YouTube uploads | `youtube:feed:<channel_id>` | 10 minutes (last good kept for 24 hours) |
 | YouTube handle mapping | `youtube:channel:<ref>` | 24 hours |

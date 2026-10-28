@@ -250,6 +250,103 @@ func TestGetSmzdmFenleiRefreshRespectsTheHourlyBudget(t *testing.T) {
 	}
 }
 
+// TestGetSmzdmFenleiCacheHitKeepsTheReadTime pins the read-time rule: the cards
+// carry no timestamp of their own, so created_at is the page read time. A cache
+// hit must report that instant, not the moment the request arrived — otherwise
+// every poll re-stamps the same batch as new.
+func TestGetSmzdmFenleiCacheHitKeepsTheReadTime(t *testing.T) {
+	var hits atomic.Int32
+	srv := fenleiUpstream(t, buildFenleiPage(t, fenleiCards()...), &hits)
+	clock := time.Now().UTC()
+	s := fenleiService(t, srv.URL, func() time.Time { return clock })
+
+	cold, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
+	if err != nil {
+		t.Fatalf("cold read: %v", err)
+	}
+	readAt := cold.FetchedAt
+	if readAt.IsZero() || !readAt.Equal(clock) {
+		t.Fatalf("cold fetched_at = %v, want the read time %v", readAt, clock)
+	}
+	for i, it := range cold.Items {
+		if !it.CreatedAt.Equal(readAt) {
+			t.Fatalf("cold items[%d].created_at = %v, want %v", i, it.CreatedAt, readAt)
+		}
+		if it.DateSource != "fetched" {
+			t.Fatalf("cold items[%d].date_source = %q, want \"fetched\"", i, it.DateSource)
+		}
+	}
+
+	// Well inside the hour: the list comes from the cache and keeps its time.
+	clock = clock.Add(5 * time.Minute)
+	warm, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
+	if err != nil {
+		t.Fatalf("cached read: %v", err)
+	}
+	if !warm.Cached {
+		t.Fatal("second read was not served from the cache")
+	}
+	if !warm.FetchedAt.Equal(readAt) {
+		t.Fatalf("cached fetched_at = %v, want the read time %v", warm.FetchedAt, readAt)
+	}
+	if len(warm.Items) != len(cold.Items) {
+		t.Fatalf("cached items = %d, want %d", len(warm.Items), len(cold.Items))
+	}
+	for i, it := range warm.Items {
+		if !it.CreatedAt.Equal(readAt) {
+			t.Fatalf("cached items[%d].created_at = %v, want the read time %v", i, it.CreatedAt, readAt)
+		}
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("upstream reads = %d, want 1", hits.Load())
+	}
+}
+
+// TestGetSmzdmFenleiFailureSpendsTheHourlyBudget pins the other half of the
+// budget: a failed read costs one upstream request, and the rest of the window
+// answers with the recorded failure instead of re-reading the page on every
+// poll.
+func TestGetSmzdmFenleiFailureSpendsTheHourlyBudget(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Error(w, "upstream exploded", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	clock := time.Now().UTC()
+	s := fenleiService(t, srv.URL, func() time.Time { return clock })
+
+	_, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
+	if got := weibo.CodeOf(err); got != weibo.CodeUpstreamUnavailable {
+		t.Fatalf("first read code = %q (%v), want %q", got, err, weibo.CodeUpstreamUnavailable)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("upstream reads = %d, want 1", hits.Load())
+	}
+
+	clock = clock.Add(2 * time.Minute)
+	_, err = s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
+	if got := weibo.CodeOf(err); got != weibo.CodeUpstreamUnavailable {
+		t.Fatalf("suppressed read code = %q (%v), want %q", got, err, weibo.CodeUpstreamUnavailable)
+	}
+	if !strings.Contains(err.Error(), "is not re-read until") {
+		t.Fatalf("suppressed read error = %q, want the retry time", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("upstream reads = %d, want 1: a failed read spends the hour", hits.Load())
+	}
+
+	// Past the window the page is read again — the marker is not a six-hour
+	// cooldown, it is exactly the budget.
+	clock = clock.Add(smzdmFenleiTTL)
+	if _, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false); err == nil {
+		t.Fatal("read after the window: want the upstream error to repeat")
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("upstream reads = %d, want 2 after the window", hits.Load())
+	}
+}
+
 func TestGetSmzdmFenleiChallengeIsAnErrorAndCoolsTheSlugDown(t *testing.T) {
 	var hits atomic.Int32
 	body := `<html><body><script src="https://ssl.captcha.qq.com/TCaptcha.js"></script></body></html>`
@@ -328,8 +425,10 @@ func TestGetSmzdmFenleiReadsOneSlugAtATime(t *testing.T) {
 	}
 }
 
-// TestGetSmzdmFenleiErrorCodesReachTheClient checks that a layout change (a page
-// with no cards) is reported as unavailable, not as a cooldown.
+// TestGetSmzdmFenleiNoCardsIsUnavailable checks that a layout change (a page
+// with no cards) is reported as unavailable, not as a cooldown — and that it
+// spends the hour's budget like any other failed read, so a layout change
+// cannot turn a polling consumer into one 600 KB read per poll.
 func TestGetSmzdmFenleiNoCardsIsUnavailable(t *testing.T) {
 	var hits atomic.Int32
 	srv := fenleiUpstream(t, "<html><body>"+strings.Repeat("<p>no payload</p>", 2000)+"</body></html>", &hits)
@@ -342,5 +441,12 @@ func TestGetSmzdmFenleiNoCardsIsUnavailable(t *testing.T) {
 	var blocked *smzdm.BlockedError
 	if errors.As(err, &blocked) {
 		t.Fatal("a layout change must not be classified as a challenge")
+	}
+
+	if _, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false); err == nil {
+		t.Fatal("second read: want the recorded failure")
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("upstream reads = %d, want 1: a failed read spends the hour", hits.Load())
 	}
 }

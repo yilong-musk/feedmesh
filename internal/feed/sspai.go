@@ -36,11 +36,12 @@ func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (
 	// Cache the list, not the caller's slice: fetchCachedList widens the entry
 	// when a later request asks for more, so ?limit=3 can never truncate the
 	// rest of the TTL. The loader pages upstream only as wide as needed.
-	articles, hit, err := fetchCachedList(ctx, s, "sspai:list", sspaiListTTL, refresh, limit,
+	entry, hit, err := fetchCachedList(ctx, s, "sspai:list", sspaiListTTL, refresh, limit,
 		func(n int) ([]sspai.Article, error) { return s.clients.Sspai.List(ctx, n) })
 	if err != nil {
 		return nil, sspaiError(err)
 	}
+	articles := entry.Items
 	if len(articles) > limit {
 		articles = articles[:limit]
 	}

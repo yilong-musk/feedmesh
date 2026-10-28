@@ -38,6 +38,10 @@ type Item struct {
 	// Slug is the category slug a card was read from (SMZDM category pages
 	// only); the JSON view publishes it.
 	Slug string `json:"-"`
+	// DateSource says where CreatedAt came from when a provider can derive it
+	// more than one way: "card" for a timestamp the upstream published,
+	// "fetched" for the page read time used as a fallback. Empty elsewhere.
+	DateSource string `json:"-"`
 }
 
 // Feed is a rendered timeline for one account.
