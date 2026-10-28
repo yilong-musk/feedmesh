@@ -67,6 +67,11 @@ type Service struct {
 
 	listMu    sync.Mutex
 	listLocks map[string]*keyedMutex
+
+	// fenleiMu serialises category-page reads across slugs: the upstream budget
+	// is one page per hour per slug and the site only tolerates one connection
+	// at a time, so two slugs never run concurrently.
+	fenleiMu sync.Mutex
 }
 
 // keyedMutex serialises cache reads and writes for one list key. Locks are

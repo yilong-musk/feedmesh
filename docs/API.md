@@ -110,6 +110,26 @@ curl -s 'http://127.0.0.1:3000/rss/smzdm/haitao?limit=10&refresh=1'   # bypass t
 - The deal slices rotate, so items that leave them disappear from the feed; readers that keep history collect a wider set.
 - `faxian` and `news` are WAF-protected and not exposed.
 
+### `GET /rss/smzdm/fenlei/{slug}`
+
+The good-price cards of one SMZDM category page (`https://www.smzdm.com/fenlei/{slug}/`),
+which is the only public source of deals outside the curated RSS slices. `{slug}` is
+the category path segment, for example `tixuhuli` (shaving) or `tixuchumao`.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/smzdm/fenlei/tixuhuli?limit=20'
+curl -s 'http://127.0.0.1:3000/rss/smzdm/fenlei/tixuhuli.xml'
+```
+
+- 20 items by default, maximum 30; one page holds 16–20 cards, so a larger `limit` returns what the page has.
+- **One upstream read per slug per hour.** The cache lifetime is exactly that budget (60 minutes) and `Cache-Control: max-age=3600` follows it. `refresh=1` inside the window is served from the cache instead of reading the page again: at most one page read per slug per hour is a hard constraint, not a target.
+- Reads are serialised across slugs: the service keeps one category page request in flight at a time.
+- Only good-price cards are kept. The page also carries article, review and repost cards; those (and any card without a readable price) are dropped.
+- The page publishes no timestamp for a good-price card, so `pubDate` falls back to the read time.
+- A challenge answer (HTTP 202, `TCaptcha`, or an empty shell under 20 KB with no cards) is reported as `UPSTREAM_BLOCKED` (502), and the slug is skipped for six hours (`BREAKER_OPEN`, 503). Nothing is retried, and no WAF challenge is ever solved.
+- Category slugs must be 2–32 lowercase letters or digits, and the three paths that `robots.txt` disallows (`3cjiadian`, `jujiashenghuo`, `shishangyundong`) are refused with `BAD_REQUEST`.
+- A cold read takes tens of seconds (the page is 600–720 KB): expect 8–50 s for the first request after the cache expires, then milliseconds.
+
 ### `GET /rss/x/{handle}`
 
 X (Twitter) account timeline, fetched through public Nitter instances; `{handle}` may include `@`.
@@ -202,6 +222,27 @@ Timestamps are always RFC 3339 (UTC); `images` is always an array (`[]` when the
 - `limit` defaults to 20 with a maximum of 30; `refresh=1` behaves as on the RSS routes.
 - `author` is the poster's nickname on the deal channels and the writer on the article channel. It is always present; it is empty when the feed carries no nickname, or when the nickname cannot be separated from the blurb (the deal channels pack both into one `<description>`). Callers never have to parse `html` for `Posted by …`.
 - `text` is empty for the common deal case (nickname-only entries); the price and conditions live in `title`. Article entries carry the blurb in `text`.
+- `price` is `null` on these channels: the RSS slices carry no machine-readable amount.
+
+### `GET /api/v1/smzdm?channel=fenlei&slug=<slug>&limit=N`
+
+One SMZDM category page. `slug` is required for this channel (`BAD_REQUEST` without it); `limit` defaults to 20 with a maximum of 30.
+
+```json
+{"channel":"fenlei","slug":"tixuhuli","title":"SMZDM Deals: tixuhuli",
+ "description":"Good-price cards from the SMZDM category tixuhuli",
+ "fetched_at":"2026-10-28T06:51:57Z","cached":false,
+ "items":[{"id":"184919040","title":"Gillette classic razor 1 handle 3 blades","author":"",
+           "text":"7.9 CNY (coupon)","url":"https://www.smzdm.com/p/184919040/","html":"…",
+           "images":["https://y.zdmimg.com/…jpg_a100.jpg"],"created_at":"2026-10-28T06:51:57Z",
+           "price":7.9,"slug":"tixuhuli"}]}
+```
+
+- `price` is the leading amount of the card's display price as a number (`7.9`), or `null` when the card carries none. `text` keeps the full display string (`7.9 CNY (coupon)`), so the conditions survive.
+- `slug` repeats the category on every item and on the envelope, which makes a mixed feed of several categories self-describing.
+- `author` is always empty: category cards carry no poster.
+- `created_at` is the read time (the page publishes no per-card timestamp for a good price); it is always UTC.
+- One upstream read per slug per hour, `refresh=1` inside the window served from the cache, the six-hour slug cooldown on a challenge: the same rules as the RSS route above.
 
 ### `GET /api/v1/x?handle=<handle>&limit=N`
 
@@ -289,6 +330,7 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | SMZDM deals | `smzdm:deals` | 5 minutes |
 | SMZDM articles | `smzdm:post` | 10 minutes |
 | SMZDM overseas | `smzdm:haitao` | 5 minutes |
+| SMZDM category page | `smzdm:fenlei:<slug>` | 60 minutes (also the per-slug upstream budget) |
 | X timeline | `x:<handle>` | 40 minutes |
 | YouTube uploads | `youtube:feed:<channel_id>` | 10 minutes (last good kept for 24 hours) |
 | YouTube handle mapping | `youtube:channel:<ref>` | 24 hours |

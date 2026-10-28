@@ -23,7 +23,10 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/guard"
 )
 
 const (
@@ -41,6 +44,9 @@ const (
 	ChannelDeals  Channel = "deals"
 	ChannelPost   Channel = "post"
 	ChannelHaitao Channel = "haitao"
+	// ChannelFenlei is not an RSS slice: it is a category page, addressed with
+	// a slug (see Category).
+	ChannelFenlei Channel = "fenlei"
 )
 
 // channelHost and channelPath split the feed URL so a test or mirror can
@@ -67,6 +73,9 @@ func ParseChannel(name string) (Channel, bool) {
 		return ChannelPost, true
 	case ChannelHaitao:
 		return ChannelHaitao, true
+	case ChannelFenlei:
+		// The category channel needs a slug; the caller supplies it.
+		return ChannelFenlei, true
 	}
 	return "", false
 }
@@ -81,13 +90,24 @@ type Config struct {
 	BaseURL   string
 	Timeout   time.Duration
 	UserAgent string
+	// PageTimeout bounds one category-page read. Those pages are much heavier
+	// than the RSS slices (600-720 KB, measured 8-50s), so they get their own
+	// budget instead of the feed timeout.
+	PageTimeout time.Duration
 }
 
-// Client reads the SMZDM RSS channels. It is safe for concurrent use.
+// Client reads the SMZDM RSS channels and category pages. It is safe for
+// concurrent use.
 type Client struct {
 	base string
 	ua   string
 	http *http.Client
+	// pages fetches category pages with the slower page timeout.
+	pages *http.Client
+	now   func() time.Time
+
+	breakerMu sync.Mutex
+	breakers  map[string]*guard.Breaker
 }
 
 // New builds a Client with production defaults.
@@ -95,14 +115,21 @@ func New(cfg Config) *Client {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 15 * time.Second
 	}
+	if cfg.PageTimeout <= 0 {
+		// A category page measured 8s when warm and up to 51s under load.
+		cfg.PageTimeout = 60 * time.Second
+	}
 	if cfg.UserAgent == "" {
 		// The default Go agent is rejected by the CDN in front of the feed.
 		cfg.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 	}
 	return &Client{
-		base: strings.TrimRight(cfg.BaseURL, "/"),
-		ua:   cfg.UserAgent,
-		http: &http.Client{Timeout: cfg.Timeout},
+		base:     strings.TrimRight(cfg.BaseURL, "/"),
+		ua:       cfg.UserAgent,
+		http:     &http.Client{Timeout: cfg.Timeout},
+		pages:    &http.Client{Timeout: cfg.PageTimeout},
+		now:      time.Now,
+		breakers: make(map[string]*guard.Breaker),
 	}
 }
 

@@ -161,6 +161,9 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 		case r.URL.Path == "/feed":
 			w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 			fmt.Fprint(w, smzdmPostRSS)
+		case strings.HasPrefix(r.URL.Path, "/fenlei/"):
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprint(w, fenleiTestPage)
 		case r.URL.Path == "/feeds/videos.xml":
 			w.Header().Set("Content-Type", "application/atom+xml")
 			fmt.Fprint(w, youtubeFeedXML)

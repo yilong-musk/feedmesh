@@ -20,6 +20,7 @@ Bridges content from multiple platforms into RSS — self-hosted, one static bin
 | <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Selected deals | `/rss/smzdm` | `/api/v1/smzdm` |
 | <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Community articles | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
 | <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Overseas deals | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Category good prices | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
 | <img src="docs/assets/x.png" width="18" height="18" alt="X"> X | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 | <img src="docs/assets/youtube.png" width="18" height="18" alt="YouTube"> YouTube | Channel uploads | `/rss/youtube/{handle\|id}` | `/api/v1/youtube?ref=` |
 
