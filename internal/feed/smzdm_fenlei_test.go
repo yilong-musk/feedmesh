@@ -257,7 +257,10 @@ func TestGetSmzdmFenleiRefreshRespectsTheHourlyBudget(t *testing.T) {
 func TestGetSmzdmFenleiCacheHitKeepsTheReadTime(t *testing.T) {
 	var hits atomic.Int32
 	srv := fenleiUpstream(t, buildFenleiPage(t, fenleiCards()...), &hits)
-	clock := time.Now().UTC()
+	// The clock sits well before the real one, so a value taken from the cache
+	// file's own write time (which uses the real clock) cannot pass as the
+	// read time.
+	clock := time.Now().UTC().Add(-10 * time.Minute)
 	s := fenleiService(t, srv.URL, func() time.Time { return clock })
 
 	cold, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
@@ -267,6 +270,14 @@ func TestGetSmzdmFenleiCacheHitKeepsTheReadTime(t *testing.T) {
 	readAt := cold.FetchedAt
 	if readAt.IsZero() || !readAt.Equal(clock) {
 		t.Fatalf("cold fetched_at = %v, want the read time %v", readAt, clock)
+	}
+	// The read time is persisted with the list, not recomputed on the way out.
+	stored, ok := readCachedEntry[cachedList[smzdm.Category]](s, "smzdm:fenlei:tixuhuli")
+	if !ok {
+		t.Fatal("the category list was not cached")
+	}
+	if !stored.FetchedAt.Equal(readAt) {
+		t.Fatalf("cached entry fetched_at = %v, want %v", stored.FetchedAt, readAt)
 	}
 	for i, it := range cold.Items {
 		if !it.CreatedAt.Equal(readAt) {
