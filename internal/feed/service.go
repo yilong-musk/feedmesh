@@ -67,6 +67,11 @@ type Service struct {
 
 	listMu    sync.Mutex
 	listLocks map[string]*keyedMutex
+
+	// fenleiMu serialises category-page reads across slugs: the upstream budget
+	// is one page per hour per slug and the site only tolerates one connection
+	// at a time, so two slugs never run concurrently.
+	fenleiMu sync.Mutex
 }
 
 // keyedMutex serialises cache reads and writes for one list key. Locks are
@@ -376,6 +381,11 @@ func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Du
 type cachedList[T any] struct {
 	Items []T `json:"items"`
 	Want  int `json:"want"`
+	// FetchedAt is when the upstream read that produced Items finished. The
+	// list answers reads for the whole TTL, so a caller served from the cache
+	// must still report that instant: taking the request time instead would
+	// re-stamp the same batch as new on every poll.
+	FetchedAt time.Time `json:"fetched_at,omitempty"`
 }
 
 // maxListFetchWidth is the largest list width any provider exposes today
@@ -409,8 +419,8 @@ func readCachedList[T any](s *Service, key string, want int) (cachedList[T], boo
 	return e, true
 }
 
-// fetchCachedList reads a paginated list through the cache and returns at
-// least want entries, or as many as upstream has.
+// fetchCachedList reads a paginated list through the cache and returns the
+// entry, whose Items hold at least want entries, or as many as upstream has.
 //
 // A plain read-through entry lets the first caller size the cache: one
 // ?limit=3 request would then truncate every larger request for the whole TTL.
@@ -418,8 +428,11 @@ func readCachedList[T any](s *Service, key string, want int) (cachedList[T], boo
 // requests it can actually satisfy; a wider request fetches again and widens
 // the entry. The common small-limit path keeps its single upstream page while
 // a large limit still gets everything available.
+//
+// The entry also carries FetchedAt, the instant the upstream read finished, so
+// a cache hit reports the read time instead of the request time.
 func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl time.Duration, refresh bool, want int,
-	fn func(n int) ([]T, error)) ([]T, bool, error) {
+	fn func(n int) ([]T, error)) (cachedList[T], bool, error) {
 
 	if want < 1 {
 		want = 1
@@ -452,7 +465,7 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 	}
 	if !refresh {
 		if e, ok := readCachedList[T](s, key, want); ok {
-			return e.Items, true, nil
+			return e, true, nil
 		}
 	}
 
@@ -469,7 +482,10 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 		if ferr != nil {
 			return cachedList[T]{}, ferr
 		}
-		cur := cachedList[T]{Items: items, Want: want}
+		// The read time is captured after the fetch returns: it is when the
+		// page was actually read, and the same instant everyone served from
+		// this entry will report.
+		cur := cachedList[T]{Items: items, Want: want, FetchedAt: s.now().UTC()}
 		// Another request may have just stored a wider list; keep the widest.
 		// An explicit refresh must not be discarded in favour of the old entry:
 		// the caller asked for fresh upstream data and we just fetched it.
@@ -486,7 +502,7 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 		return cur, nil
 	})
 	if err != nil {
-		return nil, false, err
+		return cachedList[T]{}, false, err
 	}
-	return e.Items, false, nil
+	return e, false, nil
 }

@@ -32,7 +32,7 @@ func TestFetchCachedListRefreshReplacesWiderCache(t *testing.T) {
 
 	// A smaller refresh must still replace the wider cached entry with fresh
 	// upstream data (and keep the cache width rather than truncating it).
-	fresh, hit, err := fetchCachedList(ctx, svc, "test:list", time.Hour, true, 3,
+	freshEntry, hit, err := fetchCachedList(ctx, svc, "test:list", time.Hour, true, 3,
 		func(n int) ([]string, error) {
 			if n != 10 {
 				t.Fatalf("refresh fetched width %d, want the previous width 10", n)
@@ -45,6 +45,7 @@ func TestFetchCachedListRefreshReplacesWiderCache(t *testing.T) {
 	if hit {
 		t.Fatal("refresh reported a cache hit")
 	}
+	fresh := freshEntry.Items
 	if len(fresh) != 10 || fresh[0] != "v1-0" {
 		t.Fatalf("refresh returned %v", fresh)
 	}
@@ -58,7 +59,7 @@ func TestFetchCachedListRefreshReplacesWiderCache(t *testing.T) {
 	}
 
 	// A later small normal request is served from the refreshed cache.
-	cached, hit, err := fetchCachedList(ctx, svc, "test:list", time.Hour, false, 3,
+	cachedEntry, hit, err := fetchCachedList(ctx, svc, "test:list", time.Hour, false, 3,
 		func(n int) ([]string, error) {
 			t.Fatal("normal request unexpectedly went upstream")
 			return nil, nil
@@ -66,13 +67,14 @@ func TestFetchCachedListRefreshReplacesWiderCache(t *testing.T) {
 	if err != nil || !hit {
 		t.Fatalf("cached call = hit %v, err %v", hit, err)
 	}
+	cached := cachedEntry.Items
 	if len(cached) != 10 || cached[0] != "v1-0" {
 		t.Fatalf("cached call returned %v", cached)
 	}
 
 	// If upstream shrinks, refresh must return the fresh shorter list instead
 	// of silently resurrecting the old cached items.
-	shrunk, hit, err := fetchCachedList(ctx, svc, "test:list", time.Hour, true, 10,
+	shrunkEntry, hit, err := fetchCachedList(ctx, svc, "test:list", time.Hour, true, 10,
 		func(n int) ([]string, error) { return items("v2", 5), nil })
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +82,7 @@ func TestFetchCachedListRefreshReplacesWiderCache(t *testing.T) {
 	if hit {
 		t.Fatal("shrinking refresh reported a cache hit")
 	}
+	shrunk := shrunkEntry.Items
 	if len(shrunk) != 5 || shrunk[0] != "v2-0" {
 		t.Fatalf("shrinking refresh returned %v", shrunk)
 	}
@@ -114,20 +117,20 @@ func TestConcurrentRefreshDoesNotNarrowCache(t *testing.T) {
 	wideDone := make(chan result, 1)
 
 	go func() {
-		got, _, ferr := fetchCachedList(ctx, svc, "test:race", time.Hour, true, 5,
+		entry, _, ferr := fetchCachedList(ctx, svc, "test:race", time.Hour, true, 5,
 			func(n int) ([]string, error) {
 				close(narrowEntered)
 				<-releaseNarrow
 				return items("narrow", n), nil
 			})
-		narrowDone <- result{got, ferr}
+		narrowDone <- result{entry.Items, ferr}
 	}()
 	<-narrowEntered
 
 	go func() {
-		got, _, ferr := fetchCachedList(ctx, svc, "test:race", time.Hour, true, 20,
+		entry, _, ferr := fetchCachedList(ctx, svc, "test:race", time.Hour, true, 20,
 			func(n int) ([]string, error) { return items("wide", n), nil })
-		wideDone <- result{got, ferr}
+		wideDone <- result{entry.Items, ferr}
 	}()
 
 	// Give the wide refresh time to finish its write under the old code. With

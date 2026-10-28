@@ -89,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/smzdm/post.xml", s.getOnly(s.handleSmzdmPost))
 	mux.HandleFunc("/rss/smzdm/haitao", s.getOnly(s.handleSmzdmHaitao))
 	mux.HandleFunc("/rss/smzdm/haitao.xml", s.getOnly(s.handleSmzdmHaitao))
+	mux.HandleFunc("/rss/smzdm/fenlei/{slug}", s.getOnly(s.handleSmzdmFenlei))
 	mux.HandleFunc("/rss/x/{handle}", s.getOnly(s.handleX))
 	mux.HandleFunc("/rss/youtube/{ref}", s.getOnly(s.handleYouTube))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
@@ -451,15 +452,38 @@ type smzdmItemResponse struct {
 	HTML      string    `json:"html"`
 	Images    []string  `json:"images"`
 	CreatedAt time.Time `json:"created_at"`
+	// Price is the listed amount of a good-price card. Category pages publish
+	// one; the RSS channels do not, so the field is null there.
+	Price *float64 `json:"price"`
+	// Slug names the category a card came from (category channel only).
+	Slug string `json:"slug,omitempty"`
+	// DateSource says how created_at was derived (category channel only):
+	// "fetched" when the page read time stands in for a missing publish
+	// timestamp, "card" when the card carried its own.
+	DateSource string `json:"date_source,omitempty"`
 }
 
 type smzdmResponse struct {
 	Channel     string              `json:"channel"`
+	Slug        string              `json:"slug,omitempty"`
 	Title       string              `json:"title"`
 	Description string              `json:"description"`
 	FetchedAt   time.Time           `json:"fetched_at"`
 	Cached      bool                `json:"cached"`
 	Items       []smzdmItemResponse `json:"items"`
+}
+
+// smzdmItems maps the feed model onto the SMZDM JSON view.
+func smzdmItems(items []feed.Item) []smzdmItemResponse {
+	out := make([]smzdmItemResponse, 0, len(items))
+	for _, it := range items {
+		out = append(out, smzdmItemResponse{
+			ID: it.ID, Title: it.Title, Author: it.Author, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
+			Price: it.Price, Slug: it.Slug, DateSource: it.DateSource,
+		})
+	}
+	return out
 }
 
 // serveSmzdm renders one channel as RSS.
@@ -490,6 +514,25 @@ func (s *Server) handleSmzdmHaitao(w http.ResponseWriter, r *http.Request) {
 	s.serveSmzdm(w, r, smzdm.ChannelHaitao)
 }
 
+// handleSmzdmFenlei renders one category page as RSS. The feed is cached for
+// an hour upstream-side, so the reader-facing max-age matches it: a reader that
+// reloads sooner gets the same document anyway.
+func (s *Server) handleSmzdmFenlei(w http.ResponseWriter, r *http.Request) {
+	slug := strings.TrimSuffix(r.PathValue("slug"), ".xml")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetSmzdmFenlei(r.Context(), slug, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	s.setRSSCache(w, int(feed.SmzdmFenleiTTL().Seconds()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
 func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("channel")
 	ch, ok := smzdm.ParseChannel(raw)
@@ -503,21 +546,37 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
 	refresh := r.URL.Query().Get("refresh") == "1"
 
+	// The category channel needs a slug; the RSS channels ignore it.
+	if ch == smzdm.ChannelFenlei {
+		slug := strings.TrimSpace(r.URL.Query().Get("slug"))
+		if slug == "" {
+			s.writeError(w, &weibo.Error{
+				Code:    weibo.CodeBadRequest,
+				Message: "query parameter slug is required for channel fenlei",
+			})
+			return
+		}
+		f, err := s.cfg.Service.GetSmzdmFenlei(r.Context(), slug, limit, refresh)
+		if err != nil {
+			s.writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, smzdmResponse{
+			Channel: string(ch), Slug: strings.ToLower(slug), Title: f.Title(),
+			Description: f.Description, FetchedAt: f.FetchedAt, Cached: f.Cached,
+			Items: smzdmItems(f.Items),
+		})
+		return
+	}
+
 	f, err := s.cfg.Service.GetSmzdm(r.Context(), ch, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
 		return
 	}
-	items := make([]smzdmItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		items = append(items, smzdmItemResponse{
-			ID: it.ID, Title: it.Title, Author: it.Author, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
-		})
-	}
 	writeJSON(w, http.StatusOK, smzdmResponse{
 		Channel: string(ch), Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: smzdmItems(f.Items),
 	})
 }
 

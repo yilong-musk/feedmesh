@@ -88,7 +88,7 @@ func New(dir string) (*Cache, error) {
 var managedPrefixes = []string{
 	"profile_", "timeline_", "longtext_", "domain_", "hot_",
 	"sspai_list", "sspai_detail_", "v2ex_latest", "v2ex_hot",
-	"x_", "feed_", "youtube_",
+	"x_", "feed_", "youtube_", "smzdm_",
 }
 
 // ManagedKey reports whether a cache file stem matches a feedmesh key prefix.
@@ -307,6 +307,18 @@ func (c *Cache) Get(key string, out any) (bool, time.Time, error) {
 // must remain untouched.
 func (c *Cache) Peek(key string, out any) (bool, error) {
 	return c.peek(key, out, false)
+}
+
+// StoredAt reports when the entry for key was written, regardless of expiry,
+// and without deleting anything. Callers use it to keep their own rate limits
+// (for example "at most one upstream read per hour per key") when the cache
+// itself cannot express them.
+func (c *Cache) StoredAt(key string) (time.Time, bool) {
+	e, _, _, ok, err := c.readStored(key)
+	if err != nil || !ok || !entryMatches(e, key) {
+		return time.Time{}, false
+	}
+	return e.StoredAt, true
 }
 
 // PeekStored decodes an entry regardless of its expiry, without deleting it.

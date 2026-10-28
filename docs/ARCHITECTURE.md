@@ -64,7 +64,7 @@ cmd/feedmesh/       CLI: flag parsing, six subcommands, exit code mapping
 internal/weibo/     Weibo HTTP and parsing (including hot search)
 internal/sspai/     sspai JSON API
 internal/v2ex/      V2EX Atom + hottest page
-internal/smzdm/     SMZDM official deal RSS
+internal/smzdm/     SMZDM official deal RSS and category pages
 internal/xnitter/   X timelines: Nitter instance pool + Anubis PoW + RSS parsing
 internal/feed/      unified model, RSS rendering, cache orchestration
 internal/cache/     key-per-file cache, TTL, atomic writes

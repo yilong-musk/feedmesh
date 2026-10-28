@@ -45,7 +45,7 @@ func (s *Service) GetV2ex(ctx context.Context, section string, limit int, refres
 	// us and is widened on demand, never sized by whichever limit arrived
 	// first. One V2EX request returns the whole list anyway (index.xml carries
 	// 50 entries, the hot tab is a single page).
-	items, hit, err := fetchCachedList(ctx, s, "v2ex:"+section, v2exTTL, refresh, limit,
+	entry, hit, err := fetchCachedList(ctx, s, "v2ex:"+section, v2exTTL, refresh, limit,
 		func(n int) ([]v2ex.Article, error) {
 			if section == "hot" {
 				return s.clients.V2ex.Hot(ctx, n)
@@ -55,6 +55,7 @@ func (s *Service) GetV2ex(ctx context.Context, section string, limit int, refres
 	if err != nil {
 		return nil, sspaiError(err)
 	}
+	items := entry.Items
 	if len(items) > limit {
 		items = items[:limit]
 	}

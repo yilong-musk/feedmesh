@@ -31,6 +31,17 @@ type Item struct {
 	// Views is the upstream play counter (YouTube only); the YouTube JSON
 	// view publishes it.
 	Views int64 `json:"-"`
+	// Price is the upstream listed price of a good-price card (SMZDM category
+	// pages only). Nil means the card carried no price. The SMZDM JSON view
+	// publishes it as a number or null.
+	Price *float64 `json:"-"`
+	// Slug is the category slug a card was read from (SMZDM category pages
+	// only); the JSON view publishes it.
+	Slug string `json:"-"`
+	// DateSource says where CreatedAt came from when a provider can derive it
+	// more than one way: "card" for a timestamp the upstream published,
+	// "fetched" for the page read time used as a fallback. Empty elsewhere.
+	DateSource string `json:"-"`
 }
 
 // Feed is a rendered timeline for one account.

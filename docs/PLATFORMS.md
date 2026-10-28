@@ -1,6 +1,6 @@
 # Supported platforms
 
-**6 platforms and 10 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**6 platforms and 11 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -12,7 +12,9 @@
 | <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Selected deals | `/rss/smzdm` | `/api/v1/smzdm` |
 | <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Community articles | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
 | <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Overseas deals | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
+| <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Category good prices | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
 | <img src="assets/x.png" width="20" height="20" alt="X"> **X** | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
+| <img src="assets/youtube.png" width="20" height="20" alt="YouTube"> **YouTube** | Channel uploads | `/rss/youtube/{ref}` | `/api/v1/youtube?ref=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
@@ -92,14 +94,28 @@ Official site <https://www.smzdm.com> · Data source: the official deal RSS on `
 | Selected deals | `/rss/smzdm`, `/rss/smzdm.xml` | `/api/v1/smzdm` | 20 | 30 | 5 minutes |
 | Community articles | `/rss/smzdm/post`, `/rss/smzdm/post.xml` | `/api/v1/smzdm?channel=post` | 20 | 30 | 10 minutes |
 | Overseas deals | `/rss/smzdm/haitao`, `/rss/smzdm/haitao.xml` | `/api/v1/smzdm?channel=haitao` | 20 | 30 | 5 minutes |
+| Category good prices | `/rss/smzdm/fenlei/{slug}`, `.xml` | `/api/v1/smzdm?channel=fenlei&slug=` | 20 | 30 | 60 minutes |
 
 - The subscription page advertises five channels; **three serve plain RSS** and are wired up. `faxian` and `news` answer 302/202 with a WAF challenge (`probe.js`) and are never requested.
 - Every channel returns 30 entries per call. The two deal channels **rotate**: two fetches minutes apart can share 0–18 items, and entries inside one slice are not strictly time-ordered, so the client sorts by `pubDate` before truncating. A reader that keeps history sees a wider set than any single fetch.
 - Selected and overseas deals: the title carries brand, model, capacity and price; `link` points at the deal page (`/p/<id>/`); the cover comes from `focus_pic` and also goes into Media RSS. `content:encoded` usually carries only the "this article comes from smzdm" footer — when it carries a real blurb (`itemprop="description"`), that becomes the item text. `description` carries the poster's nickname, and on blurb-bearing entries it is nickname + blurb concatenated; the client splits it on the blurb (a punctuation-free field of at most 14 characters counts as a nickname).
 - Community articles: permalinks are slugs (`/p/<slug>/`), `<author>` carries the writer and `<description>` the blurb; the feed ships no cover image.
 - `pubDate` is Beijing time when the zone is omitted; the API view converts it to UTC. An unparsable timestamp falls back to the fetch time.
-- Only the RSS channels are used. Search and category pages answer automated requests with a WAF challenge (HTTP 202 + `probe.js`, or a Tencent CAPTCHA), so they are never requested, and the service stays clear of that risk.
+- Search (`search.smzdm.com`) answers automated requests with a WAF challenge (HTTP 202 + `probe.js`, or a Tencent CAPTCHA): it is never requested, and no challenge is ever solved. Category pages, by contrast, are plain server-rendered HTML and are read on a strict budget.
 - Parameters: `limit` 1–30, `refresh=1`.
+
+### Category good prices
+
+`https://www.smzdm.com/fenlei/{slug}/` lists the good prices of one interest category (1111 slugs exist; `tixuhuli` is shaving, `tixuchumao` shaving and hair removal). It is the way to see deals **outside** the curated RSS slice: the RSS channels are an editorially filtered pool, while a category page shows what the site itself lists under that interest. Shopping agents that only read the RSS channels miss those deals entirely.
+
+- The page is 600–720 KB and server-rendered; the cards live in the Nuxt payload script (`__NUXT_DATA__`), which the client reads instead of scraping the markup. One page carries 16–20 cards. A cold read measured 8 s when warm and up to 51 s under load, so category pages use their own 60 s timeout.
+- Only good-price cards survive: article, review and repost cards share the page (`post.smzdm.com` permalinks, no price) and are dropped, as is any card without a readable price.
+- `price` is the leading amount of the display price (`7.9`); `text` keeps the whole display string so coupons and multi-buy conditions survive. Category cards carry no poster, so `author` is empty.
+- The page publishes no timestamp for a good-price card, so `created_at` is the page read time, and `date_source` is `fetched` to say so; an article card that does carry one gets it parsed (a `MM-DD HH:MM` stamp that lands more than a day in the future belongs to the previous year) and is published as `card`. Every item of one read shares the same instant, and a cache hit keeps that instant instead of advancing to the request time, so a polling reader can tell one batch from the next.
+- **Budget**: at most one page read per slug per hour (the cache TTL is that budget), one read in flight at a time across slugs, and `refresh=1` inside the hour is served from the cache. Every read is logged (`fenlei page read`) so the budget can be audited.
+- **Failed reads spend the same budget**: an HTTP error, a transport error, or a large page with no cards records `smzdm:fenlei:<slug>:retry` and the rest of the hour answers `UPSTREAM_UNAVAILABLE` with the retry time instead of re-reading a 600 KB page on every poll. The marker lasts one budget window, not the six hours the challenge cooldown uses.
+- **Risk control**: a challenge (HTTP 202, `TCaptcha`, or an empty shell under 20 KB with no cards) returns `UPSTREAM_BLOCKED` and puts the slug on a six-hour cooldown (`BREAKER_OPEN` after that); nothing is retried. A large page without cards is treated as a layout change instead, so it does not burn the slug's cooldown.
+- `robots.txt` disallows three category paths (`3cjiadian`, `jujiashenghuo`, `shishangyundong`) and any URL carrying a query string; both are honoured — the category URL is always bare, and those slugs are refused with `BAD_REQUEST`.
 
 ---
 

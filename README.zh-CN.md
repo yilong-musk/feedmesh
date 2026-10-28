@@ -20,6 +20,7 @@
 | <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 优惠精选（好价） | `/rss/smzdm` | `/api/v1/smzdm` |
 | <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 社区文章 | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
 | <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 海淘好价 | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 品类好价 | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
 | <img src="docs/assets/x.png" width="18" height="18" alt="X"> X | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 | <img src="docs/assets/youtube.png" width="18" height="18" alt="YouTube"> YouTube | 频道上传 | `/rss/youtube/{handle或id}` | `/api/v1/youtube?ref=` |
 
