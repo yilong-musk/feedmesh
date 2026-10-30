@@ -23,6 +23,7 @@ Bridges content from multiple platforms into RSS — self-hosted, one static bin
 | <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Category good prices | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
 | <img src="docs/assets/x.png" width="18" height="18" alt="X"> X | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 | <img src="docs/assets/youtube.png" width="18" height="18" alt="YouTube"> YouTube | Channel uploads | `/rss/youtube/{handle\|id}` | `/api/v1/youtube?ref=` |
+| <img src="docs/assets/reddit.png" width="18" height="18" alt="Reddit"> Reddit | Subreddit listing | `/rss/reddit/{sub}` | `/api/v1/reddit?sub=` |
 
 Parameters, data sources and limits live in **[docs/PLATFORMS.md](docs/PLATFORMS.md)**.
 
@@ -79,7 +80,7 @@ The unit uses systemd's `%h` / `%C` expansion for the home and cache directories
 | `cache purge --handle <handle>` | Remove one X handle's timeline entries |
 | `--dry-run` | Report only, delete nothing |
 
-Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX/SMZDM and 20s for X/YouTube; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
+Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX/SMZDM/Reddit and 20s for X/YouTube; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
 
 ## Documentation
 

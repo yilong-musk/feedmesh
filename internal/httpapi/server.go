@@ -12,6 +12,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/reddit"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
@@ -92,6 +93,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/smzdm/fenlei/{slug}", s.getOnly(s.handleSmzdmFenlei))
 	mux.HandleFunc("/rss/x/{handle}", s.getOnly(s.handleX))
 	mux.HandleFunc("/rss/youtube/{ref}", s.getOnly(s.handleYouTube))
+	mux.HandleFunc("/rss/reddit/r/{sub}", s.getOnly(s.handleReddit))
+	mux.HandleFunc("/rss/reddit/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
 	mux.HandleFunc("/api/v1/hot", s.getOnly(s.handleAPIHot))
 	mux.HandleFunc("/api/v1/sspai", s.getOnly(s.handleAPISspai))
@@ -99,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/smzdm", s.getOnly(s.handleAPISmzdm))
 	mux.HandleFunc("/api/v1/x", s.getOnly(s.handleAPIX))
 	mux.HandleFunc("/api/v1/youtube", s.getOnly(s.handleAPIYouTube))
+	mux.HandleFunc("/api/v1/reddit", s.getOnly(s.handleAPIReddit))
 	mux.HandleFunc("/", s.handleNotFound)
 
 	var h http.Handler = mux
@@ -661,10 +665,10 @@ type youtubeResponse struct {
 	Items       []youtubeItemResponse `json:"items"`
 }
 
-// setYouTubeSource publishes where a list came from: atom (official feed),
-// browse (the web client fallback) or stale (the last good cached list). It is
-// the only signal an operator gets that an outage window is in progress.
-func setYouTubeSource(w http.ResponseWriter, source string) {
+// setSource publishes where a list came from: atom (the official document) or
+// stale (the last good cached list). It is the only signal an operator gets
+// that an outage window or a rate-limit window is in progress.
+func setSource(w http.ResponseWriter, source string) {
 	if source != "" {
 		w.Header().Set("X-Feedmesh-Source", source)
 	}
@@ -682,7 +686,7 @@ func (s *Server) handleYouTube(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	setYouTubeSource(w, f.Source)
+	setSource(w, f.Source)
 	maxAge := int(feed.YouTubeTTL().Seconds())
 	if f.Degraded {
 		// The list is the last good one because the upstream read failed. The
@@ -720,6 +724,129 @@ func (s *Server) handleAPIYouTube(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// degradedRedditMaxAge is the cache lifetime of a Reddit document served from
+// the last good listing: short enough that readers pick the real feed up once
+// the site's quota window reopens.
+const degradedRedditMaxAge = 60
+
+type redditItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Author    string    `json:"author"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type redditResponse struct {
+	Sub         string               `json:"sub"`
+	Sort        string               `json:"sort"`
+	Window      string               `json:"window"`
+	Title       string               `json:"title"`
+	Description string               `json:"description"`
+	FetchedAt   time.Time            `json:"fetched_at"`
+	Cached      bool                 `json:"cached"`
+	Degraded    bool                 `json:"degraded"`
+	Source      string               `json:"source"`
+	Items       []redditItemResponse `json:"items"`
+}
+
+// redditListing reads the listing a request names. An unknown sort or window is
+// a client error, not an upstream failure.
+func redditListing(r *http.Request) (reddit.Sort, reddit.Window, error) {
+	rawSort := r.URL.Query().Get("sort")
+	sort, ok := reddit.ParseSort(rawSort)
+	if !ok {
+		return "", "", &weibo.Error{
+			Code:    weibo.CodeBadRequest,
+			Message: "unknown sort " + strconv.Quote(rawSort) + ": use hot, new or top",
+		}
+	}
+	rawWindow := r.URL.Query().Get("window")
+	window, ok := reddit.ParseWindow(rawWindow)
+	if !ok {
+		return "", "", &weibo.Error{
+			Code:    weibo.CodeBadRequest,
+			Message: "unknown window " + strconv.Quote(rawWindow) + ": use day, week, month, year or all",
+		}
+	}
+	return sort, window, nil
+}
+
+// handleReddit renders one subreddit listing as RSS. The path is
+// /rss/reddit/{sub}; the /rss/reddit/r/{sub} form accepts the name with the
+// "r/" prefix a reader copies from the site.
+func (s *Server) handleReddit(w http.ResponseWriter, r *http.Request) {
+	sub := strings.TrimSuffix(r.PathValue("sub"), ".xml")
+	sort, window, err := redditListing(r)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultRedditLimit, feed.MaxRedditLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetReddit(r.Context(), sub, sort, window, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	setSource(w, f.Source)
+	maxAge := int(feed.RedditTTL().Seconds())
+	if f.Degraded {
+		// The listing is the last good one because the read failed or the
+		// quota window was closed. Readers still get a document, and a short
+		// max-age lets them pick the real listing up soon after.
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+		maxAge = degradedRedditMaxAge
+	}
+	s.setRSSCache(w, maxAge)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+func (s *Server) handleAPIReddit(w http.ResponseWriter, r *http.Request) {
+	sub := strings.TrimSpace(r.URL.Query().Get("sub"))
+	if sub == "" {
+		s.writeError(w, weibo.NewError(weibo.CodeBadRequest, 0, "query parameter sub is required"))
+		return
+	}
+	sort, window, err := redditListing(r)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultRedditLimit, feed.MaxRedditLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetReddit(r.Context(), sub, sort, window, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]redditItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		items = append(items, redditItemResponse{
+			ID: it.ID, Title: it.Title, Author: it.Author, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
+		})
+	}
+	if f.Degraded {
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+	}
+	setSource(w, f.Source)
+	writeJSON(w, http.StatusOK, redditResponse{
+		Sub: f.UID, Sort: string(sort), Window: string(window), Title: f.Title(),
+		Description: f.Description, FetchedAt: f.FetchedAt, Cached: f.Cached,
+		Degraded: f.Degraded, Source: f.Source, Items: items,
+	})
+}
+
+// handleNotFound answers an unknown route with the service's BAD_REQUEST
+// contract rather than the mux's plain-text 404.
 func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	s.writeError(w, weibo.NewError(weibo.CodeBadRequest, 0,
 		"unknown endpoint %s %s", r.Method, r.URL.Path))

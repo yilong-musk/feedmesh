@@ -11,6 +11,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/reddit"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
@@ -55,6 +56,7 @@ type Clients struct {
 	X       *xnitter.Client
 	Smzdm   *smzdm.Client
 	Youtube *youtube.Client
+	Reddit  *reddit.Client
 }
 
 type Service struct {

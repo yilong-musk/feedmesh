@@ -18,6 +18,9 @@ The mapping between platforms and routes is in [PLATFORMS.md](PLATFORMS.md).
 | `section=latest\|hot` | `/api/v1/v2ex` only: select latest or hot |
 | `handle` | `/api/v1/x` only: X username (`@` allowed, 1–15 letters, digits or underscores) |
 | `ref` | `/api/v1/youtube` only: channel id, `@handle` or channel URL — `/@name`, `/channel/UC…`, `/c/…`, `/user/…` (the RSS route takes only a single path segment, so URL forms belong here) |
+| `sub` | `/api/v1/reddit` only: subreddit name (`r/` prefix and case accepted) |
+| `sort` | Reddit only: `hot` (default), `new` or `top` |
+| `window` | Reddit only, `sort=top` only: `day` (default), `week`, `month`, `year` or `all` |
 
 The `.xml` path suffix is equivalent to no suffix only on RSS routes (such as `/rss/hot.xml`); `/api/v1/*` does not accept a `.xml` suffix.
 
@@ -164,6 +167,31 @@ curl -s 'http://127.0.0.1:3000/rss/youtube/UC_x5XG1OV2P6uZZ5FSM9Ttw.xml'
 - A successful read that comes back with no entries keeps the list already cached (served as degraded) instead of replacing it; a channel with no uploads and no cache still gets an empty feed.
 - A reference that does not resolve to a channel returns `USER_NOT_FOUND` (404); one that cannot name a channel at all (empty, malformed, an unsupported URL form) returns `BAD_REQUEST` (400).
 
+### `GET /rss/reddit/{sub}`
+
+A subreddit listing, read from the public Atom document (`/r/<sub>/<sort>/.rss`); no account, no OAuth application and no API key. `{sub}` is the subreddit name (`r/` prefix and case accepted); `/rss/reddit/r/{sub}` accepts the name exactly as it is copied from the site, and `.xml` is optional.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/reddit/programming?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/reddit/programming?sort=top&window=week'
+curl -s 'http://127.0.0.1:3000/rss/reddit/r/rust.xml'
+```
+
+- Listing: `sort` is `hot` (default), `new` or `top`; `window` (`day` by default, `week`, `month`, `year`, `all`) applies to `top` only and is ignored otherwise. Each `(sub, sort, window)` triple is a cache key of its own.
+- 20 items by default, maximum 25: one Atom page carries at most 25 entries and the document has no pagination.
+- Cached for 10 minutes (`Cache-Control: max-age=600`); a degraded document is sent with `max-age=60`.
+- `X-Feedmesh-Source` is `atom` for a real read and `stale` when the last good listing answered; a degraded answer also carries `X-Feedmesh-Degraded: 1`.
+- Entry order is the order the document carries: `hot` is a ranking (not a time series), and `new`/`top` are already ordered upstream.
+- `link`/`guid` is the submission's comment page (`https://www.reddit.com/r/<sub>/comments/<id>/<slug>/`); the outbound link of a link submission travels in the item body and in the JSON `text` field.
+- The document carries no score, comment count, thumbnail or self text. `images` is therefore always empty, and `text` is the outbound link (empty for a self post).
+- Channel `title` is `r/<sub> <sort>` (plus ` (<window>)` for `top`), so a reader subscribed to both `hot` and `top` can tell them apart; `description` is the subreddit's public description.
+- **Pacing**: one global read slot is shared by every subreddit and sort. At most one upstream request is in flight, two reads are at least 8 seconds apart, and after a reply that reports its quota spent (`x-ratelimit-remaining: 0`) no read is made until that reply's `x-ratelimit-reset` has passed — the measured window on a datacenter address is one read per ~60 seconds. A request that arrives while the slot is busy is answered from the last good listing (degraded) or fails with `UPSTREAM_UNAVAILABLE`; it is never queued behind another read, because a reader would time out first.
+- A 429 reply is never retried: its reset header closes the window for every subreddit at once, so one refusal costs exactly one request.
+- Read failures and limiter refusals degrade to the last good listing (up to 24 hours old) with `X-Feedmesh-Degraded: 1` and `X-Feedmesh-Source: stale`; with no cached listing the route returns `UPSTREAM_UNAVAILABLE` (504).
+- A successful read that comes back with no entries keeps the cached listing instead of blanking the feed.
+- An unknown subreddit returns `USER_NOT_FOUND` (404): the site answers such a name with a redirect to its subreddit search rather than a 404, and the client reads that redirect instead of following it (following it would spend a second request in the same quota window). A name that cannot be a subreddit at all (empty, spaces, slashes) returns `BAD_REQUEST` (400).
+- Every upstream read is logged (`reddit upstream read`) with the subreddit, sort, status and duration, so the pacing above can be audited from the journal.
+
 ---
 
 ## JSON endpoints
@@ -276,6 +304,25 @@ One SMZDM category page. `slug` is required for this channel (`BAD_REQUEST` with
 - `degraded: true` means the list came from the last good cache entry because the upstream read failed; `cached` tells whether the TTL was still valid.
 - `created_at` is exact on the Atom path; fallback items carry a day-granular approximation, so several uploads can share one timestamp and their order follows the upstream list.
 
+### `GET /api/v1/reddit?sub=<sub>&sort=<sort>&window=<window>&limit=N`
+
+```json
+{"sub":"programming","sort":"hot","window":"day","title":"r/programming hot",
+ "description":"Computer Programming","fetched_at":"2026-10-30T08:22:02Z",
+ "cached":false,"degraded":false,"source":"atom",
+ "items":[{"id":"t3_1xiq8we","title":"…","author":"CircumspectCapybara",
+           "text":"https://thehackernews.com/2026/10/linux-kernel-tcp-flaw-with-98-cvss.html",
+           "url":"https://www.reddit.com/r/programming/comments/1xiq8we/…/","html":"…","images":[],
+           "created_at":"2026-10-29T17:22:17Z"}]}
+```
+
+- `sub` is required and accepts the name with or without the `r/` prefix, in any case; the JSON route carries the whole name in a query parameter, so every spelling the RSS path accepts works here too.
+- `sort`, `window` and `limit` behave exactly as on the RSS route (defaults `hot`, `day`, 20; maximum 25), and `refresh=1` is supported.
+- `author` is the submitter without the `/u/` prefix the document uses.
+- `source` is `atom` or `stale`, the same value as the RSS route's `X-Feedmesh-Source` header; `degraded` repeats the `X-Feedmesh-Degraded` header.
+- `images` is always `[]`: the Atom document carries no thumbnail.
+- `text` is the outbound link of a link submission and empty for a self post; `html` carries that link, the submitter and the comment-page link.
+
 ---
 
 ## Errors
@@ -336,6 +383,7 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | X timeline | `x:<handle>` | 40 minutes |
 | YouTube uploads | `youtube:feed:<channel_id>` | 10 minutes (last good kept for 24 hours) |
 | YouTube handle mapping | `youtube:channel:<ref>` | 24 hours |
+| Reddit listing | `reddit:list:<sub>:<sort>:<window>` | 10 minutes (last good kept for 24 hours) |
 
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).
