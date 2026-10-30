@@ -13,7 +13,7 @@ CLI / HTTP
    ↓
 feed.Service (cache, single-flight, error classification)
    ↓
-provider packages (weibo / sspai / v2ex / xnitter, HTTP and parsing only)
+provider packages (weibo / sspai / v2ex / smzdm / xnitter / youtube / reddit, HTTP and parsing only)
    ↓
 feed.Item (renderer-agnostic unified model)
    ↓
@@ -45,6 +45,7 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 | `x:<handle>` | 40 minutes |
 | `youtube:feed:<channel_id>` | 10 minutes old counts as fresh; the entry is stored for 24 hours so the last good list survives an outage |
 | `youtube:channel:<ref>` | 24 hours; an expired entry is reused when the channel page cannot be read |
+| `reddit:list:<sub>:<sort>:<window>` | 10 minutes old counts as fresh; stored for 24 hours so the last good listing survives a rate-limit window |
 
 ## Upstream calling policy (Weibo)
 
@@ -52,7 +53,8 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 - **single-flight**: concurrent requests for the same key collapse into one; this only works within a single process, and HTTP and CLI share results through the disk cache.
 - **Retries**: network errors / 5xx are retried 3 times with exponential backoff of 300ms → 600ms → 1200ms.
 - **Breaker**: on 418/403, refresh the visitor cookie and retry first; if still blocked, open the breaker for 10 minutes, during which upstream calls immediately return `BREAKER_OPEN`; once the cool-off ends only one probe request is let through — success restores service, and another block opens the breaker again.
-- The sspai client has a global 3-concurrency semaphore (effective across requests); V2EX completes in a single request. An explicit `--timeout` overrides all providers; the defaults are 9 seconds for Weibo, 15 seconds for sspai/V2EX and 20 seconds for X (a single X attempt is capped at 25 seconds).
+- The sspai client has a global 3-concurrency semaphore (effective across requests); V2EX completes in a single request. An explicit `--timeout` overrides all providers; the defaults are 9 seconds for Weibo, 15 seconds for sspai/V2EX/SMZDM/Reddit and 20 seconds for X (a single X attempt is capped at 25 seconds).
+- **Reddit pacing**: one global read slot shared by every subreddit and sort — at most one request in flight, at least 8 seconds between two reads, and no read while a reset window reported by the site (`x-ratelimit-reset`) is open. A caller that cannot read now is refused instead of queued (the handler would time out first) and is served the last good listing; a 429 is never retried, so a refusal costs exactly one request. Every read is logged as `reddit upstream read` for audit.
 - HTTP layer: every request has a 3-minute handler deadline; `http.Server` sets `ReadTimeout`/`WriteTimeout`; `ErrorLog` is wired to `logx`; panics are turned into a 500 JSON response by the recovery middleware.
 - Security: optional Bearer token (`--token`/`FEEDMESH_TOKEN`); per-IP rate limiting over a rolling one-minute window (`--rate-limit`/`FEEDMESH_RATE_LIMIT`); when listening on a non-loopback address with no limit configured, the default is 120 requests/minute/IP. With a token enabled, RSS responses use `Cache-Control: private` and carry `Vary: Authorization` so shared caches cannot bypass authentication. Upstream HTML is allowlist-sanitized at the provider boundary, and XML-illegal control characters are stripped before CDATA output.
 - X/Nitter: the instance pool accepts only addresses that are https, carry no userinfo, and are not IP literals or private-network domains, and the resolved IP is verified to be a public address at dial time; cross-host redirects are forbidden; PoW difficulty is capped at 12, challenge data at 2 KB, the nonce at 2 million, and at most 20 items per page; the pool tries at most 3 nodes (20 seconds per attempt by default, 25 seconds maximum), and the built-in fallback is still attempted after all of them fail. Third-party directories can still be poisoned, so pairing this with an egress firewall is recommended.
@@ -66,6 +68,8 @@ internal/sspai/     sspai JSON API
 internal/v2ex/      V2EX Atom + hottest page
 internal/smzdm/     SMZDM official deal RSS and category pages
 internal/xnitter/   X timelines: Nitter instance pool + Anubis PoW + RSS parsing
+internal/youtube/   YouTube upload feed (Atom) + web-client fallback
+internal/reddit/    Reddit subreddit Atom listing + global rate-limited read slot
 internal/feed/      unified model, RSS rendering, cache orchestration
 internal/cache/     key-per-file cache, TTL, atomic writes
 internal/httpapi/   HTTP routing and error envelope

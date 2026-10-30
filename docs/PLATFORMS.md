@@ -1,6 +1,6 @@
 # Supported platforms
 
-**6 platforms and 11 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**7 platforms and 12 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -15,6 +15,7 @@
 | <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Category good prices | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
 | <img src="assets/x.png" width="20" height="20" alt="X"> **X** | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 | <img src="assets/youtube.png" width="20" height="20" alt="YouTube"> **YouTube** | Channel uploads | `/rss/youtube/{ref}` | `/api/v1/youtube?ref=` |
+| <img src="assets/reddit.png" width="20" height="20" alt="Reddit"> **Reddit** | Subreddit listing | `/rss/reddit/{sub}`<br>`/rss/reddit/r/{sub}` | `/api/v1/reddit?sub=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
@@ -169,6 +170,36 @@ Official site <https://youtube.com> · Data source: the channel upload feed (`/f
 - The fallback's dates are approximate (day-level relative text) and its entries have no description, so a feed built during an outage looks thinner than one built from the Atom feed. The next successful Atom read replaces it.
 - Public channels only: members-only and private uploads never appear.
 - Metadata only: no duration, resolution or live status.
+
+---
+
+## <img src="assets/reddit.png" width="28" height="28" alt="Reddit"> Reddit
+
+Official site <https://www.reddit.com> · Data source: the public Atom listing (`/r/{sub}/{sort}/.rss`; anonymous, no OAuth application, no API key)
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Subreddit listing | `/rss/reddit/{sub}`, `/rss/reddit/r/{sub}` | `/api/v1/reddit?sub=` | 20 | 25 | 10 minutes |
+
+### Subreddit listing
+
+- `{sub}` is the subreddit name; a `r/` prefix and any case are accepted, so `/rss/reddit/r/Rust.xml` works. The JSON route takes the name in `sub=`.
+- `sort` is `hot` (default), `new` or `top`; `window` (`day` by default, `week`, `month`, `year`, `all`) selects the period of `top` and is ignored by the other sorts. Each `(sub, sort, window)` triple is cached on its own.
+- One Atom page carries 25 entries and the document has no pagination, so 25 is the maximum.
+- Fields: submission id (`t3_…`), title, submitter (`author`, without the `/u/` prefix), publish time to the second, the comment-page permalink and the outbound link of a link submission. The document carries **no score, comment count, thumbnail or self text** — those are JSON-only, and the anonymous JSON endpoints answer 403 to datacenter addresses, so they are not used at all.
+- Entry order is the document order: `hot` is a ranking, `new` and `top` are already ordered upstream, so the service never re-sorts.
+- Cache: one entry per `(sub, sort, window)`, fresh for 10 minutes; the last good listing is kept for 24 hours and served with `X-Feedmesh-Degraded: 1` and `X-Feedmesh-Source: stale` when a read fails or the limiter refuses it.
+- **Pacing (hard constraint)**: one global read slot — at most one request in flight, at least 8 seconds between two reads, and no read at all while a reported quota window (`x-ratelimit-reset`) is open. Measured on this datacenter address: **one read per ~60 seconds**, after which the next request answers 429 with an empty body. A request that cannot read now degrades or fails; it is never queued, retried, replayed or moved to another address.
+- Every read is logged (`reddit upstream read`) with the subreddit, sort, status and duration, so the pacing can be audited from the journal.
+- An unknown subreddit: the site redirects to its subreddit search instead of answering 404. That redirect is classified as `USER_NOT_FOUND` (404) and is not followed.
+
+### Limitations and terms of service
+
+- **Anonymous RSS is not an officially supported automation path.** Reddit's developer terms describe OAuth applications; the Atom listing is a reader feature that the site rate limits without notice. Treat this provider as best effort: it can start answering 403/429 at any time, and nothing on our side needs to change for it to break.
+- **Low frequency is the design**: one read per quota window, a 10-minute cache per listing, no pagination, no retry storm, and no attempt to evade a block (no IP rotation, no proxies, no user-agent games). A listing that cannot be read degrades to the last good one instead of hammering the site.
+- If the source stops working, the honest fix is to stop calling it. The supported path would be Reddit's OAuth Data API, which contradicts this service's zero-credential constraint and is out of scope.
+- Scores, comment counts and thumbnails are unavailable here; a client that needs them needs the credentialed API.
+- Public subreddits only: private, quarantined and banned ones answer a redirect or an error.
 
 ---
 

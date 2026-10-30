@@ -23,6 +23,7 @@
 | <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 品类好价 | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
 | <img src="docs/assets/x.png" width="18" height="18" alt="X"> X | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 | <img src="docs/assets/youtube.png" width="18" height="18" alt="YouTube"> YouTube | 频道上传 | `/rss/youtube/{handle或id}` | `/api/v1/youtube?ref=` |
+| <img src="docs/assets/reddit.png" width="18" height="18" alt="Reddit"> Reddit | 版块列表 | `/rss/reddit/{sub}` | `/api/v1/reddit?sub=` |
 
 参数、数据源与限制见 **[docs/PLATFORMS.md](docs/PLATFORMS.md)**。
 
@@ -79,7 +80,7 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 | `cache purge --handle <handle>` | 清除某个 X handle 的时间线缓存 |
 | `--dry-run` | 只报告，不删除 |
 
-全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买 15 秒、X/YouTube 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
+全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit 15 秒、X/YouTube 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
 
 ## 文档
 
