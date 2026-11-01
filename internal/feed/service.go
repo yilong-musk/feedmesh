@@ -74,6 +74,11 @@ type Service struct {
 	// is one page per hour per slug and the site only tolerates one connection
 	// at a time, so two slugs never run concurrently.
 	fenleiMu sync.Mutex
+
+	// failMu guards failedAt, the per-key cool-off that keeps a failing
+	// upstream from being retried on every poll.
+	failMu   sync.Mutex
+	failedAt map[string]time.Time
 }
 
 // keyedMutex serialises cache reads and writes for one list key. Locks are
@@ -149,7 +154,7 @@ func (s *Service) ResolveUID(ctx context.Context, target string, refresh bool) (
 }
 
 func (s *Service) resolveDomain(ctx context.Context, domain string, refresh bool) (string, error) {
-	uid, _, err := fetchCached(ctx, s, "domain:"+strings.ToLower(domain), s.ttls.Domain, refresh,
+	uid, _, _, err := fetchCached(ctx, s, "domain:"+strings.ToLower(domain), s.ttls.Domain, refresh,
 		func() (string, error) { return s.clients.Weibo.ResolveDomain(ctx, domain) })
 	return uid, err
 }
@@ -167,13 +172,13 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 		limit = MaxLimit
 	}
 
-	profile, profileHit, err := fetchCached(ctx, s, "profile:"+uid, s.ttls.Profile, refresh,
+	profile, profileHit, profileDegraded, err := fetchCached(ctx, s, "profile:"+uid, s.ttls.Profile, refresh,
 		func() (*weibo.Profile, error) { return s.clients.Weibo.Profile(ctx, uid) })
 	if err != nil {
 		return nil, err
 	}
 
-	timeline, timelineHit, err := fetchCached(ctx, s, "timeline:"+uid, s.ttls.Timeline, refresh,
+	timeline, timelineHit, timelineDegraded, err := fetchCached(ctx, s, "timeline:"+uid, s.ttls.Timeline, refresh,
 		func() (*weibo.Timeline, error) {
 			return s.clients.Weibo.Timeline(ctx, uid, profile.ContainerID, 0)
 		})
@@ -195,6 +200,7 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 		Description: profile.Description,
 		FetchedAt:   s.now().UTC(),
 		Cached:      profileHit && timelineHit,
+		Degraded:    timelineDegraded || profileDegraded,
 		Items:       make([]Item, 0, len(posts)),
 	}
 	for _, m := range posts {
@@ -247,7 +253,7 @@ func (s *Service) hydrate(ctx context.Context, uid string, m *weibo.MBlog, refre
 			// Include the timeline owner so `cache purge --uid` can remove
 			// long-text bodies even after the timeline entry has expired.
 			key := "longtext:" + uid + ":" + id
-			text, _, err := fetchCached(ctx, s, key, s.ttls.LongText, refresh,
+			text, _, _, err := fetchCached(ctx, s, key, s.ttls.LongText, refresh,
 				func() (string, error) { return s.clients.Weibo.LongText(ctx, id) })
 			switch {
 			case err == nil && strings.TrimSpace(text) != "":
@@ -343,20 +349,27 @@ func errorString(err error) string {
 
 // fetchCached reads through the cache, collapsing concurrent identical fetches.
 func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Duration, refresh bool,
-	fn func() (T, error)) (T, bool, error) {
+	fn func() (T, error)) (T, bool, bool, error) {
 
-	if !refresh && s.cache != nil {
-		var v T
-		if hit, _, err := s.cache.Get(key, &v); err == nil && hit {
-			return v, true, nil
+	if !refresh {
+		if v, ok := s.readFresh[T](key, ttl); ok {
+			return v, true, false, nil
+		}
+		// A key that failed within the cool-off is answered from its last good
+		// entry without another attempt: the retry chain is the expensive part
+		// and repeating it on every poll only keeps the upstream down.
+		if s.coolingDown(key) {
+			if stale, ok := s.readStale[T](key, ttl); ok {
+				s.log.Warn("upstream read is cooling down after a failure, serving the last good entry", "key", key)
+				return stale, false, true, nil
+			}
 		}
 	}
 
 	var zero T
 	value, err, _ := guard.Do(s.group, key, func() (T, error) {
-		if !refresh && s.cache != nil {
-			var v T
-			if hit, _, err := s.cache.Get(key, &v); err == nil && hit {
+		if !refresh {
+			if v, ok := s.readFresh[T](key, ttl); ok {
 				return v, nil
 			}
 		}
@@ -365,16 +378,27 @@ func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Du
 			return zero, ferr
 		}
 		if s.cache != nil {
-			if cerr := s.cache.Set(key, val, ttl); cerr != nil {
+			// Stored for the stale window so a later failure can still serve
+			// this value; freshness is decided by readFresh from the stored time.
+			if cerr := s.cache.Set(key, val, staleWindowFor(key, ttl)); cerr != nil {
 				s.log.Warn("cache write failed", "key", key, "error", cerr.Error())
 			}
 		}
 		return val, nil
 	})
 	if err != nil {
-		return zero, false, err
+		s.noteFailure(key)
+		// Upstream failed: a stale value beats an error, because a reader that
+		// gets 5xx treats the feed as broken and may stop polling.
+		if stale, ok := s.readStale[T](key, ttl); ok {
+			s.log.Warn("upstream read failed, serving the last good entry",
+				"key", key, "error", err.Error())
+			return stale, false, true, nil
+		}
+		return zero, false, false, err
 	}
-	return value, false, nil
+	s.noteSuccess(key)
+	return value, false, false, nil
 }
 
 // cachedList is the on-disk shape of a paginated list. Want records how many
@@ -400,7 +424,8 @@ func (c cachedList[T]) covers(n int) bool {
 	return c.Want >= n || len(c.Items) >= n
 }
 
-// readCachedEntry returns the entry for key without checking its width.
+// readCachedEntry returns the entry for key without checking its width or age
+// (the entry itself expires after the stale window).
 func readCachedEntry[T any](s *Service, key string) (cachedList[T], bool) {
 	if s.cache == nil {
 		return cachedList[T]{}, false
@@ -412,13 +437,38 @@ func readCachedEntry[T any](s *Service, key string) (cachedList[T], bool) {
 	return cachedList[T]{}, false
 }
 
-// readCachedList returns the entry for key when it can satisfy want.
-func readCachedList[T any](s *Service, key string, want int) (cachedList[T], bool) {
-	e, ok := readCachedEntry[T](s, key)
-	if !ok || !e.covers(want) {
+// readCachedList returns the entry for key when it is still fresh and can
+// satisfy want.
+func readCachedList[T any](s *Service, key string, want int, ttl time.Duration) (cachedList[T], bool) {
+	e, storedAt, ok := readCachedEntryAt[T](s, key)
+	if !ok || !e.covers(want) || s.now().Sub(storedAt) > ttl {
 		return cachedList[T]{}, false
 	}
 	return e, true
+}
+
+// readCachedListStale returns the stored list within the stale window,
+// whatever its freshness TTL was. It is the last-good path a failed read falls
+// back to; the list may be narrower than the caller asked for.
+func readCachedListStale[T any](s *Service, key string, ttl time.Duration) (cachedList[T], bool) {
+	e, storedAt, ok := readCachedEntryAt[T](s, key)
+	if !ok || len(e.Items) == 0 || s.now().Sub(storedAt) > staleWindowFor(key, ttl) {
+		return cachedList[T]{}, false
+	}
+	return e, true
+}
+
+// readCachedEntryAt is readCachedEntry plus the time the entry was stored.
+func readCachedEntryAt[T any](s *Service, key string) (cachedList[T], time.Time, bool) {
+	if s.cache == nil {
+		return cachedList[T]{}, time.Time{}, false
+	}
+	var e cachedList[T]
+	hit, storedAt, err := s.cache.Get(key, &e)
+	if err != nil || !hit {
+		return cachedList[T]{}, time.Time{}, false
+	}
+	return e, storedAt, true
 }
 
 // fetchCachedList reads a paginated list through the cache and returns the
@@ -434,7 +484,7 @@ func readCachedList[T any](s *Service, key string, want int) (cachedList[T], boo
 // The entry also carries FetchedAt, the instant the upstream read finished, so
 // a cache hit reports the read time instead of the request time.
 func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl time.Duration, refresh bool, want int,
-	fn func(n int) ([]T, error)) (cachedList[T], bool, error) {
+	fn func(n int) ([]T, error)) (cachedList[T], bool, bool, error) {
 
 	if want < 1 {
 		want = 1
@@ -466,8 +516,16 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 		}
 	}
 	if !refresh {
-		if e, ok := readCachedList[T](s, key, want); ok {
-			return e, true, nil
+		if e, ok := readCachedList[T](s, key, want, ttl); ok {
+			return e, true, false, nil
+		}
+		// Same cool-off as fetchCached: a failing key is answered from its
+		// last good list instead of buying the same failure again.
+		if s.coolingDown(key) {
+			if stale, ok := readCachedListStale[T](s, key, ttl); ok {
+				s.log.Warn("upstream read is cooling down after a failure, serving the last good list", "key", key)
+				return stale, false, true, nil
+			}
 		}
 	}
 
@@ -476,7 +534,7 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 	flight := key + "#" + strconv.Itoa(want)
 	e, err, _ := guard.Do(s.group, flight, func() (cachedList[T], error) {
 		if !refresh {
-			if cached, ok := readCachedList[T](s, key, want); ok {
+			if cached, ok := readCachedList[T](s, key, want, ttl); ok {
 				return cached, nil
 			}
 		}
@@ -492,19 +550,30 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 		// An explicit refresh must not be discarded in favour of the old entry:
 		// the caller asked for fresh upstream data and we just fetched it.
 		if !refresh {
-			if prev, ok := readCachedList[T](s, key, want); ok && len(prev.Items) > len(cur.Items) {
+			if prev, ok := readCachedList[T](s, key, want, ttl); ok && len(prev.Items) > len(cur.Items) {
 				return prev, nil
 			}
 		}
 		if s.cache != nil {
-			if cerr := s.cache.Set(key, cur, ttl); cerr != nil {
+			// Stored for the stale window, not the freshness TTL: the last good
+			// list has to outlive the moment it stops being fresh.
+			if cerr := s.cache.Set(key, cur, staleWindowFor(key, ttl)); cerr != nil {
 				s.log.Warn("cache write failed", "key", key, "error", cerr.Error())
 			}
 		}
 		return cur, nil
 	})
 	if err != nil {
-		return cachedList[T]{}, false, err
+		s.noteFailure(key)
+		// Upstream refused or timed out: a list up to staleWindow old beats an
+		// error, because a reader that gets 5xx treats the feed as broken.
+		if stale, ok := readCachedListStale[T](s, key, ttl); ok {
+			s.log.Warn("upstream read failed, serving the last good list",
+				"key", key, "error", err.Error())
+			return stale, false, true, nil
+		}
+		return cachedList[T]{}, false, false, err
 	}
-	return e, false, nil
+	s.noteSuccess(key)
+	return e, false, false, nil
 }

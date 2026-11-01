@@ -70,8 +70,16 @@ func (s *Service) GetSmzdmFenlei(ctx context.Context, slug string, limit int, re
 
 	// A failed read spends the hour's budget exactly like a successful one.
 	// Without this a polling consumer would re-read 600-720 KB on every poll
-	// for as long as the upstream keeps failing.
+	// for as long as the upstream keeps failing. The budget is spent whenever
+	// the last good page has to stand in for a read (below); for the rest of
+	// the window that page keeps being served instead of an error, so the
+	// outage still costs one read per slug per hour.
 	if f, ok := s.fenleiFailure(retryKey); ok && f.RetryAt.After(now) {
+		if stale, ok := readCachedListStale[smzdm.Category](s, key, smzdmFenleiTTL); ok {
+			s.log.Info("fenlei read suppressed: serving the last good page until the budget window ends",
+				"slug", slug, "retry_at", f.RetryAt.UTC().Format(time.RFC3339))
+			return s.fenleiFeed(slug, key, stale.Items, limit, false, true, stale.FetchedAt, now), nil
+		}
 		s.log.Info("fenlei read suppressed: the hour's attempt already failed",
 			"slug", slug, "retry_at", f.RetryAt.UTC().Format(time.RFC3339))
 		return nil, fenleiFailureError(slug, f)
@@ -90,7 +98,7 @@ func (s *Service) GetSmzdmFenlei(ctx context.Context, slug string, limit int, re
 
 	// The cache is always filled at full width: one page holds every card the
 	// slug offers, so a wider request must never pay for a second read.
-	entry, hit, err := fetchCachedList(ctx, s, key, smzdmFenleiTTL, refresh, MaxSmzdmLimit,
+	entry, hit, degraded, err := fetchCachedList(ctx, s, key, smzdmFenleiTTL, refresh, MaxSmzdmLimit,
 		func(n int) ([]smzdm.Category, error) {
 			s.fenleiMu.Lock()
 			defer s.fenleiMu.Unlock()
@@ -108,18 +116,35 @@ func (s *Service) GetSmzdmFenlei(ctx context.Context, slug string, limit int, re
 		s.recordFenleiFailure(retryKey, slug, err)
 		return nil, wrapped
 	}
-	cards := entry.Items
+	if degraded {
+		// The page could not be read and the last good copy is standing in.
+		// Spend the rest of the budget window so the next poll is answered
+		// from that copy instead of buying another 600 KB page.
+		s.recordFenleiFailure(retryKey, slug, errFenleiLastGood)
+	}
+	return s.fenleiFeed(slug, key, entry.Items, limit, hit, degraded, entry.FetchedAt, now), nil
+}
+
+// errFenleiLastGood records a budget window in which the last good page stood
+// in for a read that failed. It carries no upstream detail on purpose: the
+// marker only decides when the next read is allowed.
+var errFenleiLastGood = errors.New("upstream read failed; serving the last good category page")
+
+// fenleiFeed renders the cards of one category page. degraded marks a page
+// served from the last good cache entry after a failed read.
+func (s *Service) fenleiFeed(slug, key string, cards []smzdm.Category, limit int, hit, degraded bool, fetchedAt, now time.Time) *Feed {
 	if len(cards) > limit {
 		cards = cards[:limit]
 	}
 
-	readAt := s.fenleiReadTime(key, entry.FetchedAt, now)
+	readAt := s.fenleiReadTime(key, fetchedAt, now)
 	f := &Feed{
 		TitleText:   "SMZDM Deals: " + slug,
 		LinkText:    "https://www.smzdm.com/fenlei/" + slug + "/",
 		Description: "Good-price cards from the SMZDM category " + slug,
 		FetchedAt:   readAt,
 		Cached:      hit,
+		Degraded:    degraded,
 		TTL:         int(smzdmFenleiTTL.Minutes()),
 		Items:       make([]Item, 0, len(cards)),
 	}
@@ -155,7 +180,7 @@ func (s *Service) GetSmzdmFenlei(ctx context.Context, slug string, limit int, re
 			DateSource: source,
 		})
 	}
-	return f, nil
+	return f
 }
 
 // fenleiReadTime is when the page behind a list was read. A cache hit must

@@ -371,7 +371,7 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | Weibo profile | `profile:<uid>` | 1 hour |
 | Weibo long post | `longtext:<uid>:<id>` | 24 hours |
 | Weibo domain | `domain:<name>` | 24 hours |
-| Weibo hot search | `hot:top` | 5 minutes |
+| Weibo hot search | `hot:top` | 5 minutes (last good kept for 1 hour) |
 | sspai list | `sspai:list` | 10 minutes |
 | sspai article body | `sspai:detail:<id>` | 24 hours |
 | V2EX latest/hot | `v2ex:latest` / `v2ex:hot` | 10 minutes |
@@ -385,6 +385,7 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | YouTube handle mapping | `youtube:channel:<ref>` | 24 hours |
 | Reddit listing | `reddit:list:<sub>:<sort>:<window>` | 10 minutes (last good kept for 24 hours) |
 
+- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube and Reddit.
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).
 - Cache directory: `--cache-dir` / `FEEDMESH_CACHE`, default `~/.cache/feedmesh`; one JSON file per key, written atomically. The directory mode is 0700 and the file mode 0600; expired entries are cleaned at startup. `cache purge --all` deletes only entries it can verify were written by feedmesh (it checks the `key` inside the entry against the file name) and leaves other `.json` files in the same directory alone.

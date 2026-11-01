@@ -25,6 +25,11 @@ const probeFreshness = 30 * time.Second
 // once the upstream recovers, even though the list itself may be hours old.
 const degradedYouTubeMaxAge = 60
 
+// degradedRSSMaxAge is the reader-facing lifetime of any other document served
+// from its last good cache entry: short enough that readers pick the real feed
+// up soon after the upstream recovers, even though the content may be hours old.
+const degradedRSSMaxAge = 60
+
 // Config wires the HTTP layer.
 type Config struct {
 	Version string
@@ -129,6 +134,17 @@ func (s *Server) setRSSCache(w http.ResponseWriter, maxAge int) {
 	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(maxAge))
 }
 
+// setRSSCacheFor emits the cache directives for a rendered feed and marks a
+// degraded document: the header says why the content can be old, and the short
+// max-age lets the reader pick up the fresh feed soon after recovery.
+func (s *Server) setRSSCacheFor(w http.ResponseWriter, f *feed.Feed, maxAge int) {
+	if f.Degraded {
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+		maxAge = degradedRSSMaxAge
+	}
+	s.setRSSCache(w, maxAge)
+}
+
 // getOnly rejects non-GET verbs with a 405 and the standard error envelope.
 func (s *Server) getOnly(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +244,7 @@ func (s *Server) serveRSS(w http.ResponseWriter, r *http.Request, uid string) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCache(w, 300)
+	s.setRSSCacheFor(w, f, 300)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -239,6 +255,7 @@ type feedResponse struct {
 	Description string      `json:"description"`
 	FetchedAt   time.Time   `json:"fetched_at"`
 	Cached      bool        `json:"cached"`
+	Degraded    bool        `json:"degraded"`
 	Items       []feed.Item `json:"items"`
 }
 
@@ -262,6 +279,7 @@ func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 		Description: f.Description,
 		FetchedAt:   f.FetchedAt,
 		Cached:      f.Cached,
+		Degraded:    f.Degraded,
 		Items:       f.Items,
 	})
 }
@@ -281,6 +299,7 @@ type hotResponse struct {
 	Description string            `json:"description"`
 	FetchedAt   time.Time         `json:"fetched_at"`
 	Cached      bool              `json:"cached"`
+	Degraded    bool              `json:"degraded"`
 	Items       []hotItemResponse `json:"items"`
 }
 
@@ -294,7 +313,7 @@ func (s *Server) handleHot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCache(w, 60)
+	s.setRSSCacheFor(w, f, 60)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -324,6 +343,7 @@ func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
 		Description: f.Description,
 		FetchedAt:   f.FetchedAt,
 		Cached:      f.Cached,
+		Degraded:    f.Degraded,
 		Items:       items,
 	})
 }
@@ -343,6 +363,7 @@ type sspaiResponse struct {
 	Description string              `json:"description"`
 	FetchedAt   time.Time           `json:"fetched_at"`
 	Cached      bool                `json:"cached"`
+	Degraded    bool                `json:"degraded"`
 	Items       []sspaiItemResponse `json:"items"`
 }
 
@@ -357,7 +378,7 @@ func (s *Server) handleSspai(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCache(w, 600)
+	s.setRSSCacheFor(w, f, 600)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -381,7 +402,7 @@ func (s *Server) handleAPISspai(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, sspaiResponse{
 		Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
 	})
 }
 
@@ -400,6 +421,7 @@ type v2exResponse struct {
 	Description string             `json:"description"`
 	FetchedAt   time.Time          `json:"fetched_at"`
 	Cached      bool               `json:"cached"`
+	Degraded    bool               `json:"degraded"`
 	Items       []v2exItemResponse `json:"items"`
 }
 
@@ -412,7 +434,7 @@ func (s *Server) serveV2ex(w http.ResponseWriter, r *http.Request, section strin
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCache(w, 600)
+	s.setRSSCacheFor(w, f, 600)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -443,7 +465,7 @@ func (s *Server) handleAPIV2ex(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, v2exResponse{
 		Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
 	})
 }
 
@@ -474,6 +496,7 @@ type smzdmResponse struct {
 	Description string              `json:"description"`
 	FetchedAt   time.Time           `json:"fetched_at"`
 	Cached      bool                `json:"cached"`
+	Degraded    bool                `json:"degraded"`
 	Items       []smzdmItemResponse `json:"items"`
 }
 
@@ -501,7 +524,7 @@ func (s *Server) serveSmzdm(w http.ResponseWriter, r *http.Request, ch smzdm.Cha
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCache(w, int(feed.SmzdmTTL(ch).Seconds()))
+	s.setRSSCacheFor(w, f, int(feed.SmzdmTTL(ch).Seconds()))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -532,7 +555,7 @@ func (s *Server) handleSmzdmFenlei(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCache(w, int(feed.SmzdmFenleiTTL().Seconds()))
+	s.setRSSCacheFor(w, f, int(feed.SmzdmFenleiTTL().Seconds()))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -567,7 +590,7 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, smzdmResponse{
 			Channel: string(ch), Slug: strings.ToLower(slug), Title: f.Title(),
-			Description: f.Description, FetchedAt: f.FetchedAt, Cached: f.Cached,
+			Description: f.Description, FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
 			Items: smzdmItems(f.Items),
 		})
 		return
@@ -580,7 +603,7 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, smzdmResponse{
 		Channel: string(ch), Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: smzdmItems(f.Items),
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: smzdmItems(f.Items),
 	})
 }
 
@@ -600,6 +623,7 @@ type xResponse struct {
 	Description string          `json:"description"`
 	FetchedAt   time.Time       `json:"fetched_at"`
 	Cached      bool            `json:"cached"`
+	Degraded    bool            `json:"degraded"`
 	Items       []xItemResponse `json:"items"`
 }
 
@@ -615,7 +639,7 @@ func (s *Server) handleX(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	// Nitter's own <ttl> is 40 minutes; match the cache rather than inviting
 	// readers to hammer volunteer instances.
-	s.setRSSCache(w, 2400)
+	s.setRSSCacheFor(w, f, 2400)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
@@ -638,7 +662,7 @@ func (s *Server) handleAPIX(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, xResponse{
 		Handle: f.UID, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Items: items,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
 	})
 }
 

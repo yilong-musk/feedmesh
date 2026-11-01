@@ -47,11 +47,20 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 | `youtube:channel:<ref>` | 24 hours; an expired entry is reused when the channel page cannot be read |
 | `reddit:list:<sub>:<sort>:<window>` | 10 minutes old counts as fresh; stored for 24 hours so the last good listing survives a rate-limit window |
 
+Every entry is stored for at least 6 hours; the column is the freshness window,
+not the on-disk lifetime, and a failed read serves the newest entry inside that
+window as a degraded document. Hot search is the one exception: its last good
+ranking is served for one hour only, because a six-hour-old ranking labelled
+realtime misleads a reader more than an error would. After a key fails, the next
+60 seconds are answered from its last good entry without another upstream
+attempt, so a polling reader cannot drive one retry chain per poll.
+
 ## Upstream calling policy (Weibo)
 
 - **Global concurrency 1**: a semaphore guarantees at most one in-flight request at any moment, to avoid triggering risk controls.
 - **single-flight**: concurrent requests for the same key collapse into one; this only works within a single process, and HTTP and CLI share results through the disk cache.
 - **Retries**: network errors / 5xx are retried 3 times with exponential backoff of 300ms → 600ms → 1200ms.
+- **Last good value**: a read that still fails (after retries, or because the breaker is open) does not fail the request when a cached value exists. The service serves the newest entry inside the 6-hour stale window (one hour for hot search), flags it `Degraded` (RSS: `X-Feedmesh-Degraded: 1` with `max-age=60`; JSON: `"degraded": true`) and keeps the entry so later readers are answered the same way until an upstream read succeeds. A key that just failed is not retried for 60 seconds: during that cool-off the last good entry is served straight away, so a reader polling a degraded document cannot drive one full retry chain per poll. Nothing cached still yields `UPSTREAM_UNAVAILABLE`.
 - **Breaker**: on 418/403, refresh the visitor cookie and retry first; if still blocked, open the breaker for 10 minutes, during which upstream calls immediately return `BREAKER_OPEN`; once the cool-off ends only one probe request is let through — success restores service, and another block opens the breaker again.
 - The sspai client has a global 3-concurrency semaphore (effective across requests); V2EX completes in a single request. An explicit `--timeout` overrides all providers; the defaults are 9 seconds for Weibo, 15 seconds for sspai/V2EX/SMZDM/Reddit and 20 seconds for X (a single X attempt is capped at 25 seconds).
 - **Reddit pacing**: one global read slot shared by every subreddit and sort — at most one request in flight, at least 8 seconds between two reads, and no read while a reset window reported by the site (`x-ratelimit-reset`) is open. A caller that cannot read now is refused instead of queued (the handler would time out first) and is served the last good listing; a 429 is never retried, so a refusal costs exactly one request. Every read is logged as `reddit upstream read` for audit.
