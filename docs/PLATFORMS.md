@@ -33,6 +33,7 @@ Official site <https://weibo.com> · Data source `m.weibo.cn` (visitor cookie, a
 ### Account timeline
 
 - Parameters: `limit` 1–10, `refresh=1`; `domain` is resolved to a uid first.
+- Resilience: a timeline, profile or hot-search read that fails (timeout, 5xx, breaker open) serves the last good value for up to 6 hours with `X-Feedmesh-Degraded: 1` and `max-age=60`; a profile that cannot be read does not fail the feed, the cached screen name is used. Nothing cached still returns 504.
 - Output: post body HTML, images (large size with real width and height), repost quote block, full text of long posts, video enclosure, external link cards.
 - Upstream: `container/getIndex`, at most 10 posts per page; long posts additionally go through `statuses/extend` (cached for 24 hours).
 

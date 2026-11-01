@@ -29,7 +29,7 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 		limit = MaxHotLimit
 	}
 
-	items, hit, err := fetchCached(ctx, s, "hot:top", hotTTL, refresh,
+	items, hit, degraded, err := fetchCached(ctx, s, "hot:top", hotTTL, refresh,
 		func() ([]weibo.HotItem, error) { return s.clients.Weibo.HotSearch(ctx) })
 	if err != nil {
 		return nil, err
@@ -51,6 +51,7 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 		Description: "Realtime Weibo hot search ranking",
 		FetchedAt:   now,
 		Cached:      hit,
+		Degraded:    degraded,
 		TTL:         5,
 		Items:       make([]Item, 0, len(items)),
 	}
