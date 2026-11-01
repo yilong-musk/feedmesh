@@ -74,6 +74,11 @@ type Service struct {
 	// is one page per hour per slug and the site only tolerates one connection
 	// at a time, so two slugs never run concurrently.
 	fenleiMu sync.Mutex
+
+	// failMu guards failedAt, the per-key cool-off that keeps a failing
+	// upstream from being retried on every poll.
+	failMu   sync.Mutex
+	failedAt map[string]time.Time
 }
 
 // keyedMutex serialises cache reads and writes for one list key. Locks are
@@ -167,7 +172,7 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 		limit = MaxLimit
 	}
 
-	profile, profileHit, _, err := fetchCached(ctx, s, "profile:"+uid, s.ttls.Profile, refresh,
+	profile, profileHit, profileDegraded, err := fetchCached(ctx, s, "profile:"+uid, s.ttls.Profile, refresh,
 		func() (*weibo.Profile, error) { return s.clients.Weibo.Profile(ctx, uid) })
 	if err != nil {
 		return nil, err
@@ -195,7 +200,7 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 		Description: profile.Description,
 		FetchedAt:   s.now().UTC(),
 		Cached:      profileHit && timelineHit,
-		Degraded:    timelineDegraded,
+		Degraded:    timelineDegraded || profileDegraded,
 		Items:       make([]Item, 0, len(posts)),
 	}
 	for _, m := range posts {
@@ -350,6 +355,15 @@ func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Du
 		if v, ok := s.readFresh[T](key, ttl); ok {
 			return v, true, false, nil
 		}
+		// A key that failed within the cool-off is answered from its last good
+		// entry without another attempt: the retry chain is the expensive part
+		// and repeating it on every poll only keeps the upstream down.
+		if s.coolingDown(key) {
+			if stale, ok := s.readStale[T](key, ttl); ok {
+				s.log.Warn("upstream read is cooling down after a failure, serving the last good entry", "key", key)
+				return stale, false, true, nil
+			}
+		}
 	}
 
 	var zero T
@@ -366,13 +380,14 @@ func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Du
 		if s.cache != nil {
 			// Stored for the stale window so a later failure can still serve
 			// this value; freshness is decided by readFresh from the stored time.
-			if cerr := s.cache.Set(key, val, storeTTL(ttl)); cerr != nil {
+			if cerr := s.cache.Set(key, val, staleWindowFor(key, ttl)); cerr != nil {
 				s.log.Warn("cache write failed", "key", key, "error", cerr.Error())
 			}
 		}
 		return val, nil
 	})
 	if err != nil {
+		s.noteFailure(key)
 		// Upstream failed: a stale value beats an error, because a reader that
 		// gets 5xx treats the feed as broken and may stop polling.
 		if stale, ok := s.readStale[T](key, ttl); ok {
@@ -382,6 +397,7 @@ func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Du
 		}
 		return zero, false, false, err
 	}
+	s.noteSuccess(key)
 	return value, false, false, nil
 }
 
@@ -436,11 +452,7 @@ func readCachedList[T any](s *Service, key string, want int, ttl time.Duration) 
 // back to; the list may be narrower than the caller asked for.
 func readCachedListStale[T any](s *Service, key string, ttl time.Duration) (cachedList[T], bool) {
 	e, storedAt, ok := readCachedEntryAt[T](s, key)
-	window := staleWindow
-	if ttl > window {
-		window = ttl
-	}
-	if !ok || len(e.Items) == 0 || s.now().Sub(storedAt) > window {
+	if !ok || len(e.Items) == 0 || s.now().Sub(storedAt) > staleWindowFor(key, ttl) {
 		return cachedList[T]{}, false
 	}
 	return e, true
@@ -507,6 +519,14 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 		if e, ok := readCachedList[T](s, key, want, ttl); ok {
 			return e, true, false, nil
 		}
+		// Same cool-off as fetchCached: a failing key is answered from its
+		// last good list instead of buying the same failure again.
+		if s.coolingDown(key) {
+			if stale, ok := readCachedListStale[T](s, key, ttl); ok {
+				s.log.Warn("upstream read is cooling down after a failure, serving the last good list", "key", key)
+				return stale, false, true, nil
+			}
+		}
 	}
 
 	// Different widths get their own flight: a narrow request must never
@@ -537,13 +557,14 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 		if s.cache != nil {
 			// Stored for the stale window, not the freshness TTL: the last good
 			// list has to outlive the moment it stops being fresh.
-			if cerr := s.cache.Set(key, cur, storeTTL(ttl)); cerr != nil {
+			if cerr := s.cache.Set(key, cur, staleWindowFor(key, ttl)); cerr != nil {
 				s.log.Warn("cache write failed", "key", key, "error", cerr.Error())
 			}
 		}
 		return cur, nil
 	})
 	if err != nil {
+		s.noteFailure(key)
 		// Upstream refused or timed out: a list up to staleWindow old beats an
 		// error, because a reader that gets 5xx treats the feed as broken.
 		if stale, ok := readCachedListStale[T](s, key, ttl); ok {
@@ -553,5 +574,6 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 		}
 		return cachedList[T]{}, false, false, err
 	}
+	s.noteSuccess(key)
 	return e, false, false, nil
 }

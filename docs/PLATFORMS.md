@@ -33,7 +33,7 @@ Official site <https://weibo.com> · Data source `m.weibo.cn` (visitor cookie, a
 ### Account timeline
 
 - Parameters: `limit` 1–10, `refresh=1`; `domain` is resolved to a uid first.
-- Resilience: a timeline, profile or hot-search read that fails (timeout, 5xx, breaker open) serves the last good value for up to 6 hours with `X-Feedmesh-Degraded: 1` and `max-age=60`; a profile that cannot be read does not fail the feed, the cached screen name is used. Nothing cached still returns 504.
+- Resilience: a timeline, profile or hot-search read that fails (timeout, 5xx, breaker open) serves the last good value for up to 6 hours (one hour for hot search) with `X-Feedmesh-Degraded: 1` and `max-age=60`; a profile that cannot be read does not fail the feed — the cached screen name is used and the document is marked degraded. Nothing cached still returns 504.
 - Output: post body HTML, images (large size with real width and height), repost quote block, full text of long posts, video enclosure, external link cards.
 - Upstream: `container/getIndex`, at most 10 posts per page; long posts additionally go through `statuses/extend` (cached for 24 hours).
 
@@ -42,6 +42,7 @@ Official site <https://weibo.com> · Data source `m.weibo.cn` (visitor cookie, a
 - Rules: keep only the main ranking with `realpos` 1–50; drop the "Recommended" slots that carry no `realpos`; the pinned `hotgov` entry is not merged in.
 - Ranking uses `realpos` rather than the array index, so recommended slots cannot shift the positions.
 - `guid` uses the search URL, so a rank change does not make readers push the item again.
+- Resilience: a failed read serves the last good ranking for **one hour** only (`X-Feedmesh-Degraded: 1`, `max-age=60`, `"degraded": true` in JSON). A ranking older than that is not served at all — it would still be labelled realtime while being hours out of date — so the route answers 504 until upstream returns.
 
 ### Limitations
 
@@ -115,7 +116,7 @@ Official site <https://www.smzdm.com> · Data source: the official deal RSS on `
 - `price` is the leading amount of the display price (`7.9`); `text` keeps the whole display string so coupons and multi-buy conditions survive. Category cards carry no poster, so `author` is empty.
 - The page publishes no timestamp for a good-price card, so `created_at` is the page read time, and `date_source` is `fetched` to say so; an article card that does carry one gets it parsed (a `MM-DD HH:MM` stamp that lands more than a day in the future belongs to the previous year) and is published as `card`. Every item of one read shares the same instant, and a cache hit keeps that instant instead of advancing to the request time, so a polling reader can tell one batch from the next.
 - **Budget**: at most one page read per slug per hour (the cache TTL is that budget), one read in flight at a time across slugs, and `refresh=1` inside the hour is served from the cache. Every read is logged (`fenlei page read`) so the budget can be audited.
-- **Failed reads spend the same budget**: an HTTP error, a transport error, or a large page with no cards records `smzdm:fenlei:<slug>:retry` and the rest of the hour answers `UPSTREAM_UNAVAILABLE` with the retry time instead of re-reading a 600 KB page on every poll. The marker lasts one budget window, not the six hours the challenge cooldown uses.
+- **Failed reads spend the same budget**: an HTTP error, a transport error, or a large page with no cards records `smzdm:fenlei:<slug>:retry`. When a last good page exists, the rest of the hour serves that page as a degraded document (`X-Feedmesh-Degraded: 1`, `max-age=60`, `"degraded": true` in JSON) instead of re-reading 600–720 KB on every poll; with nothing cached, the rest of the hour answers `UPSTREAM_UNAVAILABLE` with the retry time. The marker lasts one budget window, not the six hours the challenge cooldown uses.
 - **Risk control**: a challenge (HTTP 202, `TCaptcha`, or an empty shell under 20 KB with no cards) returns `UPSTREAM_BLOCKED` and puts the slug on a six-hour cooldown (`BREAKER_OPEN` after that); nothing is retried. A large page without cards is treated as a layout change instead, so it does not burn the slug's cooldown.
 - `robots.txt` disallows three category paths (`3cjiadian`, `jujiashenghuo`, `shishangyundong`) and any URL carrying a query string; both are honoured — the category URL is always bare, and those slugs are refused with `BAD_REQUEST`.
 

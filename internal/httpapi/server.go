@@ -278,8 +278,9 @@ func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 		ScreenName:  f.ScreenName,
 		Description: f.Description,
 		FetchedAt:   f.FetchedAt,
-		Cached:      f.Cached, Degraded: f.Degraded,
-		Items: f.Items,
+		Cached:      f.Cached,
+		Degraded:    f.Degraded,
+		Items:       f.Items,
 	})
 }
 
@@ -341,8 +342,9 @@ func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
 		Title:       f.Title(),
 		Description: f.Description,
 		FetchedAt:   f.FetchedAt,
-		Cached:      f.Cached, Degraded: f.Degraded,
-		Items: items,
+		Cached:      f.Cached,
+		Degraded:    f.Degraded,
+		Items:       items,
 	})
 }
 
@@ -553,7 +555,7 @@ func (s *Server) handleSmzdmFenlei(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCache(w, int(feed.SmzdmFenleiTTL().Seconds()))
+	s.setRSSCacheFor(w, f, int(feed.SmzdmFenleiTTL().Seconds()))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(feed.RenderRSS(f))
 }
