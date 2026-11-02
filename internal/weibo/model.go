@@ -205,6 +205,10 @@ type card struct {
 	MBlog    *MBlog `json:"mblog"`
 }
 
+// loginCardType is the card weibo puts in place of a timeline page that it
+// withholds from anonymous visitors.
+const loginCardType = 7
+
 // indexResponse covers both getIndex call shapes (profile and container).
 //
 // Observed 2026-10-23: the status flag lives at the TOP level, not under data
@@ -219,7 +223,35 @@ type indexResponse struct {
 			Tabs []tab `json:"tabs"`
 		} `json:"tabsInfo"`
 		Cards []card `json:"cards"`
+		// CardlistInfo is only present on container reads; total is the
+		// upstream's own count of matching posts.
+		CardlistInfo *struct {
+			Total int `json:"total"`
+		} `json:"cardlistInfo"`
 	} `json:"data"`
+}
+
+// loginWall reports whether the payload is weibo's soft login wall instead of
+// a timeline page.
+//
+// The wall is HTTP 200 with ok:1, total:0 and a single card_type 7 card that
+// invites the visitor to log in. A genuinely empty account answers with a
+// card_type 58 card ("nothing here"), so the two must not be conflated: the
+// wall is a block that deserves a retry, while an empty account is an answer.
+func (ir *indexResponse) loginWall() bool {
+	if ir.Data.CardlistInfo == nil || ir.Data.CardlistInfo.Total != 0 {
+		return false
+	}
+	wall := false
+	for _, c := range ir.Data.Cards {
+		if c.MBlog != nil {
+			return false
+		}
+		if c.CardType == loginCardType {
+			wall = true
+		}
+	}
+	return wall
 }
 
 // Profile is a resolved weibo account.

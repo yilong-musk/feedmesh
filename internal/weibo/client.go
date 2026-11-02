@@ -48,6 +48,11 @@ type Config struct {
 	Retries   int
 	Backoff   time.Duration
 
+	// WallRetries is how many extra attempts a timeline gets when weibo
+	// answers with its soft login wall instead of posts. Zero means the
+	// default (3): the wall is intermittent, so a retry usually clears it.
+	WallRetries int
+
 	// BaseURL and VisitorURL exist so tests can point the client at a fake
 	// upstream. Production always leaves them empty.
 	BaseURL    string
@@ -82,6 +87,9 @@ func New(cfg Config) *Client {
 	}
 	if cfg.Retries <= 0 {
 		cfg.Retries = 3
+	}
+	if cfg.WallRetries <= 0 {
+		cfg.WallRetries = 3
 	}
 	if cfg.Backoff <= 0 {
 		cfg.Backoff = 300 * time.Millisecond
