@@ -3,6 +3,7 @@ package weibo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -88,6 +89,14 @@ func (c *Client) Profile(ctx context.Context, uid string) (*Profile, error) {
 }
 
 // Timeline fetches one page of a user's posts. limit <= 0 keeps the whole page.
+//
+// Weibo sometimes answers a timeline read with its soft login wall: HTTP 200,
+// ok:1, total:0 and a single card_type 7 card instead of posts. That is a block,
+// not an empty account, and it is intermittent (measured ~50% of requests for
+// one affected account while every other account stayed readable), so the read
+// is retried before the wall is reported. A wall that survives the retries is
+// returned as CodeLoginRequired, which lets the feed layer fall back to its last
+// good copy instead of caching an empty timeline.
 func (c *Client) Timeline(ctx context.Context, uid, containerID string, limit int) (*Timeline, error) {
 	if err := ValidateUID(uid); err != nil {
 		return nil, err
@@ -95,6 +104,37 @@ func (c *Client) Timeline(ctx context.Context, uid, containerID string, limit in
 	if containerID == "" {
 		containerID = "107603" + uid
 	}
+
+	attempts := c.cfg.WallRetries + 1
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			if err := sleepCtx(ctx, c.cfg.Backoff); err != nil {
+				var we *Error
+				if lastErr != nil && errors.As(lastErr, &we) {
+					return nil, lastErr
+				}
+				return nil, timeoutError(ctx, "during login-wall retry backoff")
+			}
+		}
+		tl, err := c.timelineOnce(ctx, uid, containerID, limit)
+		if err == nil {
+			return tl, nil
+		}
+		if CodeOf(err) != CodeLoginRequired {
+			return nil, err
+		}
+		lastErr = err
+		c.cfg.Log.Debug("weibo withheld the timeline behind a login wall",
+			"uid", uid, "attempt", i+1, "attempts", attempts)
+	}
+	c.cfg.Log.Warn("weibo keeps withholding the timeline behind a login wall",
+		"uid", uid, "attempts", attempts)
+	return nil, lastErr
+}
+
+// timelineOnce performs a single timeline read and classifies the payload.
+func (c *Client) timelineOnce(ctx context.Context, uid, containerID string, limit int) (*Timeline, error) {
 	endpoint := fmt.Sprintf("%s/api/container/getIndex?type=uid&value=%s&containerid=%s",
 		c.base(), url.QueryEscape(uid), url.QueryEscape(containerID))
 
@@ -106,6 +146,10 @@ func (c *Client) Timeline(ctx context.Context, uid, containerID string, limit in
 	if ir.OK != 1 {
 		return nil, &Error{Code: CodeUserNotFound, Status: status,
 			Message: fmt.Sprintf("weibo timeline %s unavailable: %s", uid, strings.TrimSpace(ir.Msg))}
+	}
+	if ir.loginWall() {
+		return nil, &Error{Code: CodeLoginRequired, Status: status,
+			Message: fmt.Sprintf("weibo requires a login to list the timeline of %s", uid)}
 	}
 
 	tl := &Timeline{UID: uid, ContainerID: containerID}
