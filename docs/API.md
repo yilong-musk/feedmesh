@@ -276,15 +276,28 @@ One SMZDM category page. `slug` is required for this channel (`BAD_REQUEST` with
 ### `GET /api/v1/x?handle=<handle>&limit=N`
 
 ```json
-{"handle":"elonmusk","title":"elonmusk / X","description":"Latest posts from @elonmusk (via a Nitter instance)",
- "fetched_at":"…","cached":true,
- "items":[{"id":"2113508310267674684","title":"Try Grok @Bot","text":"…",
-           "url":"https://x.com/elonmusk/status/2113508310267674684","html":"…",
-           "images":["https://pbs.twimg.com/media/…jpg"],"created_at":"2026-10-23T05:50:22Z"}]}
+{"handle":"4kaesthetichq","title":"4KAestheticHQ / X","description":"@4KAestheticHQ latest posts (via Nitter instances)",
+ "fetched_at":"…","cached":false,
+ "items":[{"id":"2117824259859034220","title":"…","text":"…",
+           "url":"https://x.com/4KAestheticHQ/status/2117824259859034220","html":"…",
+           "author":"4KAestheticHQ","author_id":"1507222724757925889",
+           "images":["https://pbs.twimg.com/media/HWQF3-EWQAEkvBh.jpg?name=orig"],
+           "video":{"url":"https://video.twimg.com/…/vid/avc1/720x1558/….mp4",
+                    "thumbnail":"https://pbs.twimg.com/amplify_video_thumb/…jpg",
+                    "duration_ms":4308,"views":1234},
+           "quoted":{"id":"2117127236843184565","url":"https://x.com/…/status/2117127236843184565",
+                     "author":"4KAestheticHQ","author_name":"4K Wallpapers | Aesthetic HQ",
+                     "text":"…","images":["https://pbs.twimg.com/media/…jpg?name=orig"]},
+           "likes":8,"replies":0,"created_at":"2026-11-04T06:49:32Z"}]}
 ```
 
 - `handle` is required (`@` allowed); `limit` defaults to 20 with a maximum of 20.
 - `refresh=1` is supported and behaves the same as on the RSS routes.
+- `images` carries only the post's own photos, at the original resolution (`?name=orig`). Video posters and link-card banners are not photos: a video poster appears as `video.thumbnail`, a card banner as `card_image`.
+- `video` is filled from X's public embed endpoint, because Nitter's RSS only carries a poster. `url` is the highest-resolution MP4 variant, `duration_ms` and `views` are omitted when zero. A post with only a poster (embed read failed, or enrichment disabled) still carries `video.thumbnail`.
+- `quoted` is the post this one quotes. Its media and text stay inside `quoted` and never leak into `images` or `text`.
+- `likes` and `replies` also come from the embed endpoint; both are `0` when the per-post read failed. The post is still returned.
+- Enrichment costs one embed request per post (at most 4 concurrent, 6 s each, 15 s per page). Disable it with `--no-x-enrich` or `FEEDMESH_X_ENRICH=0`: items keep `images` and `video.thumbnail`, but lose `video.url`, `duration_ms`, `views`, `likes` and `replies`.
 
 ### `GET /api/v1/youtube?ref=<channel>&limit=N`
 

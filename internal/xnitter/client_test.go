@@ -36,6 +36,8 @@ func testClient(t *testing.T, instances ...string) *Client {
 		// the baked-in list wins.
 		StatusURL: "http://127.0.0.1:1/status",
 		Timeout:   5 * time.Second,
+		// Unit tests must never reach the real embed endpoint.
+		DisableEnrichment: true,
 	})
 }
 
@@ -70,12 +72,34 @@ func TestParseRSS(t *testing.T) {
 		t.Error("plain text is empty")
 	}
 
-	// The second item carries an image, the third is a retweet.
-	if len(tweets[1].Images) == 0 {
-		t.Errorf("second tweet should expose an image: %+v", tweets[1])
+	// The second item quotes a post with a video: the quoted media must not
+	// leak into the entry's own Images.
+	second := tweets[1]
+	if len(second.Images) != 0 {
+		t.Errorf("quoted media leaked into Images: %v", second.Images)
 	}
-	if !strings.HasPrefix(tweets[1].Images[0], "https://pbs.twimg.com/") {
-		t.Errorf("image host = %q", tweets[1].Images[0])
+	if second.Video != nil {
+		t.Errorf("entry video = %+v, want nil for a quoted video", second.Video)
+	}
+	if second.Quoted == nil {
+		t.Fatal("quoted post was not parsed")
+	}
+	if second.Quoted.Author != "WesternLensman" || second.Quoted.ID != "2113427318723195095" {
+		t.Errorf("quoted = %+v", second.Quoted)
+	}
+	if second.Quoted.URL != "https://x.com/WesternLensman/status/2113427318723195095" {
+		t.Errorf("quoted url = %q", second.Quoted.URL)
+	}
+	if second.Quoted.Video == nil || !strings.Contains(second.Quoted.Video.Thumbnail, "amplify_video_thumb") {
+		t.Errorf("quoted video = %+v", second.Quoted.Video)
+	}
+	// The third item is a retweet whose own media is a video.
+	third := tweets[2]
+	if third.Video == nil || !strings.Contains(third.Video.Thumbnail, "pbs.twimg.com") {
+		t.Errorf("third video = %+v", third.Video)
+	}
+	if len(third.Images) != 0 {
+		t.Errorf("a video poster was counted as a photo: %v", third.Images)
 	}
 	if !tweets[2].IsRetweet {
 		t.Errorf("third tweet should be flagged as a retweet: %q", tweets[2].Title)

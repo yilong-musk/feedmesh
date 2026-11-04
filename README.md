@@ -74,6 +74,7 @@ The unit uses systemd's `%h` / `%C` expansion for the home and cache directories
 | `serve --listen <addr>` | Start the HTTP server; optional `--token` / `--rate-limit` |
 | `fetch <uid\|domain>` | Print one Weibo account timeline (RSS; `--json` prints a single JSON line) |
 | `doctor [--uid <uid>]` | Probe visitor, getIndex and statuses in order |
+| `doctor --x-handle <handle>` | Probe the X instance pool and each mirror for a handle |
 | `cache stat` | Cache entry count and size |
 | `cache purge --all` | Remove every feedmesh cache entry |
 | `cache purge --uid <uid>` | Remove one account's profile/timeline/domain/feed/long-text entries |

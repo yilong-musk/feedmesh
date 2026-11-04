@@ -214,6 +214,8 @@ func newTestServer(t *testing.T) http.Handler {
 		// static list above.
 		StatusURL: upstream.URL + "/status",
 		Timeout:   2 * time.Second,
+		// Tests never reach the real embed endpoint.
+		DisableEnrichment: true,
 	})
 	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond})}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{

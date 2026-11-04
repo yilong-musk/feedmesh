@@ -59,6 +59,8 @@ func xService(t *testing.T, upstream *httptest.Server) *feed.Service {
 			Instances: []string{upstream.URL},
 			StatusURL: upstream.URL + "/status",
 			Timeout:   2 * time.Second,
+			// The feed tests exercise the RSS mapping, not the embed pass.
+			DisableEnrichment: true,
 		}),
 	}, c, logx.Discard(), feed.DefaultTTLs())
 }
@@ -86,7 +88,7 @@ func TestGetX(t *testing.T) {
 	if first.Title != "Hello from X" {
 		t.Errorf("title = %q", first.Title)
 	}
-	if len(first.Images) != 1 || first.Images[0] != "https://pbs.twimg.com/media/a.jpg" {
+	if len(first.Images) != 1 || first.Images[0] != "https://pbs.twimg.com/media/a.jpg?name=orig" {
 		t.Errorf("images = %v", first.Images)
 	}
 	if strings.Contains(first.HTML, strings.TrimPrefix(up.URL, "http://")) {

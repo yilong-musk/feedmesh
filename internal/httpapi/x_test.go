@@ -71,6 +71,22 @@ func TestXJSONView(t *testing.T) {
 	if it.Created == "" {
 		t.Error("created_at is empty")
 	}
+	if !strings.HasSuffix(it.Images[0], "?name=orig") {
+		t.Errorf("image was not upgraded to the original: %q", it.Images[0])
+	}
+
+	// The JSON view must publish the new fields even when enrichment is off.
+	var keys struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &keys); err != nil {
+		t.Fatalf("decode keys: %v", err)
+	}
+	for _, want := range []string{"likes", "replies", "author"} {
+		if _, ok := keys.Items[0][want]; !ok {
+			t.Errorf("item JSON is missing %q: %v", want, keys.Items[0])
+		}
+	}
 }
 
 func TestXRejectsBadHandle(t *testing.T) {

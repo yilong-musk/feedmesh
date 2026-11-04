@@ -139,12 +139,18 @@ Official site <https://x.com> · Data source: RSS from public Nitter instances (
 - Every failed instance is logged with its handle, host and error (`nitter instance failed`), and every 5xx response is logged with its path and error code. The HTTP error itself stays generic (`xnitter: all instances failed (N tried)`) so the mirror pool is not exposed to callers; the journal is where the detail lives.
 - Some instances sit behind an Anubis challenge (`anubis_challenge` / `preact_info`): the client solves the SHA-256 PoW itself, caches the cookie, and retries — no browser required.
 - Instance links in the body are rewritten to `https://x.com/...` with the query preserved; Nitter's `/pic/` image proxy is restored to `pbs.twimg.com`, while other image domains are left alone.
+- Photos are requested at the original size (`?name=orig`). The bare CDN URL serves a ~1200 px rendition — measured 672×1200 / 228 KB versus 1146×2047 / 516 KB for the original. Card banners keep their own size parameter and video posters are already full size.
+- Only the post's own photos land in `images`. A quoted post is rendered by Nitter as a `blockquote`, so its media is parsed into `quoted` and never counted as the entry's own (measured on a live feed: 4 images reported where the post had 2, all four from the quote). Video posters become `video.thumbnail`, link-card banners `card_image`.
+- Nitter's RSS carries no playable media and its HTML pages are behind Cloudflare/Gandalf on the instances that serve RSS, so video is enriched from X's public embed endpoint (`cdn.syndication.twimg.com`) once per post: highest-resolution MP4 variant, duration, view count, likes, replies and the quoted post. Four concurrent reads, 6 s each, 15 s per page; a failed read leaves the RSS item untouched. Disable it with `--no-x-enrich` or `FEEDMESH_X_ENRICH=0`, which keeps images and posters but drops video URLs and counts.
+- `doctor --x-handle <handle>` walks the pool and prints one line per instance (status, latency, item count). A rate-limited directory keeps the fallback list as a note instead of failing the run.
 - Repost entries are prefixed with `🔁` in the title, and Nitter's original `RT by @user:` prefix is stripped.
 - Parameters: `limit` 1–20, `refresh=1`.
 
 ### Limitations
 
 - **Depends on third-party volunteer instances**: the pool holds only a handful of healthy nodes and can go down entirely at any time. The service itself stays up (the other platforms are unaffected), but `/rss/x/*` returns an upstream error.
+- **One page only**: the RSS route returns at most 20 posts, ignores `?cursor=`, and has no `since_id`, so a burst of more than 20 posts inside the cache window loses the overflow. Pagination would require the paid X API.
+- **Engagement is partial**: the embed endpoint returns likes, replies and view counts, but no retweet or quote counters. Nitter's RSS has none at all.
 - Poll at a low rate, honoring `<ttl>40</ttl>` (the server already caches for 40 minutes); aggressive polling gets rate-limited by the instances.
 - Public accounts only; protected accounts and login-only content cannot be fetched.
 

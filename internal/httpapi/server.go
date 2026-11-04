@@ -608,14 +608,38 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type xVideoResponse struct {
+	URL        string `json:"url,omitempty"`
+	Thumbnail  string `json:"thumbnail,omitempty"`
+	DurationMS int    `json:"duration_ms,omitempty"`
+	Views      int64  `json:"views,omitempty"`
+}
+
+type xQuotedResponse struct {
+	ID         string          `json:"id,omitempty"`
+	URL        string          `json:"url,omitempty"`
+	Author     string          `json:"author,omitempty"`
+	AuthorName string          `json:"author_name,omitempty"`
+	Text       string          `json:"text,omitempty"`
+	Images     []string        `json:"images,omitempty"`
+	Video      *xVideoResponse `json:"video,omitempty"`
+}
+
 type xItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string           `json:"id"`
+	Title     string           `json:"title"`
+	Text      string           `json:"text"`
+	URL       string           `json:"url"`
+	HTML      string           `json:"html"`
+	Author    string           `json:"author,omitempty"`
+	AuthorID  string           `json:"author_id,omitempty"`
+	Images    []string         `json:"images"`
+	CardImage string           `json:"card_image,omitempty"`
+	Video     *xVideoResponse  `json:"video,omitempty"`
+	Quoted    *xQuotedResponse `json:"quoted,omitempty"`
+	Likes     int              `json:"likes"`
+	Replies   int              `json:"replies"`
+	CreatedAt time.Time        `json:"created_at"`
 }
 
 type xResponse struct {
@@ -656,10 +680,34 @@ func (s *Server) handleAPIX(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]xItemResponse, 0, len(f.Items))
 	for _, it := range f.Items {
-		items = append(items, xItemResponse{
+		item := xItemResponse{
 			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
-		})
+			HTML: it.HTML, Images: it.Images, Author: it.Author,
+			AuthorID: it.AuthorID, CardImage: it.CardImage,
+			Likes: it.Likes, Replies: it.Replies, CreatedAt: it.CreatedAt,
+		}
+		if it.VideoURL != "" || it.PosterURL != "" {
+			item.Video = &xVideoResponse{
+				URL:        it.VideoURL,
+				Thumbnail:  it.PosterURL,
+				DurationMS: it.VideoDurationMS,
+				Views:      it.VideoViews,
+			}
+		}
+		if q := it.Quoted; q != nil {
+			quoted := &xQuotedResponse{
+				ID: q.ID, URL: q.URL, Author: q.Author, AuthorName: q.AuthorName,
+				Text: q.Text, Images: q.Images,
+			}
+			if q.VideoURL != "" || q.VideoPoster != "" {
+				quoted.Video = &xVideoResponse{
+					URL: q.VideoURL, Thumbnail: q.VideoPoster,
+					DurationMS: q.DurationMS, Views: q.Views,
+				}
+			}
+			item.Quoted = quoted
+		}
+		items = append(items, item)
 	}
 	writeJSON(w, http.StatusOK, xResponse{
 		Handle: f.UID, Title: f.Title(), Description: f.Description,
