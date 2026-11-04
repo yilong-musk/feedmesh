@@ -300,18 +300,24 @@ func RenderRSS(f *Feed) []byte {
 		b.WriteString("      <content:encoded>")
 		b.WriteString(cdata(it.HTML))
 		b.WriteString("</content:encoded>\n")
-		if len(it.Images) > 0 {
-			b.WriteString(`      <media:thumbnail url="`)
-			b.WriteString(EscapeXML(it.Images[0]))
-			b.WriteString("\" />\n")
-			for _, img := range it.Images {
-				b.WriteString(`      <media:content url="`)
-				b.WriteString(EscapeXML(img))
-				b.WriteString(`" medium="image"`)
-				if mime := imageMIME(img); mime != "" {
-					b.WriteString(` type="` + mime + `"`)
+		if len(it.Images) > 0 || it.PosterURL != "" {
+			thumb := it.PosterURL
+			if len(it.Images) > 0 {
+				thumb = it.Images[0]
+				for _, img := range it.Images {
+					b.WriteString(`      <media:content url="`)
+					b.WriteString(EscapeXML(img))
+					b.WriteString(`" medium="image"`)
+					if mime := imageMIME(img); mime != "" {
+						b.WriteString(` type="` + mime + `"`)
+					}
+					b.WriteString(" />\n")
 				}
-				b.WriteString(" />\n")
+			}
+			if thumb != "" {
+				b.WriteString(`      <media:thumbnail url="`)
+				b.WriteString(EscapeXML(thumb))
+				b.WriteString("\" />\n")
 			}
 		}
 		if it.VideoURL != "" {
@@ -320,7 +326,14 @@ func RenderRSS(f *Feed) []byte {
 			b.WriteString(`" type="video/mp4" length="0" />` + "\n")
 			b.WriteString(`      <media:content url="`)
 			b.WriteString(EscapeXML(it.VideoURL))
-			b.WriteString(`" medium="video" type="video/mp4" />` + "\n")
+			b.WriteString(`" medium="video" type="video/mp4"`)
+			if it.VideoDurationMS > 0 {
+				fmt.Fprintf(&b, ` duration="%d"`, it.VideoDurationMS/1000)
+			}
+			if it.PosterURL != "" {
+				b.WriteString(` thumbnail="` + EscapeXML(it.PosterURL) + `"`)
+			}
+			b.WriteString(" />\n")
 		}
 		writeElem(&b, "      ", "pubDate", rfc822(it.CreatedAt))
 		b.WriteString("    </item>\n")

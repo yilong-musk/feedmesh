@@ -324,6 +324,34 @@ func TestRenderRSSInfersImageMIME(t *testing.T) {
 	}
 }
 
+func TestRenderRSSVideoOnlyItemUsesPosterAndDuration(t *testing.T) {
+	f := &feed.Feed{
+		UID: "1", ScreenName: "x", FetchedAt: time.Now(),
+		Items: []feed.Item{{
+			Title: "video", HTML: "<p>clip</p>", URL: "https://x.com/a/status/1",
+			CreatedAt:       time.Now(),
+			PosterURL:       "https://pbs.twimg.com/amplify_video_thumb/1/img/p.jpg",
+			VideoURL:        "https://video.twimg.com/vid/720x1558/b.mp4",
+			VideoDurationMS: 4308,
+		}},
+	}
+	raw := string(feed.RenderRSS(f))
+	for _, want := range []string{
+		`<media:thumbnail url="https://pbs.twimg.com/amplify_video_thumb/1/img/p.jpg" />`,
+		`<enclosure url="https://video.twimg.com/vid/720x1558/b.mp4" type="video/mp4" length="0" />`,
+		`duration="4"`,
+		`thumbnail="https://pbs.twimg.com/amplify_video_thumb/1/img/p.jpg"`,
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("rendered RSS missing %q:\n%s", want, raw)
+		}
+	}
+	if strings.Contains(raw, `medium="image"`) {
+		t.Fatalf("a video-only item must not claim an image:\n%s", raw)
+	}
+	parseRSS(t, []byte(raw))
+}
+
 func TestBuildDescriptionLinkCardSwapsShortPublisher(t *testing.T) {
 	// Real shape from an article card: page_title carries the publisher, the
 	// headline lives in content1. The headline must be the bold line.

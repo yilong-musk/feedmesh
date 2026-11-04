@@ -88,6 +88,8 @@ type options struct {
 	token           string
 	rateLimit       int
 	rateLimitSet    bool
+	xHandle         string
+	noXEnrich       bool
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -218,6 +220,10 @@ func parseArgs(args []string) (string, []string, *options, error) {
 				err = strFlag(&o.uid)
 			case "--handle":
 				err = strFlag(&o.handle)
+			case "--x-handle":
+				err = strFlag(&o.xHandle)
+			case "--no-x-enrich":
+				err = boolFlag(&o.noXEnrich)
 			case "--token":
 				err = strFlag(&o.token)
 			case "--rate-limit":
@@ -333,6 +339,12 @@ func applyEnv(o *options) {
 	if o.timeout <= 0 {
 		o.timeout = defaultTimeout
 	}
+	if raw := strings.TrimSpace(envFirst("FEEDMESH_X_ENRICH")); raw != "" && !o.noXEnrich {
+		switch strings.ToLower(raw) {
+		case "0", "false", "off", "no":
+			o.noXEnrich = true
+		}
+	}
 }
 
 func defaultCacheDir() (string, func()) {
@@ -372,7 +384,7 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout := providerTimeouts(o)
 	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
 	vx := v2ex.New(v2ex.Config{Timeout: v2exTimeout})
-	xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger})
+	xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: o.noXEnrich})
 	sz := smzdm.New(smzdm.Config{Timeout: smzdmTimeout})
 	yt := youtube.New(youtube.Config{Timeout: youtubeTimeout})
 	rd := reddit.New(reddit.Config{Timeout: redditTimeout, Log: logger})
@@ -426,7 +438,7 @@ func exitCodeFor(code string) int {
 	switch code {
 	case weibo.CodeBadRequest:
 		return exitUsage
-	case weibo.CodeNetwork, weibo.CodeTimeout, weibo.CodeUpstreamUnavailable:
+	case weibo.CodeNetwork, weibo.CodeTimeout, weibo.CodeUpstreamUnavailable, weibo.CodeRateLimited:
 		return exitNetwork
 	case weibo.CodeUpstreamBlocked:
 		return exitBlocked
@@ -574,20 +586,53 @@ func cmdFetch(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 	return exitOK
 }
 
+// doctorStep is the CLI's report line, shared by every provider so
+// `doctor --json` keeps one shape.
+type doctorStep struct {
+	Step       string `json:"step"`
+	OK         bool   `json:"ok"`
+	MS         int64  `json:"ms"`
+	HTTPStatus int    `json:"http_status"`
+	Code       string `json:"code,omitempty"`
+	Error      string `json:"error,omitempty"`
+	Items      int    `json:"items,omitempty"`
+}
+
 type doctorJSON struct {
 	OK    bool         `json:"ok"`
-	Steps []weibo.Step `json:"steps"`
+	Mode  string       `json:"mode"`
+	Steps []doctorStep `json:"steps"`
 }
 
 func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
-	_, _, client, _, err := newService(o, logger)
-	if err != nil {
-		return fail(o, logger, stdout, err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), o.timeout*8)
 	defer cancel()
 
-	steps := client.Probe(ctx, strings.TrimSpace(o.uid))
+	mode := "weibo"
+	var steps []doctorStep
+	if o.xHandle != "" {
+		mode = "x"
+		_, _, xTimeout, _, _, _ := providerTimeouts(o)
+		xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: true})
+		for _, st := range xn.Probe(ctx, strings.TrimSpace(o.xHandle)) {
+			steps = append(steps, doctorStep{
+				Step: st.Step, OK: st.OK, MS: st.MS, HTTPStatus: st.HTTPStatus,
+				Code: st.Code, Error: st.Error, Items: st.Items,
+			})
+		}
+	} else {
+		_, _, client, _, err := newService(o, logger)
+		if err != nil {
+			return fail(o, logger, stdout, err)
+		}
+		for _, st := range client.Probe(ctx, strings.TrimSpace(o.uid)) {
+			steps = append(steps, doctorStep{
+				Step: st.Step, OK: st.OK, MS: st.MS, HTTPStatus: st.HTTPStatus,
+				Code: st.Code, Error: st.Error,
+			})
+		}
+	}
+
 	ok := true
 	failed := ""
 	for _, st := range steps {
@@ -600,7 +645,7 @@ func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
 	}
 
 	if o.json {
-		if err := writeJSONLine(stdout, doctorJSON{OK: ok, Steps: steps}); err != nil {
+		if err := writeJSONLine(stdout, doctorJSON{OK: ok, Mode: mode, Steps: steps}); err != nil {
 			return exitOther
 		}
 	} else {
@@ -609,7 +654,10 @@ func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
 			if !st.OK {
 				status = "fail"
 			}
-			line := fmt.Sprintf("%-12s %-4s %5dms http=%d", st.Step, status, st.MS, st.HTTPStatus)
+			line := fmt.Sprintf("%-28s %-4s %5dms http=%d", st.Step, status, st.MS, st.HTTPStatus)
+			if st.Items > 0 {
+				line += fmt.Sprintf(" items=%d", st.Items)
+			}
 			if st.Error != "" {
 				line += "  " + st.Error
 			}
@@ -955,6 +1003,7 @@ COMMANDS
       -o, --output <path>   Write to a file; "-" means stdout (default)
   doctor                    Probe genvisitor, getIndex and statuses in order
       --uid <uid>           Account used for the probe (default 2803301701)
+      --x-handle <handle>   Probe the X instance pool for a handle instead of Weibo
   cache stat                Report cache entry count and size
   cache purge --all         Delete every feedmesh cache entry
   cache purge --uid <uid>   Delete an account: profile, timeline, domain, feed and long-text entries
@@ -966,6 +1015,8 @@ COMMANDS
 GLOBAL FLAGS
   --json                    Data output as exactly one line of JSON (jq-safe)
   --quiet, -q               Silence stderr logs
+  --no-x-enrich             Keep X to the RSS surface: no per-post embed read
+                            (no playable video, no likes); env FEEDMESH_X_ENRICH=0
   --timeout <duration>      Per-upstream-request timeout; overrides all providers
                             (default 9s weibo, 15s sspai/V2EX/SMZDM/Reddit, 20s X/YouTube; X capped at 25s)
   --cache-dir <dir>         Cache directory (env FEEDMESH_CACHE; legacy WEIBO_RSS_PRO_CACHE / WEIBO_RSS_CACHE)

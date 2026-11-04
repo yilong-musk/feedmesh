@@ -82,15 +82,50 @@ func (s *Service) GetX(ctx context.Context, handle string, limit int, refresh bo
 				images = append(images, u)
 			}
 		}
-		f.Items = append(f.Items, Item{
+		item := Item{
 			ID:        t.ID,
 			Title:     prefix + title,
 			Text:      t.Text,
 			HTML:      NormalizeHTMLBase(t.HTML, "https://x.com"),
 			URL:       safeURLString(t.URL),
 			Images:    images,
+			Author:    t.Author,
+			AuthorID:  t.AuthorID,
+			Likes:     t.Likes,
+			Replies:   t.Replies,
 			CreatedAt: created.UTC(),
-		})
+		}
+		if t.CardImage != "" {
+			item.CardImage = resolveSafeURL(t.CardImage, "https://x.com")
+		}
+		if t.Video != nil {
+			item.VideoURL = resolveSafeURL(t.Video.URL, "https://video.twimg.com")
+			item.PosterURL = resolveSafeURL(t.Video.Thumbnail, "https://x.com")
+			item.VideoDurationMS = t.Video.DurationMS
+			item.VideoViews = t.Video.Views
+		}
+		if t.Quoted != nil {
+			q := &QuotedItem{
+				ID:         t.Quoted.ID,
+				URL:        safeURLString(t.Quoted.URL),
+				Author:     t.Quoted.Author,
+				AuthorName: t.Quoted.AuthorName,
+				Text:       t.Quoted.Text,
+			}
+			for _, img := range t.Quoted.Images {
+				if u := resolveSafeURL(img, "https://x.com"); u != "" {
+					q.Images = append(q.Images, u)
+				}
+			}
+			if t.Quoted.Video != nil {
+				q.VideoURL = resolveSafeURL(t.Quoted.Video.URL, "https://video.twimg.com")
+				q.VideoPoster = resolveSafeURL(t.Quoted.Video.Thumbnail, "https://x.com")
+				q.DurationMS = t.Quoted.Video.DurationMS
+				q.Views = t.Quoted.Video.Views
+			}
+			item.Quoted = q
+		}
+		f.Items = append(f.Items, item)
 	}
 	return f, nil
 }

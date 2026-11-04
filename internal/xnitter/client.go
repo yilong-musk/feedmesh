@@ -80,12 +80,40 @@ type Tweet struct {
 	ID        string
 	URL       string
 	Author    string
+	AuthorID  string
 	Title     string
 	HTML      string
 	Text      string
 	Images    []string
+	CardImage string
+	Video     *Video
+	Quoted    *Quoted
+	Likes     int
+	Replies   int
 	Published time.Time
 	IsRetweet bool
+}
+
+// Video is the playable form of a post, filled from the embed endpoint because
+// Nitter's RSS only carries a poster image.
+type Video struct {
+	URL        string
+	Thumbnail  string
+	DurationMS int
+	Views      int64
+}
+
+// Quoted is the post a tweet quotes. Nitter's RSS exposes it as a blockquote,
+// which is enough for author, text and images; the embed endpoint adds ids and
+// media when the enrichment pass runs.
+type Quoted struct {
+	ID         string
+	URL        string
+	Author     string
+	AuthorName string
+	Text       string
+	Images     []string
+	Video      *Video
 }
 
 // Config tunes a Client.
@@ -99,6 +127,11 @@ type Config struct {
 	// on purpose, so the journal is the only place an operator can see which
 	// mirror failed and why.
 	Log *logx.Logger
+	// SyndicationURL overrides the embed endpoint (tests).
+	SyndicationURL string
+	// DisableEnrichment keeps Timeline to the RSS-only surface: no embed
+	// request per post, so no playable video and no engagement counts.
+	DisableEnrichment bool
 }
 
 // Client fetches timelines from a pool of Nitter instances.
@@ -113,6 +146,8 @@ type Client struct {
 	trusted        map[string]struct{}
 	dialer         *net.Dialer
 	log            *logx.Logger
+	syndicationURL string
+	disableEnrich  bool
 
 	mu           sync.Mutex
 	pool         []string
@@ -146,6 +181,9 @@ func New(cfg Config) *Client {
 	if cfg.Log == nil {
 		cfg.Log = logx.Discard()
 	}
+	if cfg.SyndicationURL == "" {
+		cfg.SyndicationURL = SyndicationURL
+	}
 	fallback := append([]string(nil), cfg.Instances...)
 	if len(fallback) == 0 {
 		fallback = append([]string(nil), defaultInstances...)
@@ -166,6 +204,8 @@ func New(cfg Config) *Client {
 		trusted:        trustedHosts(cfg.StatusURL, fallback),
 		dialer:         &net.Dialer{Timeout: cfg.Timeout, KeepAlive: 30 * time.Second},
 		log:            cfg.Log,
+		syndicationURL: cfg.SyndicationURL,
+		disableEnrich:  cfg.DisableEnrichment,
 		health:         make(map[string]instanceHealth),
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -383,6 +423,7 @@ func (c *Client) Timeline(ctx context.Context, handle string) ([]Tweet, error) {
 		}
 		tried[base] = true
 		if tweets, ok := try(base); ok {
+			c.enrich(ctx, handle, tweets)
 			return tweets, nil
 		}
 	}
@@ -864,17 +905,26 @@ func parseRSS(body []byte, base, handle string) ([]Tweet, error) {
 		}
 		author := strings.TrimPrefix(strings.TrimSpace(it.Creator), "@")
 		html := rewriteLinks(strings.TrimSpace(it.Description), base)
-		out = append(out, Tweet{
+		own, quotedHTML := splitQuoted(html)
+		images, poster, card := classifyImages(own)
+		quoted := parseQuoted(quotedHTML)
+		tweet := Tweet{
 			ID:        id,
 			URL:       "https://x.com/" + handle + "/status/" + id,
 			Author:    author,
 			Title:     strings.TrimSpace(it.Title),
 			HTML:      html,
 			Text:      htmlToText(html),
-			Images:    imageURLs(html),
+			Images:    images,
+			CardImage: card,
+			Quoted:    quoted,
 			Published: parseTime(it.PubDate),
 			IsRetweet: strings.HasPrefix(strings.TrimSpace(it.Title), "RT by @"),
-		})
+		}
+		if poster != "" {
+			tweet.Video = &Video{Thumbnail: poster}
+		}
+		out = append(out, tweet)
 		if len(out) >= MaxLimit {
 			break
 		}
@@ -901,10 +951,27 @@ var (
 	tagRe     = regexp.MustCompile(`(?s)<[^>]+>`)
 	spaceRe   = regexp.MustCompile(`\s+`)
 	paragraph = regexp.MustCompile(`(?i)</p>|<br\s*/?>|<hr\s*/?>`)
+
+	blockquoteRe   = regexp.MustCompile(`(?is)<blockquote[^>]*>(.*?)</blockquote>`)
+	quotedAuthorRe = regexp.MustCompile(`(?i)<b>(.*?)</b>`)
+	quotedHandleRe = regexp.MustCompile(`\(@([A-Za-z0-9_]{1,15})\)`)
+	footerRe       = regexp.MustCompile(`(?is)<footer.*?</footer>`)
 )
 
-func imageURLs(html string) []string {
-	var out []string
+// splitQuoted separates the post's own HTML from a quoted post. Nitter renders
+// a quote as a blockquote; its images belong to the quoted tweet, not to the
+// timeline entry, so they must not be counted as the entry's media.
+func splitQuoted(html string) (string, string) {
+	m := blockquoteRe.FindStringSubmatch(html)
+	if m == nil {
+		return html, ""
+	}
+	return blockquoteRe.ReplaceAllString(html, ""), m[1]
+}
+
+// classifyImages walks the images of one post and separates real photos from
+// video posters and link-card banners. Only photos belong in Images.
+func classifyImages(html string) (photos []string, poster, card string) {
 	seen := map[string]bool{}
 	for _, m := range imgRe.FindAllStringSubmatch(html, -1) {
 		src := strings.TrimSpace(m[1])
@@ -912,9 +979,119 @@ func imageURLs(html string) []string {
 			continue
 		}
 		seen[src] = true
-		out = append(out, src)
+		switch {
+		case isVideoThumb(src):
+			if poster == "" {
+				poster = upgradeMediaURL(src)
+			}
+		case strings.Contains(src, "/card_img/"):
+			if card == "" {
+				card = src
+			}
+		default:
+			photos = append(photos, upgradeMediaURL(src))
+		}
 	}
-	return out
+	return photos, poster, card
+}
+
+func isVideoThumb(src string) bool {
+	for _, marker := range []string{"/amplify_video_thumb/", "/ext_tw_video_thumb/", "/tweet_video_thumb/", "/amplify_video/"} {
+		if strings.Contains(src, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// upgradeMediaURL asks the Twitter CDN for the uploaded file. Nitter's RSS src
+// attributes carry no size parameter and the CDN then serves a ~1200 px
+// rendition; the bare URL is roughly a third of the bytes and half the
+// resolution of the original. Card images keep their own size parameter and
+// video posters are already served at full size.
+func upgradeMediaURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Hostname(), "pbs.twimg.com") {
+		return raw
+	}
+	if !strings.HasPrefix(u.Path, "/media/") && !strings.HasPrefix(u.Path, "/profile_images/") {
+		return raw
+	}
+	q := u.Query()
+	if q.Get("name") != "" {
+		return raw
+	}
+	q.Set("name", "orig")
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// parseQuoted reads the blockquote body into a quoted post.
+func parseQuoted(html string) *Quoted {
+	inner := strings.TrimSpace(html)
+	if inner == "" {
+		return nil
+	}
+	// A quote inside a quote is noise; only the outer one is reported.
+	inner, _ = splitQuoted(inner)
+	q := &Quoted{}
+	if m := quotedAuthorRe.FindStringSubmatch(inner); m != nil {
+		label := htmlToText(m[1])
+		if h := quotedHandleRe.FindStringSubmatch(label); h != nil {
+			q.Author = h[1]
+			q.AuthorName = strings.TrimSpace(quotedHandleRe.ReplaceAllString(label, ""))
+		} else {
+			q.AuthorName = label
+		}
+	}
+	if m := statusRe.FindStringSubmatch(inner); m != nil {
+		q.ID = m[1]
+	}
+	if q.ID != "" {
+		if q.Author != "" {
+			q.URL = "https://x.com/" + q.Author + "/status/" + q.ID
+		} else {
+			q.URL = "https://x.com/i/status/" + q.ID
+		}
+	}
+	body := footerRe.ReplaceAllString(inner, "")
+	text := htmlToText(body)
+	if q.AuthorName != "" {
+		text = strings.ReplaceAll(text, q.AuthorName, "")
+	}
+	if q.Author != "" {
+		text = strings.ReplaceAll(text, "(@"+q.Author+")", "")
+	}
+	q.Text = cleanQuotedText(text)
+	q.Images, _, _ = classifyImages(inner)
+	if poster := videoPoster(inner); poster != "" {
+		q.Video = &Video{Thumbnail: poster}
+	}
+	if q.ID == "" && q.Text == "" && len(q.Images) == 0 && q.Video == nil {
+		return nil
+	}
+	return q
+}
+
+func videoPoster(html string) string {
+	_, poster, _ := classifyImages(html)
+	return poster
+}
+
+// cleanQuotedText drops the labels Nitter adds for attachments; they describe
+// the quote's media, not its words.
+func cleanQuotedText(text string) string {
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		switch line {
+		case "", "Video", "Photo", "GIF":
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 func htmlToText(html string) string {
@@ -971,13 +1148,18 @@ func rewriteLinks(html, base string) string {
 		if p.Scheme != "" && p.Scheme != "http" && p.Scheme != "https" {
 			return attr
 		}
+		if m[1] == "src" {
+			if up := upgradeMediaURL(raw); up != raw {
+				return m[1] + `="` + stdhtml.EscapeString(up) + `"`
+			}
+		}
 		mirror := p.Host == "" || strings.EqualFold(p.Host, u.Host)
 		if !mirror {
 			return attr
 		}
 		if strings.HasPrefix(p.Path, "/pic/") {
 			if rewritten := nitterMediaURL(p.Path); rewritten != "" {
-				return m[1] + `="` + stdhtml.EscapeString(rewritten) + `"`
+				return m[1] + `="` + stdhtml.EscapeString(upgradeMediaURL(rewritten)) + `"`
 			}
 		}
 		p.Scheme = "https"

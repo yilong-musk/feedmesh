@@ -42,6 +42,36 @@ type Item struct {
 	// more than one way: "card" for a timestamp the upstream published,
 	// "fetched" for the page read time used as a fallback. Empty elsewhere.
 	DateSource string `json:"-"`
+	// PosterURL is the still image of a video post (X only). RSS renders it as
+	// the media thumbnail when the post has no photos of its own.
+	PosterURL string `json:"-"`
+	// VideoDurationMS and VideoViews describe the video behind VideoURL.
+	VideoDurationMS int   `json:"-"`
+	VideoViews      int64 `json:"-"`
+	// CardImage is a link-card banner. It is not a photo, so it is kept out of
+	// Images and published separately.
+	CardImage string `json:"-"`
+	// AuthorID is the upstream numeric account id (X only).
+	AuthorID string `json:"-"`
+	// Likes and Replies are engagement counters (X only).
+	Likes   int `json:"-"`
+	Replies int `json:"-"`
+	// Quoted is the post this item quotes (X only).
+	Quoted *QuotedItem `json:"-"`
+}
+
+// QuotedItem is a quoted post carried inside another one.
+type QuotedItem struct {
+	ID          string
+	URL         string
+	Author      string
+	AuthorName  string
+	Text        string
+	Images      []string
+	VideoURL    string
+	DurationMS  int
+	Views       int64
+	VideoPoster string
 }
 
 // Feed is a rendered timeline for one account.
