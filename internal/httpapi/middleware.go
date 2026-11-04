@@ -51,6 +51,45 @@ func (s *Server) withRecovery(next http.Handler) http.Handler {
 	})
 }
 
+// statusRecorder remembers the response status so a server-side failure can be
+// logged after the handler returns.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusRecorder) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+// withErrorLog records 5xx responses. Without it a failing upstream read left
+// no trace in the journal at all: the JSON error went to the caller and
+// nothing was written to stderr.
+func (s *Server) withErrorLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
+		if rec.status < 500 {
+			return
+		}
+		s.cfg.Log.Warn("request failed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.status,
+			"code", w.Header().Get(ErrorCodeHeader))
+	})
+}
+
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	want := []byte("Bearer " + s.cfg.Token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
