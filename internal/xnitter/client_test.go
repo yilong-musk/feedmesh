@@ -1,6 +1,7 @@
 package xnitter
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,8 +11,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/logx"
 )
 
 func fixture(t *testing.T) []byte {
@@ -320,5 +325,135 @@ func TestFetchPoolFiltersAndSorts(t *testing.T) {
 	want := []string{"https://high.test", "https://mid.test"}
 	if strings.Join(pool, ",") != strings.Join(want, ",") {
 		t.Errorf("pool = %v, want %v", pool, want)
+	}
+}
+
+func TestTimelineRanksRecentlyFailedInstanceLast(t *testing.T) {
+	var badHits, goodHits atomic.Int32
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		badHits.Add(1)
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	defer bad.Close()
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		goodHits.Add(1)
+		if r.URL.Path != "/elonmusk/rss" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write(fixture(t))
+	}))
+	defer good.Close()
+
+	c := testClient(t, bad.URL, good.URL)
+	if _, err := c.Timeline(context.Background(), "elonmusk"); err != nil {
+		t.Fatalf("first Timeline: %v", err)
+	}
+	if got := badHits.Load(); got != 1 {
+		t.Fatalf("first call dialled the failing instance %d times, want 1", got)
+	}
+	if _, err := c.Timeline(context.Background(), "elonmusk"); err != nil {
+		t.Fatalf("second Timeline: %v", err)
+	}
+	if got := badHits.Load(); got != 1 {
+		t.Fatalf("the failing instance was retried before the healthy one (%d hits)", got)
+	}
+	if got := goodHits.Load(); got != 2 {
+		t.Fatalf("healthy instance hits = %d, want 2", got)
+	}
+}
+
+func TestTimelineRetriesFailedInstanceAfterCooldown(t *testing.T) {
+	var badHits atomic.Int32
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		badHits.Add(1)
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	defer bad.Close()
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write(fixture(t))
+	}))
+	defer good.Close()
+
+	now := time.Now()
+	c := New(Config{
+		Instances: []string{bad.URL, good.URL},
+		StatusURL: "http://127.0.0.1:1/status",
+		Timeout:   5 * time.Second,
+		Now:       func() time.Time { return now },
+	})
+	if _, err := c.Timeline(context.Background(), "elonmusk"); err != nil {
+		t.Fatalf("first Timeline: %v", err)
+	}
+	now = now.Add(instanceCooldown + time.Second)
+	if _, err := c.Timeline(context.Background(), "elonmusk"); err != nil {
+		t.Fatalf("Timeline after the cooldown: %v", err)
+	}
+	if got := badHits.Load(); got != 2 {
+		t.Fatalf("failed instance hits = %d, want it retried after the cooldown", got)
+	}
+}
+
+func TestTimelineKeepsOrderWhenEveryInstanceIsCooling(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	server := func(name string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			order = append(order, name)
+			mu.Unlock()
+			http.Error(w, "down", http.StatusInternalServerError)
+		}))
+	}
+	a, b := server("a"), server("b")
+	defer a.Close()
+	defer b.Close()
+
+	c := testClient(t, a.URL, b.URL)
+	for i := 0; i < 2; i++ {
+		if _, err := c.Timeline(context.Background(), "elonmusk"); err == nil {
+			t.Fatal("expected every attempt to fail")
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got, want := strings.Join(order, ","), "a,b,a,b"; got != want {
+		t.Fatalf("attempt order = %s, want %s: a cooling pool must stay in its original order", got, want)
+	}
+}
+
+func TestTimelineLogsInstanceFailureButKeepsTheHTTPErrorGeneric(t *testing.T) {
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusForbidden)
+	}))
+	defer bad.Close()
+
+	var buf bytes.Buffer
+	c := New(Config{
+		Instances: []string{bad.URL},
+		StatusURL: "http://127.0.0.1:1/status",
+		Timeout:   5 * time.Second,
+		Log:       logx.New(&buf),
+	})
+	_, err := c.Timeline(context.Background(), "elonmusk")
+	if err == nil {
+		t.Fatal("expected a failure")
+	}
+	if strings.Contains(err.Error(), "127.0.0.1") {
+		t.Errorf("error leaked the mirror host: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"nitter instance failed",
+		`"handle":"elonmusk"`,
+		`"instance":"127.0.0.1:`,
+		"HTTP 403",
+		"nitter timeline unavailable",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("journal is missing %q: %s", want, out)
+		}
 	}
 }

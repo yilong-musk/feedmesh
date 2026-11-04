@@ -34,6 +34,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/logx"
 )
 
 const (
@@ -46,6 +48,17 @@ const (
 	// poolFailureTTL stops a dead status directory from adding a timeout to
 	// every X request.
 	poolFailureTTL = 30 * time.Second
+	// instanceCooldown is how long a failed instance is ranked behind the
+	// healthy ones. It is an ordering hint, not a ban: when every candidate is
+	// cooling down they are still tried in their original order.
+	instanceCooldown = 10 * time.Minute
+	// instanceHealthRetention drops health records that have gone quiet, so
+	// the map cannot grow with every directory refresh.
+	instanceHealthRetention = 2 * time.Hour
+	// sweepBudget bounds one Timeline call across every instance. Per-instance
+	// attempts are already capped, but the pool plus the fallback list could
+	// otherwise stack up to six slow attempts on a single HTTP request.
+	sweepBudget = 45 * time.Second
 
 	maxBody          = 4 << 20
 	maxNonce         = 2_000_000
@@ -82,6 +95,10 @@ type Config struct {
 	Timeout   time.Duration
 	UserAgent string
 	Now       func() time.Time
+	// Log receives per-instance failure details. The HTTP error stays generic
+	// on purpose, so the journal is the only place an operator can see which
+	// mirror failed and why.
+	Log *logx.Logger
 }
 
 // Client fetches timelines from a pool of Nitter instances.
@@ -89,17 +106,27 @@ type Client struct {
 	http           *http.Client
 	ua             string
 	fallback       []string
+	fallbackSet    map[string]struct{}
 	statusURL      string
 	now            func() time.Time
 	attemptTimeout time.Duration
 	trusted        map[string]struct{}
 	dialer         *net.Dialer
+	log            *logx.Logger
 
 	mu           sync.Mutex
 	pool         []string
 	pooledAt     time.Time
 	poolFailedAt time.Time
+	health       map[string]instanceHealth
 	fetchMu      sync.Mutex
+}
+
+// instanceHealth records how one mirror behaved on its last attempts. It only
+// affects attempt order, never eligibility.
+type instanceHealth struct {
+	fails    int
+	lastFail time.Time
 }
 
 // New builds a Client with production defaults.
@@ -116,20 +143,30 @@ func New(cfg Config) *Client {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.Log == nil {
+		cfg.Log = logx.Discard()
+	}
 	fallback := append([]string(nil), cfg.Instances...)
 	if len(fallback) == 0 {
 		fallback = append([]string(nil), defaultInstances...)
+	}
+	fallbackSet := make(map[string]struct{}, len(fallback))
+	for _, inst := range fallback {
+		fallbackSet[inst] = struct{}{}
 	}
 	// A real jar so Anubis session cookies survive to the retry.
 	jar, _ := cookiejar.New(nil)
 	c := &Client{
 		ua:             cfg.UserAgent,
 		fallback:       fallback,
+		fallbackSet:    fallbackSet,
 		statusURL:      cfg.StatusURL,
 		now:            cfg.Now,
 		attemptTimeout: cfg.Timeout,
 		trusted:        trustedHosts(cfg.StatusURL, fallback),
 		dialer:         &net.Dialer{Timeout: cfg.Timeout, KeepAlive: 30 * time.Second},
+		log:            cfg.Log,
+		health:         make(map[string]instanceHealth),
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = c.dialContext
@@ -300,42 +337,49 @@ func (c *Client) Timeline(ctx context.Context, handle string) ([]Tweet, error) {
 	if err != nil {
 		return nil, err
 	}
+	// One budget for the whole sweep: a failed pool plus a failed fallback list
+	// must not hold an HTTP request for six full per-instance attempts.
+	sweepCtx, cancel := context.WithTimeout(ctx, sweepBudget)
+	defer cancel()
+
 	var failures []string
 	try := func(base string) ([]Tweet, bool) {
-		attemptCtx, cancel := context.WithTimeout(ctx, c.attemptTimeout)
-		defer cancel()
+		attemptCtx, attemptCancel := context.WithTimeout(sweepCtx, c.attemptTimeout)
+		defer attemptCancel()
 		tweets, ferr := c.timelineFrom(attemptCtx, base, handle)
 		if ferr == nil && len(tweets) > 0 {
+			c.markSuccess(base)
 			return tweets, true
 		}
 		if ferr == nil {
 			ferr = fmt.Errorf("returned no tweets")
 		}
-		failures = append(failures, base+": "+ferr.Error())
+		c.markFailure(base)
+		host := hostOf(base)
+		failures = append(failures, host+": "+ferr.Error())
+		// The HTTP error stays generic on purpose; the operator detail belongs
+		// in the journal, where it cannot be used to map the mirror pool.
+		c.log.Warn("nitter instance failed", "handle", handle, "instance", host, "error", ferr.Error())
 		return nil, false
 	}
 
 	tried := make(map[string]bool)
-	for i, base := range c.instances(ctx) {
-		if i >= maxPoolAttempts || ctx.Err() != nil {
+	poolBudget := 0
+	for _, base := range c.attemptOrder(sweepCtx) {
+		if sweepCtx.Err() != nil {
 			break
 		}
 		if tried[base] {
 			continue
 		}
-		tried[base] = true
-		if tweets, ok := try(base); ok {
-			return tweets, nil
-		}
-	}
-	// The directory attempt cap must not hide the baked-in fallback: when the
-	// whole pool fails for this server, try the operator-trusted hosts too.
-	for _, base := range c.fallback {
-		if ctx.Err() != nil {
-			break
-		}
-		if tried[base] {
-			continue
+		// Operator-configured instances are the last resort and do not spend
+		// the directory budget; everything else is capped so one request never
+		// dials the whole pool.
+		if _, isFallback := c.fallbackSet[base]; !isFallback {
+			if poolBudget >= maxPoolAttempts {
+				continue
+			}
+			poolBudget++
 		}
 		tried[base] = true
 		if tweets, ok := try(base); ok {
@@ -343,10 +387,95 @@ func (c *Client) Timeline(ctx context.Context, handle string) ([]Tweet, error) {
 		}
 	}
 	if len(failures) == 0 {
+		if sweepCtx.Err() != nil {
+			return nil, fmt.Errorf("xnitter: timeline budget exhausted before any attempt")
+		}
 		return nil, fmt.Errorf("xnitter: no instance available")
 	}
+	c.log.Error("nitter timeline unavailable", "handle", handle,
+		"tried", len(failures), "sweep_exhausted", sweepCtx.Err() != nil)
 	// Do not echo every mirror URL into an HTTP error response.
+	if sweepCtx.Err() != nil {
+		return nil, fmt.Errorf("xnitter: all instances failed (%d tried, timeline budget exhausted)", len(failures))
+	}
 	return nil, fmt.Errorf("xnitter: all instances failed (%d tried)", len(failures))
+}
+
+// attemptOrder merges the directory pool with the operator fallbacks and ranks
+// recently failing hosts last. Only the order changes: no candidate is ever
+// removed, so a fully cooling pool is still tried in its original order.
+func (c *Client) attemptOrder(ctx context.Context) []string {
+	pool := c.instances(ctx)
+	seen := make(map[string]bool, len(pool)+len(c.fallback))
+	seq := make([]string, 0, len(pool)+len(c.fallback))
+	for _, base := range append(append([]string(nil), pool...), c.fallback...) {
+		if base == "" || seen[base] {
+			continue
+		}
+		seen[base] = true
+		seq = append(seq, base)
+	}
+	return c.orderByHealth(seq)
+}
+
+// orderByHealth is a stable partition: instances that failed within
+// instanceCooldown go behind the healthy ones.
+func (c *Client) orderByHealth(seq []string) []string {
+	now := c.now()
+	c.mu.Lock()
+	cooling := make(map[string]bool, len(c.health))
+	for host, h := range c.health {
+		age := now.Sub(h.lastFail)
+		if age > instanceHealthRetention {
+			delete(c.health, host)
+			continue
+		}
+		if age < instanceCooldown {
+			cooling[host] = true
+		}
+	}
+	c.mu.Unlock()
+
+	out := make([]string, 0, len(seq))
+	for _, base := range seq {
+		if !cooling[hostOf(base)] {
+			out = append(out, base)
+		}
+	}
+	for _, base := range seq {
+		if cooling[hostOf(base)] {
+			out = append(out, base)
+		}
+	}
+	return out
+}
+
+func (c *Client) markFailure(base string) {
+	host := hostOf(base)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h := c.health[host]
+	h.fails++
+	h.lastFail = c.now()
+	c.health[host] = h
+}
+
+func (c *Client) markSuccess(base string) {
+	host := hostOf(base)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.health, host)
+}
+
+// hostOf returns the instance host:port for logs and health records. The port
+// stays in the key because two mirrors can share a host, and the full URL adds
+// nothing (instances are bare origins).
+func hostOf(base string) string {
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return base
+	}
+	return strings.ToLower(u.Host)
 }
 
 func (c *Client) timelineFrom(ctx context.Context, base, handle string) ([]Tweet, error) {
@@ -395,10 +524,19 @@ func (c *Client) instances(ctx context.Context) []string {
 	if err == nil && len(pool) > 0 {
 		c.pool, c.pooledAt = pool, c.now()
 		c.poolFailedAt = time.Time{}
-	} else {
-		c.poolFailedAt = c.now()
+		c.mu.Unlock()
+		return c.fallbackWithPool()
 	}
+	c.poolFailedAt = c.now()
 	c.mu.Unlock()
+	// A silent failure here is why a 429 from the directory used to look like a
+	// random outage later: the stale pool stayed in use with no trace.
+	if err != nil {
+		c.log.Warn("nitter instance directory unavailable, keeping the cached pool",
+			"status_url", c.statusURL, "error", err.Error())
+	} else {
+		c.log.Warn("nitter instance directory returned no usable instances, keeping the cached pool")
+	}
 	return c.fallbackWithPool()
 }
 

@@ -119,6 +119,7 @@ func (s *Server) Handler() http.Handler {
 		h = s.withRateLimit(h)
 	}
 	h = s.withRecovery(h)
+	h = s.withErrorLog(h)
 	return h
 }
 

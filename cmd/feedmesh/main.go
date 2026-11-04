@@ -372,7 +372,7 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout := providerTimeouts(o)
 	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
 	vx := v2ex.New(v2ex.Config{Timeout: v2exTimeout})
-	xn := xnitter.New(xnitter.Config{Timeout: xTimeout})
+	xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger})
 	sz := smzdm.New(smzdm.Config{Timeout: smzdmTimeout})
 	yt := youtube.New(youtube.Config{Timeout: youtubeTimeout})
 	rd := reddit.New(reddit.Config{Timeout: redditTimeout, Log: logger})
