@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,25 +113,44 @@ func TestHotSortsAndFiltersPromoted(t *testing.T) {
 	}
 }
 
-func TestHotFallsBackToAPI(t *testing.T) {
+func TestHotRejectsShortPage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/" && r.URL.Query().Get("tab") == "hot":
-			fmt.Fprint(w, `<html><body><div class="cell item">broken</div></body></html>`)
-		case r.URL.Path == "/api/topics/hot.json":
-			fmt.Fprint(w, `[{"id":200,"title":"API 主题","url":"https://www.v2ex.com/t/200","replies":7,"created":1792718561,"node":{"title":"分享"},"content_rendered":"<p>API 正文</p>"}]`)
-		default:
-			http.NotFound(w, r)
-		}
+		fmt.Fprint(w, `<html><body><div class="cell item">broken</div></body></html>`)
 	}))
 	t.Cleanup(srv.Close)
 
 	c := v2ex.New(v2ex.Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
-	items, err := c.Hot(context.Background(), 10)
-	if err != nil {
-		t.Fatalf("Hot fallback: %v", err)
+	if _, err := c.Hot(context.Background(), 10); err == nil {
+		t.Fatal("expected an error instead of a substituted list")
 	}
-	if len(items) != 1 || items[0].Title != "API 主题" || items[0].Node != "分享" {
-		t.Fatalf("items = %+v", items)
+}
+
+func TestHotRejectsCloudflareChallenge(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<html><head><title>Just a moment...</title></head><body></body></html>`)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := v2ex.New(v2ex.Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
+	_, err := c.Hot(context.Background(), 10)
+	if err == nil || !strings.Contains(err.Error(), "Cloudflare") {
+		t.Fatalf("err = %v, want a Cloudflare challenge error", err)
+	}
+}
+
+func TestClientSendsNoAcceptLanguage(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Accept-Language")
+		fmt.Fprint(w, hotFixture)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := v2ex.New(v2ex.Config{BaseURL: srv.URL, Timeout: 2 * time.Second})
+	if _, err := c.Hot(context.Background(), 10); err != nil {
+		t.Fatalf("Hot: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("Accept-Language = %q; V2EX answers it with a Cloudflare challenge", got)
 	}
 }

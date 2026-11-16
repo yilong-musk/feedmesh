@@ -5,8 +5,8 @@
 package v2ex
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"html"
@@ -144,7 +144,11 @@ func (c *Client) Latest(ctx context.Context, limit int) ([]Article, error) {
 }
 
 // Hot reads the hot tab, filters promoted nodes and sorts by reply count.
-// The legacy API is used when the page yields fewer than five topics.
+//
+// The hot ranking exists only on that page; the legacy API endpoint returns a
+// different list (today's most-discussed topics). A failed page read is
+// reported as an error so the caller can serve its last good copy instead of
+// silently substituting a list with different semantics.
 func (c *Client) Hot(ctx context.Context, limit int) ([]Article, error) {
 	if limit <= 0 {
 		limit = 20
@@ -153,17 +157,18 @@ func (c *Client) Hot(ctx context.Context, limit int) ([]Article, error) {
 		limit = MaxLimit
 	}
 	body, err := c.get(ctx, "/?tab=hot")
-	if err == nil {
-		if items, perr := parseHotPage(body); perr == nil && len(items) >= 5 {
-			return finishHot(items, limit), nil
-		}
+	if err != nil {
+		return nil, err
 	}
-	items, aerr := c.hotFromAPI(ctx)
-	if aerr != nil {
-		if err != nil {
-			return nil, fmt.Errorf("v2ex hot page: %v; api: %v", err, aerr)
-		}
-		return nil, aerr
+	if bytes.Contains(body, []byte("Just a moment")) {
+		return nil, fmt.Errorf("v2ex hot page is behind a Cloudflare challenge")
+	}
+	items, err := parseHotPage(body)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) < 5 {
+		return nil, fmt.Errorf("v2ex hot page returned only %d topics", len(items))
 	}
 	return finishHot(items, limit), nil
 }
@@ -223,46 +228,6 @@ func parseHotPage(page []byte) ([]Article, error) {
 	return out, nil
 }
 
-func (c *Client) hotFromAPI(ctx context.Context) ([]Article, error) {
-	body, err := c.get(ctx, "/api/topics/hot.json")
-	if err != nil {
-		return nil, err
-	}
-	var raw []struct {
-		ID      int    `json:"id"`
-		Title   string `json:"title"`
-		URL     string `json:"url"`
-		Replies int    `json:"replies"`
-		Created int64  `json:"created"`
-		Node    struct {
-			Title string `json:"title"`
-		} `json:"node"`
-		ContentRendered string `json:"content_rendered"`
-	}
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("v2ex hot api parse: %w", err)
-	}
-	out := make([]Article, 0, len(raw))
-	for _, t := range raw {
-		if t.ID == 0 || strings.TrimSpace(t.Title) == "" {
-			continue
-		}
-		created := time.Time{}
-		if t.Created > 0 {
-			created = time.Unix(t.Created, 0)
-		}
-		out = append(out, Article{
-			ID: t.ID, Title: strings.TrimSpace(t.Title), URL: fmt.Sprintf("%s/t/%d", DefaultBaseURL, t.ID),
-			Node: strings.TrimSpace(t.Node.Title), Replies: t.Replies,
-			Content: strings.TrimSpace(t.ContentRendered), Published: created,
-		})
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("v2ex hot api returned no topics")
-	}
-	return out, nil
-}
-
 func topicID(raw string) int {
 	if m := topicIDRe.FindStringSubmatch(raw); m != nil {
 		id, _ := strconv.Atoi(m[1])
@@ -277,8 +242,11 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", c.ua)
+	// Accept-Language is deliberately not sent: since 2026-11 V2EX answers
+	// HTML pages carrying a zh-CN preference with a Cloudflare JS challenge
+	// (403, "Just a moment..."), while the same request without it gets the
+	// page. The Atom feed is unaffected either way.
 	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("v2ex request failed: %w", err)
