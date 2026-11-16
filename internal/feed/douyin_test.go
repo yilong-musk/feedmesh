@@ -2,6 +2,7 @@ package feed
 
 import (
 	"context"
+	"encoding/xml"
 	"strings"
 	"testing"
 	"time"
@@ -136,5 +137,48 @@ func TestDouyinTitle(t *testing.T) {
 	long := strings.Repeat("x", 300)
 	if got := douyinTitle(long); got != long {
 		t.Fatalf("long title = %d runes, want 300", len([]rune(got)))
+	}
+}
+
+// TestDouyinRSSKeepsWholeCaption pins the data contract end to end: a
+// multi-line caption must survive into the rendered <title> and leave the
+// document well-formed, since a reader may see only the title.
+func TestDouyinRSSKeepsWholeCaption(t *testing.T) {
+	const caption = "第一行标题\n第二行补充 #话题 #另一个话题"
+	f := douyinFeed(cachedDouyin{
+		SecUID:    "MS4wLjABAAAAtestsecuid0000000000",
+		Author:    "Test Creator",
+		FetchedAt: time.Unix(1800000100, 0).UTC(),
+		Items: []douyin.Item{{
+			ID:         "7706127120845719717",
+			Desc:       caption,
+			Author:     "Test Creator",
+			CreatedAt:  time.Unix(1800000000, 0).UTC(),
+			DurationMS: 93204,
+			Width:      1080,
+			Height:     1920,
+		}},
+	}, 10, false, false)
+
+	if got := f.Items[0].Title; got != caption {
+		t.Fatalf("feed title = %q, want the whole caption", got)
+	}
+
+	var doc struct {
+		Channel struct {
+			Items []struct {
+				Title string `xml:"title"`
+			} `xml:"item"`
+		} `xml:"channel"`
+	}
+	raw := RenderRSS(f)
+	if err := xml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("rendered RSS is not well-formed: %v\n%s", err, raw)
+	}
+	if len(doc.Channel.Items) != 1 {
+		t.Fatalf("items = %d", len(doc.Channel.Items))
+	}
+	if got := doc.Channel.Items[0].Title; got != caption {
+		t.Fatalf("RSS title = %q, want %q", got, caption)
 	}
 }
