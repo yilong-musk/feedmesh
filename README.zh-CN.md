@@ -15,8 +15,8 @@
 | <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 账号时间线 | `/rss/user/{uid}`<br>`/rss/domain/{name}` | `/api/v1/feed?uid=` |
 | <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
 | <img src="docs/assets/sspai.png" width="18" height="18" align="absmiddle" alt="少数派">&nbsp;少数派 | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
-| <img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
-| <img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
+| <img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex`<br>`?section=latest` |
+| <img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex`<br>`?section=hot` |
 | <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 优惠精选（好价） | `/rss/smzdm` | `/api/v1/smzdm` |
 | <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 社区文章 | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
 | <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 海淘好价 | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
