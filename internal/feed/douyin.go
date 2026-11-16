@@ -150,19 +150,14 @@ func douyinDuration(ms int) string {
 	return fmt.Sprintf("%d:%02d", sec/60, sec%60)
 }
 
-// douyinTitle keeps the first line of the caption; the full text stays in the
-// item body.
+// douyinTitle passes the caption through as-is. Douyin has no separate title
+// field, and other providers keep their titles whole, so shortening it here
+// would be the only place that drops source data. A client that wants a
+// one-line label can shorten the text itself.
 func douyinTitle(desc string) string {
 	line := strings.TrimSpace(desc)
-	if i := strings.IndexAny(line, "\r\n"); i >= 0 {
-		line = strings.TrimSpace(line[:i])
-	}
 	if line == "" {
 		return "(no content)"
-	}
-	r := []rune(line)
-	if len(r) > 80 {
-		return string(r[:80]) + "..."
 	}
 	return line
 }

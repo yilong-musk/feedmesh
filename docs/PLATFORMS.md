@@ -231,6 +231,7 @@ Official site <https://www.douyin.com> · Data source: the public creator page, 
 - One page carries at most 44 videos. Guest sessions cannot paginate (`max_cursor` answers an empty body), so a creator with a longer history is covered by the newest page only.
 - Pinned videos (`is_top`) arrive first upstream; the service re-sorts every item by publish time and keeps the pinned flag in the body text.
 - The play address (`play_url`) is a time-limited watermark-free MP4 URL. It is exposed by `/api/v1/douyin/timeline` for the download tool and never embedded in the RSS document, because a stored address expires within hours.
+- The caption (`desc`) is the only text field Douyin provides, so it is kept verbatim in both the item title and the body: no first-line rule and no length cap.
 - Cache: fresh for 10 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails. An invalid `sec_uid` returns `BAD_REQUEST` (400); an unavailable page returns `UPSTREAM_UNAVAILABLE` (504).
 
 ---

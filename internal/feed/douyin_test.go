@@ -127,11 +127,14 @@ func TestDouyinTitle(t *testing.T) {
 	if got := douyinTitle(""); got != "(no content)" {
 		t.Fatalf("empty title = %q", got)
 	}
-	if got := douyinTitle("first line\nsecond line"); got != "first line" {
+	// The caption is the only text field Douyin offers, so nothing may be
+	// dropped from it: no first-line rule and no length cap.
+	const multiline = "first line\nsecond line"
+	if got := douyinTitle(multiline); got != multiline {
 		t.Fatalf("multiline title = %q", got)
 	}
-	long := strings.Repeat("x", 100)
-	if got := douyinTitle(long); len([]rune(got)) != 83 {
-		t.Fatalf("long title length = %d", len([]rune(got)))
+	long := strings.Repeat("x", 300)
+	if got := douyinTitle(long); got != long {
+		t.Fatalf("long title = %d runes, want 300", len([]rune(got)))
 	}
 }
