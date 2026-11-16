@@ -10,21 +10,26 @@
 
 ## 支持的平台
 
-| 平台&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | 内容 | RSS | JSON |
-|---|---|---|---|
-| <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 账号时间线 | `/rss/user/{uid}`<br>`/rss/domain/{name}` | `/api/v1/feed?uid=` |
-| <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
-| <img src="docs/assets/sspai.png" width="18" height="18" align="absmiddle" alt="少数派">&nbsp;少数派 | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
-| <img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex`<br>`?section=latest` |
-| <img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex`<br>`?section=hot` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 优惠精选（好价） | `/rss/smzdm` | `/api/v1/smzdm` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 社区文章 | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 海淘好价 | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 品类好价 | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei`<br>`&slug={slug}` |
-| <img src="docs/assets/x.png" width="18" height="18" align="absmiddle" alt="X">&nbsp;X | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
-| <img src="docs/assets/youtube.png" width="18" height="18" align="absmiddle" alt="YouTube">&nbsp;YouTube | 频道上传 | `/rss/youtube/{handle或id}` | `/api/v1/youtube?ref=` |
-| <img src="docs/assets/douyin.png" width="18" height="18" align="absmiddle" alt="抖音">&nbsp;抖音 | 创作者视频 | `/rss/douyin/{sec_uid}` | `/api/v1/douyin?user=` |
-| <img src="docs/assets/reddit.png" width="18" height="18" align="absmiddle" alt="Reddit">&nbsp;Reddit | 版块列表 | `/rss/reddit/{sub}` | `/api/v1/reddit?sub=` |
+<table>
+  <thead>
+    <tr><th width="120">平台</th><th>内容</th><th>RSS</th><th>JSON</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博</td><td>账号时间线</td><td><code>/rss/user/{uid}</code>, <code>/rss/domain/{name}</code></td><td><code>/api/v1/feed?uid=</code></td></tr>
+    <tr><td><img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博</td><td>实时热搜</td><td><code>/rss/hot</code></td><td><code>/api/v1/hot</code></td></tr>
+    <tr><td><img src="docs/assets/sspai.png" width="18" height="18" align="absmiddle" alt="少数派">&nbsp;少数派</td><td>最新文章</td><td><code>/rss/sspai</code></td><td><code>/api/v1/sspai</code></td></tr>
+    <tr><td><img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX</td><td>最新主题</td><td><code>/rss/v2ex</code></td><td><code>/api/v1/v2ex?section=latest</code></td></tr>
+    <tr><td><img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX</td><td>最热主题</td><td><code>/rss/v2ex/hot</code></td><td><code>/api/v1/v2ex?section=hot</code></td></tr>
+    <tr><td><img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买</td><td>优惠精选（好价）</td><td><code>/rss/smzdm</code></td><td><code>/api/v1/smzdm</code></td></tr>
+    <tr><td><img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买</td><td>社区文章</td><td><code>/rss/smzdm/post</code></td><td><code>/api/v1/smzdm?channel=post</code></td></tr>
+    <tr><td><img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买</td><td>海淘好价</td><td><code>/rss/smzdm/haitao</code></td><td><code>/api/v1/smzdm?channel=haitao</code></td></tr>
+    <tr><td><img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买</td><td>品类好价</td><td><code>/rss/smzdm/fenlei/{slug}</code></td><td><code>/api/v1/smzdm?channel=fenlei&slug=</code></td></tr>
+    <tr><td><img src="docs/assets/x.png" width="18" height="18" align="absmiddle" alt="X">&nbsp;X</td><td>账号时间线</td><td><code>/rss/x/{handle}</code></td><td><code>/api/v1/x?handle=</code></td></tr>
+    <tr><td><img src="docs/assets/youtube.png" width="18" height="18" align="absmiddle" alt="YouTube">&nbsp;YouTube</td><td>频道上传</td><td><code>/rss/youtube/{handle或id}</code></td><td><code>/api/v1/youtube?ref=</code></td></tr>
+    <tr><td><img src="docs/assets/douyin.png" width="18" height="18" align="absmiddle" alt="抖音">&nbsp;抖音</td><td>创作者视频</td><td><code>/rss/douyin/{sec_uid}</code></td><td><code>/api/v1/douyin?user=</code></td></tr>
+    <tr><td><img src="docs/assets/reddit.png" width="18" height="18" align="absmiddle" alt="Reddit">&nbsp;Reddit</td><td>版块列表</td><td><code>/rss/reddit/{sub}</code></td><td><code>/api/v1/reddit?sub=</code></td></tr>
+  </tbody>
+</table>
 
 参数、数据源与限制见 **[docs/PLATFORMS.md](docs/PLATFORMS.md)**。
 
