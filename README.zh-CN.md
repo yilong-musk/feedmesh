@@ -12,7 +12,7 @@
 
 | 平台&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | 内容 | RSS | JSON |
 |---|---|---|---|
-| <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 账号时间线 | `/rss/user/{uid}`、`/rss/domain/{name}` | `/api/v1/feed?uid=` |
+| <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 账号时间线 | `/rss/user/{uid}`<br>`/rss/domain/{name}` | `/api/v1/feed?uid=` |
 | <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
 | <img src="docs/assets/sspai.png" width="18" height="18" align="absmiddle" alt="少数派">&nbsp;少数派 | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
 | <img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
