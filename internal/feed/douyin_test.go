@@ -2,11 +2,13 @@ package feed
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
@@ -107,6 +109,84 @@ func TestGetDouyinLimit(t *testing.T) {
 	}
 }
 
+// countingDouyin records the width upstream was asked for and answers only that
+// many videos, the way the real client truncates one upstream page.
+type countingDouyin struct {
+	tl    *douyin.Timeline
+	calls []int
+}
+
+func (c *countingDouyin) Timeline(_ context.Context, _ string, limit int) (*douyin.Timeline, error) {
+	c.calls = append(c.calls, limit)
+	out := *c.tl
+	if limit > 0 && limit < len(out.Items) {
+		out.Items = out.Items[:limit]
+	}
+	return &out, nil
+}
+
+// TestGetDouyinCacheWidens pins the cache contract: a narrow first read must
+// not narrow later reads for the whole TTL, and a cache hit of the same width
+// must not touch upstream at all.
+func TestGetDouyinCacheWidens(t *testing.T) {
+	c, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := &countingDouyin{tl: douyinTimeline()}
+	svc := NewService(Clients{Douyin: stub}, c, logx.Discard(), DefaultTTLs())
+	ctx := context.Background()
+	const secUID = "MS4wLjABAAAAtestsecuid0000000000"
+
+	narrow, err := svc.GetDouyin(ctx, secUID, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(narrow.Items) != 1 {
+		t.Fatalf("narrow items = %d", len(narrow.Items))
+	}
+
+	wide, err := svc.GetDouyin(ctx, secUID, 2, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wide.Items) != 2 {
+		t.Fatalf("wide items = %d, want the widened cache to answer 2", len(wide.Items))
+	}
+
+	// Same width again: answered from the cache, no third upstream read.
+	if _, err := svc.GetDouyin(ctx, secUID, 2, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(stub.calls) != 2 || stub.calls[0] != 1 || stub.calls[1] != 2 {
+		t.Fatalf("upstream widths = %v, want [1 2]", stub.calls)
+	}
+	e, ok := readCachedList[douyin.Item](svc, "douyin:user:"+secUID, 2, douyinTTL)
+	if !ok || len(e.Items) != 2 || e.Want != 2 {
+		t.Fatalf("cache entry = %+v, ok = %v", e, ok)
+	}
+}
+
+// TestDouyinLegacyCacheEntryDecodes keeps a cache written by the previous
+// release readable: the entry had sec_uid/author at the top level and no Want,
+// so the new code must still find the items and treat the entry as narrow.
+func TestDouyinLegacyCacheEntryDecodes(t *testing.T) {
+	const raw = `{"sec_uid":"MS4wLjABAAAAtestsecuid0000000000","author":"Test Creator",
+		"fetched_at":"2026-11-16T07:09:03Z",
+		"items":[{"ID":"7002","Desc":"old caption","Author":"Test Creator",
+		          "SecUID":"MS4wLjABAAAAtestsecuid0000000000","CreatedAt":"2026-11-09T11:08:58Z"}]}`
+	var e cachedList[douyin.Item]
+	if err := json.Unmarshal([]byte(raw), &e); err != nil {
+		t.Fatalf("legacy entry no longer decodes: %v", err)
+	}
+	if len(e.Items) != 1 || e.Items[0].ID != "7002" || e.FetchedAt.IsZero() {
+		t.Fatalf("legacy entry = %+v", e)
+	}
+	if e.covers(2) {
+		t.Fatal("a one-item legacy entry must not claim to cover a wider read")
+	}
+}
+
 func TestGetDouyinErrors(t *testing.T) {
 	svc := NewService(Clients{Douyin: stubDouyin{err: douyin.ErrInvalidUser}}, nil, logx.Discard(), DefaultTTLs())
 	_, err := svc.GetDouyin(context.Background(), "bad user", 10, false)
@@ -145,14 +225,14 @@ func TestDouyinTitle(t *testing.T) {
 // document well-formed, since a reader may see only the title.
 func TestDouyinRSSKeepsWholeCaption(t *testing.T) {
 	const caption = "第一行标题\n第二行补充 #话题 #另一个话题"
-	f := douyinFeed(cachedDouyin{
-		SecUID:    "MS4wLjABAAAAtestsecuid0000000000",
-		Author:    "Test Creator",
+	const secUID = "MS4wLjABAAAAtestsecuid0000000000"
+	f := douyinFeed(secUID, cachedList[douyin.Item]{
 		FetchedAt: time.Unix(1800000100, 0).UTC(),
 		Items: []douyin.Item{{
 			ID:         "7706127120845719717",
 			Desc:       caption,
 			Author:     "Test Creator",
+			SecUID:     secUID,
 			CreatedAt:  time.Unix(1800000000, 0).UTC(),
 			DurationMS: 93204,
 			Width:      1080,

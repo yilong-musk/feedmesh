@@ -26,14 +26,6 @@ const (
 	douyinTTL = 10 * time.Minute
 )
 
-// cachedDouyin is one creator's timeline as stored in the cache.
-type cachedDouyin struct {
-	SecUID    string        `json:"sec_uid"`
-	Author    string        `json:"author"`
-	FetchedAt time.Time     `json:"fetched_at"`
-	Items     []douyin.Item `json:"items"`
-}
-
 // DouyinTTL is the cache lifetime of one creator timeline.
 func DouyinTTL() time.Duration { return douyinTTL }
 
@@ -53,26 +45,36 @@ func (s *Service) GetDouyin(ctx context.Context, secUID string, limit int, refre
 		limit = MaxDouyinLimit
 	}
 
+	// Everything the feed needs — caption, author, identifiers, media — lives
+	// on the item, so the cache stores items and can widen a narrow entry in
+	// place. A plain read-through entry would let one ?limit=1 request narrow
+	// every later read for the whole TTL, which is exactly what used to happen.
 	key := "douyin:user:" + secUID
-	entry, cached, degraded, err := fetchCached(ctx, s, key, douyinTTL, refresh, func() (cachedDouyin, error) {
-		tl, terr := s.clients.Douyin.Timeline(ctx, secUID, limit)
-		if terr != nil {
-			return cachedDouyin{}, terr
-		}
-		return cachedDouyin{
-			SecUID:    tl.SecUID,
-			Author:    tl.Author,
-			FetchedAt: tl.FetchedAt,
-			Items:     tl.Items,
-		}, nil
-	})
+	entry, cached, degraded, err := fetchCachedList(ctx, s, key, douyinTTL, refresh, limit,
+		func(n int) ([]douyin.Item, error) {
+			tl, terr := s.clients.Douyin.Timeline(ctx, secUID, n)
+			if terr != nil {
+				return nil, terr
+			}
+			return tl.Items, nil
+		})
 	if err != nil {
 		return nil, douyinError(err, secUID)
 	}
-	return douyinFeed(entry, limit, cached, degraded), nil
+	return douyinFeed(secUID, entry, limit, cached, degraded), nil
 }
 
-func douyinFeed(c cachedDouyin, limit int, cached, degraded bool) *Feed {
+func douyinFeed(secUID string, c cachedList[douyin.Item], limit int, cached, degraded bool) *Feed {
+	author := ""
+	for _, v := range c.Items {
+		if v.Author != "" {
+			author = v.Author
+			break
+		}
+	}
+	if author == "" {
+		author = secUID
+	}
 	n := len(c.Items)
 	if limit < n {
 		n = limit
@@ -98,16 +100,12 @@ func douyinFeed(c cachedDouyin, limit int, cached, degraded bool) *Feed {
 		}
 		items = append(items, it)
 	}
-	author := c.Author
-	if author == "" {
-		author = c.SecUID
-	}
 	return &Feed{
-		UID:         c.SecUID,
+		UID:         secUID,
 		ScreenName:  author,
 		FetchedAt:   c.FetchedAt,
 		TitleText:   author + " on Douyin",
-		LinkText:    "https://www.douyin.com/user/" + c.SecUID,
+		LinkText:    "https://www.douyin.com/user/" + secUID,
 		Cached:      cached,
 		Degraded:    degraded,
 		Items:       items,
