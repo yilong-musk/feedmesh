@@ -10,21 +10,21 @@ Bridges content from multiple platforms into RSS — self-hosted, one static bin
 
 ## Supported platforms
 
-| Platform | Content | RSS | JSON |
+| Platform&nbsp;&nbsp; | Content | RSS | JSON |
 |---|---|---|---|
-| <img src="docs/assets/weibo.png" width="18" height="18" alt="Weibo"> Weibo | Account timeline | `/rss/user/{uid}`, `/rss/domain/{name}` | `/api/v1/feed?uid=` |
-| <img src="docs/assets/weibo.png" width="18" height="18" alt="Weibo"> Weibo | Realtime hot search | `/rss/hot` | `/api/v1/hot` |
-| <img src="docs/assets/sspai.png" width="18" height="18" alt="sspai"> sspai | Latest articles | `/rss/sspai` | `/api/v1/sspai` |
-| <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | Latest topics | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
-| <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | Hot topics | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Selected deals | `/rss/smzdm` | `/api/v1/smzdm` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Community articles | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Overseas deals | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> SMZDM | Category good prices | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
-| <img src="docs/assets/x.png" width="18" height="18" alt="X"> X | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
-| <img src="docs/assets/youtube.png" width="18" height="18" alt="YouTube"> YouTube | Channel uploads | `/rss/youtube/{handle\|id}` | `/api/v1/youtube?ref=` |
-| <img src="docs/assets/douyin.png" width="18" height="18" alt="Douyin"> Douyin | Creator videos | `/rss/douyin/{sec_uid}` | `/api/v1/douyin?user=` |
-| <img src="docs/assets/reddit.png" width="18" height="18" alt="Reddit"> Reddit | Subreddit listing | `/rss/reddit/{sub}` | `/api/v1/reddit?sub=` |
+| <img src="docs/assets/weibo.png" width="18" height="18" alt="Weibo">&nbsp;Weibo | Account timeline | `/rss/user/{uid}`, `/rss/domain/{name}` | `/api/v1/feed?uid=` |
+| <img src="docs/assets/weibo.png" width="18" height="18" alt="Weibo">&nbsp;Weibo | Realtime hot search | `/rss/hot` | `/api/v1/hot` |
+| <img src="docs/assets/sspai.png" width="18" height="18" alt="sspai">&nbsp;sspai | Latest articles | `/rss/sspai` | `/api/v1/sspai` |
+| <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX">&nbsp;V2EX | Latest topics | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
+| <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX">&nbsp;V2EX | Hot topics | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM">&nbsp;SMZDM | Selected deals | `/rss/smzdm` | `/api/v1/smzdm` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM">&nbsp;SMZDM | Community articles | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM">&nbsp;SMZDM | Overseas deals | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM">&nbsp;SMZDM | Category good prices | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
+| <img src="docs/assets/x.png" width="18" height="18" alt="X">&nbsp;X | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
+| <img src="docs/assets/youtube.png" width="18" height="18" alt="YouTube">&nbsp;YouTube | Channel uploads | `/rss/youtube/{handle\|id}` | `/api/v1/youtube?ref=` |
+| <img src="docs/assets/douyin.png" width="18" height="18" alt="Douyin">&nbsp;Douyin | Creator videos | `/rss/douyin/{sec_uid}` | `/api/v1/douyin?user=` |
+| <img src="docs/assets/reddit.png" width="18" height="18" alt="Reddit">&nbsp;Reddit | Subreddit listing | `/rss/reddit/{sub}` | `/api/v1/reddit?sub=` |
 
 Parameters, data sources and limits live in **[docs/PLATFORMS.md](docs/PLATFORMS.md)**.
 
