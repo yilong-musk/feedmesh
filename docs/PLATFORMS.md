@@ -4,24 +4,24 @@
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
-| <img src="assets/weibo.png" width="20" height="20" alt="Weibo"> **Weibo** | Account timeline | `/rss/user/{uid}`<br>`/rss/domain/{name}` | `/api/v1/feed?uid=` |
-| <img src="assets/weibo.png" width="20" height="20" alt="Weibo"> **Weibo** | Realtime hot search | `/rss/hot` | `/api/v1/hot` |
-| <img src="assets/sspai.png" width="20" height="20" alt="sspai"> **sspai** | Latest articles | `/rss/sspai` | `/api/v1/sspai` |
-| <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | Latest topics | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
-| <img src="assets/v2ex.png" width="20" height="20" alt="V2EX"> **V2EX** | Hot topics | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
-| <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Selected deals | `/rss/smzdm` | `/api/v1/smzdm` |
-| <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Community articles | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
-| <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Overseas deals | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
-| <img src="assets/smzdm.png" width="20" height="20" alt="SMZDM"> **SMZDM** | Category good prices | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
-| <img src="assets/x.png" width="20" height="20" alt="X"> **X** | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
-| <img src="assets/youtube.png" width="20" height="20" alt="YouTube"> **YouTube** | Channel uploads | `/rss/youtube/{ref}` | `/api/v1/youtube?ref=` |
-| <img src="assets/reddit.png" width="20" height="20" alt="Reddit"> **Reddit** | Subreddit listing | `/rss/reddit/{sub}`<br>`/rss/reddit/r/{sub}` | `/api/v1/reddit?sub=` |
+| <img src="assets/weibo.png" width="20" height="20" align="absmiddle" alt="Weibo"> **Weibo** | Account timeline | `/rss/user/{uid}`<br>`/rss/domain/{name}` | `/api/v1/feed?uid=` |
+| <img src="assets/weibo.png" width="20" height="20" align="absmiddle" alt="Weibo"> **Weibo** | Realtime hot search | `/rss/hot` | `/api/v1/hot` |
+| <img src="assets/sspai.png" width="20" height="20" align="absmiddle" alt="sspai"> **sspai** | Latest articles | `/rss/sspai` | `/api/v1/sspai` |
+| <img src="assets/v2ex.png" width="20" height="20" align="absmiddle" alt="V2EX"> **V2EX** | Latest topics | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
+| <img src="assets/v2ex.png" width="20" height="20" align="absmiddle" alt="V2EX"> **V2EX** | Hot topics | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
+| <img src="assets/smzdm.png" width="20" height="20" align="absmiddle" alt="SMZDM"> **SMZDM** | Selected deals | `/rss/smzdm` | `/api/v1/smzdm` |
+| <img src="assets/smzdm.png" width="20" height="20" align="absmiddle" alt="SMZDM"> **SMZDM** | Community articles | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
+| <img src="assets/smzdm.png" width="20" height="20" align="absmiddle" alt="SMZDM"> **SMZDM** | Overseas deals | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
+| <img src="assets/smzdm.png" width="20" height="20" align="absmiddle" alt="SMZDM"> **SMZDM** | Category good prices | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
+| <img src="assets/x.png" width="20" height="20" align="absmiddle" alt="X"> **X** | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
+| <img src="assets/youtube.png" width="20" height="20" align="absmiddle" alt="YouTube"> **YouTube** | Channel uploads | `/rss/youtube/{ref}` | `/api/v1/youtube?ref=` |
+| <img src="assets/reddit.png" width="20" height="20" align="absmiddle" alt="Reddit"> **Reddit** | Subreddit listing | `/rss/reddit/{sub}`<br>`/rss/reddit/r/{sub}` | `/api/v1/reddit?sub=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
 ---
 
-## <img src="assets/weibo.png" width="28" height="28" alt="Weibo"> Weibo
+## <img src="assets/weibo.png" width="28" height="28" align="absmiddle" alt="Weibo"> Weibo
 
 Official site <https://weibo.com> · Data source `m.weibo.cn` (visitor cookie, anonymous)
 
@@ -51,7 +51,7 @@ Official site <https://weibo.com> · Data source `m.weibo.cn` (visitor cookie, a
 
 ---
 
-## <img src="assets/sspai.png" width="28" height="28" alt="sspai"> sspai
+## <img src="assets/sspai.png" width="28" height="28" align="absmiddle" alt="sspai"> sspai
 
 Official site <https://sspai.com> · Data source: sspai.com JSON API (the official RSS only carries summaries)
 
@@ -66,7 +66,7 @@ Official site <https://sspai.com> · Data source: sspai.com JSON API (the offici
 
 ---
 
-## <img src="assets/v2ex.png" width="28" height="28" alt="V2EX"> V2EX
+## <img src="assets/v2ex.png" width="28" height="28" align="absmiddle" alt="V2EX"> V2EX
 
 Official site <https://www.v2ex.com> · Data sources: official Atom + hot page scraping
 
@@ -88,7 +88,7 @@ Official site <https://www.v2ex.com> · Data sources: official Atom + hot page s
 
 ---
 
-## <img src="assets/smzdm.png" width="28" height="28" alt="SMZDM"> SMZDM
+## <img src="assets/smzdm.png" width="28" height="28" align="absmiddle" alt="SMZDM"> SMZDM
 
 Official site <https://www.smzdm.com> · Data source: the official deal RSS on `http://feed.smzdm.com` (the HTTPS host answers 403)
 
@@ -122,7 +122,7 @@ Official site <https://www.smzdm.com> · Data source: the official deal RSS on `
 
 ---
 
-## <img src="assets/x.png" width="28" height="28" alt="X"> X (Twitter)
+## <img src="assets/x.png" width="28" height="28" align="absmiddle" alt="X"> X (Twitter)
 
 Official site <https://x.com> · Data source: RSS from public Nitter instances (anonymous, no account, no API key)
 
@@ -156,7 +156,7 @@ Official site <https://x.com> · Data source: RSS from public Nitter instances (
 
 ---
 
-## <img src="assets/youtube.png" width="28" height="28" alt="YouTube"> YouTube
+## <img src="assets/youtube.png" width="28" height="28" align="absmiddle" alt="YouTube"> YouTube
 
 Official site <https://youtube.com> · Data source: the channel upload feed (`/feeds/videos.xml`; anonymous, no API key, no account)
 
@@ -183,7 +183,7 @@ Official site <https://youtube.com> · Data source: the channel upload feed (`/f
 
 ---
 
-## <img src="assets/reddit.png" width="28" height="28" alt="Reddit"> Reddit
+## <img src="assets/reddit.png" width="28" height="28" align="absmiddle" alt="Reddit"> Reddit
 
 Official site <https://www.reddit.com> · Data source: the public Atom listing (`/r/{sub}/{sort}/.rss`; anonymous, no OAuth application, no API key)
 
@@ -213,7 +213,7 @@ Official site <https://www.reddit.com> · Data source: the public Atom listing (
 
 ---
 
-## <img src="assets/douyin.png" width="28" height="28" alt="Douyin"> Douyin
+## <img src="assets/douyin.png" width="28" height="28" align="absmiddle" alt="Douyin"> Douyin
 
 Official site <https://www.douyin.com> · Data source: the public creator page, driven by a headless Chromium (anonymous visitor identity; no account)
 
