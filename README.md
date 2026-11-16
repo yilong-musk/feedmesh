@@ -10,7 +10,7 @@ Bridges content from multiple platforms into RSS — self-hosted, one static bin
 
 ## Supported platforms
 
-| Platform&nbsp;&nbsp; | Content | RSS | JSON |
+| Platform&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Content | RSS | JSON |
 |---|---|---|---|
 | <img src="docs/assets/weibo.png" width="18" height="18" alt="Weibo">&nbsp;Weibo | Account timeline | `/rss/user/{uid}`, `/rss/domain/{name}` | `/api/v1/feed?uid=` |
 | <img src="docs/assets/weibo.png" width="18" height="18" alt="Weibo">&nbsp;Weibo | Realtime hot search | `/rss/hot` | `/api/v1/hot` |
