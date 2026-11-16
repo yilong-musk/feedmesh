@@ -33,7 +33,7 @@ Parameters, data sources and limits live in **[docs/PLATFORMS.md](docs/PLATFORMS
 - **Complete RSS**: body HTML, images (real dimensions plus lazy loading), repost quotes, link cards, long-form full text; `content:encoded` and Media RSS in the same document, with `enclosure` for Weibo videos.
 - **Gentle on upstreams**: on-disk cache with limit-aware widening (a small request never truncates a larger cached one) and single-flight; Weibo concurrency stays at 1, cookies are refreshed on 418/403, and a persistent failure opens a 10-minute breaker.
 - **Two views**: RSS for readers, JSON for scripts and agents (one line per response).
-- **Single binary**: statically linked (CGO off), about 8.2 MB, roughly 11 MB of RSS at rest.
+- **Single binary**: statically linked (CGO off), about 8.3 MB, roughly 11 MB of RSS at rest.
 
 ## Quick start
 

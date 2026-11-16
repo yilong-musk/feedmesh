@@ -10,20 +10,21 @@
 
 ## 支持的平台
 
-| 平台 | 内容 | RSS | JSON |
+| 平台&nbsp;&nbsp; | 内容 | RSS | JSON |
 |---|---|---|---|
-| <img src="docs/assets/weibo.png" width="18" height="18" alt="微博"> 微博 | 账号时间线 | `/rss/user/{uid}`、`/rss/domain/{name}` | `/api/v1/feed?uid=` |
-| <img src="docs/assets/weibo.png" width="18" height="18" alt="微博"> 微博 | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
-| <img src="docs/assets/sspai.png" width="18" height="18" alt="少数派"> 少数派 | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
-| <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
-| <img src="docs/assets/v2ex.png" width="18" height="18" alt="V2EX"> V2EX | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 优惠精选（好价） | `/rss/smzdm` | `/api/v1/smzdm` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 社区文章 | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 海淘好价 | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" alt="SMZDM"> 什么值得买 | 品类好价 | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
-| <img src="docs/assets/x.png" width="18" height="18" alt="X"> X | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
-| <img src="docs/assets/youtube.png" width="18" height="18" alt="YouTube"> YouTube | 频道上传 | `/rss/youtube/{handle或id}` | `/api/v1/youtube?ref=` |
-| <img src="docs/assets/reddit.png" width="18" height="18" alt="Reddit"> Reddit | 版块列表 | `/rss/reddit/{sub}` | `/api/v1/reddit?sub=` |
+| <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 账号时间线 | `/rss/user/{uid}`、`/rss/domain/{name}` | `/api/v1/feed?uid=` |
+| <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
+| <img src="docs/assets/sspai.png" width="18" height="18" align="absmiddle" alt="少数派">&nbsp;少数派 | 最新文章 | `/rss/sspai` | `/api/v1/sspai` |
+| <img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX | 最新主题 | `/rss/v2ex` | `/api/v1/v2ex?section=latest` |
+| <img src="docs/assets/v2ex.png" width="18" height="18" align="absmiddle" alt="V2EX">&nbsp;V2EX | 最热主题 | `/rss/v2ex/hot` | `/api/v1/v2ex?section=hot` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 优惠精选（好价） | `/rss/smzdm` | `/api/v1/smzdm` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 社区文章 | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 海淘好价 | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 品类好价 | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
+| <img src="docs/assets/x.png" width="18" height="18" align="absmiddle" alt="X">&nbsp;X | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
+| <img src="docs/assets/youtube.png" width="18" height="18" align="absmiddle" alt="YouTube">&nbsp;YouTube | 频道上传 | `/rss/youtube/{handle或id}` | `/api/v1/youtube?ref=` |
+| <img src="docs/assets/douyin.png" width="18" height="18" align="absmiddle" alt="抖音">&nbsp;抖音 | 创作者视频 | `/rss/douyin/{sec_uid}` | `/api/v1/douyin?user=` |
+| <img src="docs/assets/reddit.png" width="18" height="18" align="absmiddle" alt="Reddit">&nbsp;Reddit | 版块列表 | `/rss/reddit/{sub}` | `/api/v1/reddit?sub=` |
 
 参数、数据源与限制见 **[docs/PLATFORMS.md](docs/PLATFORMS.md)**。
 
@@ -32,7 +33,7 @@
 - **完整 RSS**：正文 HTML、配图（真实宽高 + 懒加载）、转发引用、外链卡片、长文全文；`content:encoded` 与 Media RSS 同文档输出，微博视频带 `enclosure`。
 - **对上游友好**：磁盘缓存 + 按 `limit` 加宽（小请求不会截断更宽的缓存）+ single-flight；微博并发恒为 1，遇 418/403 刷新 cookie，持续失败则熔断 10 分钟。
 - **两种视图**：RSS 给阅读器，JSON 给脚本与 agent（每次响应一行 JSON）。
-- **单二进制**：静态链接（CGO 关闭），约 8.2 MB，常驻内存约 11 MB。
+- **单二进制**：静态链接（CGO 关闭），约 8.3 MB，常驻内存约 11 MB。
 
 ## 快速开始
 
@@ -74,13 +75,14 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 | `serve --listen <addr>` | 启动 HTTP 服务；可选 `--token` / `--rate-limit` |
 | `fetch <uid\|domain>` | 打印单个微博账号的时间线（RSS；`--json` 输出一行 JSON） |
 | `doctor [--uid <uid>]` | 按顺序探活 visitor、getIndex、statuses |
+| `doctor --x-handle <handle>` | 探活 X 实例池与各镜像实例 |
 | `cache stat` | 缓存条目数与体积 |
 | `cache purge --all` | 清空所有 feedmesh 缓存条目 |
 | `cache purge --uid <uid>` | 清除某个微博账号的 profile/timeline/domain/feed/长文缓存 |
 | `cache purge --handle <handle>` | 清除某个 X handle 的时间线缓存 |
 | `--dry-run` | 只报告，不删除 |
 
-全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit 15 秒、X/YouTube 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
+全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit 15 秒、X/YouTube 20 秒、抖音 45 秒（冷启动浏览器约 30 秒）；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
 
 ## 文档
 
