@@ -83,7 +83,8 @@ Official site <https://www.v2ex.com> · Data sources: official Atom + hot page s
 ### Hot topics
 
 - The official site has **no** hot feed: we scrape `https://www.v2ex.com/?tab=hot`, filter out the "Promotions" node, and sort by reply count descending.
-- Fallback: when page scraping yields fewer than 5 topics, fall back to `api/topics/hot.json` (10 topics); only fail when both paths fail.
+- The ranking exists only on that page. `api/topics/hot.json` returns a different list (today's most-discussed topics, 10 items), so it is **not** used as a fallback: a page that cannot be read (network error, Cloudflare challenge, fewer than five parsed topics) fails the request, and the reader is served the last good hot list with `X-Feedmesh-Degraded: 1` instead of a list with different semantics.
+- Cloudflare answers the HTML page with a JS challenge (403, "Just a moment...") when the request carries `Accept-Language: zh-CN`; the client therefore sends only `User-Agent` and `Accept: */*`. The Atom feed is unaffected.
 - Parameters: `limit` 1–50, `refresh=1`.
 
 ---
