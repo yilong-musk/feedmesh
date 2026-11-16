@@ -46,6 +46,7 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 | `youtube:feed:<channel_id>` | 10 minutes old counts as fresh; the entry is stored for 24 hours so the last good list survives an outage |
 | `youtube:channel:<ref>` | 24 hours; an expired entry is reused when the channel page cannot be read |
 | `reddit:list:<sub>:<sort>:<window>` | 10 minutes old counts as fresh; stored for 24 hours so the last good listing survives a rate-limit window |
+| `douyin:user:<sec_uid>` | 10 minutes old counts as fresh; stored for 6 hours so the last good list survives a browser failure |
 
 Every entry is stored for at least 6 hours; the column is the freshness window,
 not the on-disk lifetime, and a failed read serves the newest entry inside that
@@ -78,6 +79,7 @@ internal/v2ex/      V2EX Atom + hottest page
 internal/smzdm/     SMZDM official deal RSS and category pages
 internal/xnitter/   X timelines: Nitter instance pool + Anubis PoW + RSS parsing
 internal/youtube/   YouTube upload feed (Atom) + web-client fallback
+internal/douyin/    Douyin creator timeline via headless Chromium + CDP over pipes
 internal/reddit/    Reddit subreddit Atom listing + global rate-limited read slot
 internal/feed/      unified model, RSS rendering, cache orchestration
 internal/cache/     key-per-file cache, TTL, atomic writes
@@ -159,3 +161,18 @@ go run ./tools/rsscheck f.xml    # validate that the RSS is well-formed
 
 CI (GitHub Actions) runs the same `gofmt` / language / `vet` / `test -race` /
 static build checks.
+
+## Douyin's browser
+
+Douyin's web API is signed by JavaScript that runs on the page, so the provider
+cannot be a plain HTTP client. `internal/douyin` starts Chromium with
+`--remote-debugging-pipe` and talks the DevTools protocol over file descriptors
+3 and 4 (NUL-separated JSON). The implementation uses the standard library only,
+which keeps the zero-module property of the binary; Chromium itself is a runtime
+dependency (`FEEDMESH_CHROME` overrides the lookup).
+
+The browser starts on the first Douyin request, opens `douyin.com` to obtain the
+visitor identity, and stays warm for two minutes after the last request. A cold
+read therefore takes about half a minute (page load plus signer warm-up), while
+a cached read is served from disk. The visitor profile is stored under
+`<cache>/douyin-profile`, and `Pdeathsig` makes Chromium die with the service.

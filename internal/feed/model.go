@@ -38,6 +38,15 @@ type Item struct {
 	// Slug is the category slug a card was read from (SMZDM category pages
 	// only); the JSON view publishes it.
 	Slug string `json:"-"`
+
+	// Douyin-only fields. The play address expires within hours, so the
+	// generic item JSON leaves it out and the dedicated timeline view
+	// publishes it for the downloader.
+	PlayURL    string `json:"-"`
+	DurationMS int    `json:"-"`
+	Width      int    `json:"-"`
+	Height     int    `json:"-"`
+	IsTop      bool   `json:"-"`
 	// DateSource says where CreatedAt came from when a provider can derive it
 	// more than one way: "card" for a timestamp the upstream published,
 	// "fetched" for the page read time used as a fallback. Empty elsewhere.

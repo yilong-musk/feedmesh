@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/cache"
+	"github.com/yilong-musk/feedmesh/internal/douyin"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/reddit"
@@ -47,6 +48,12 @@ func DefaultTTLs() TTLs {
 	}
 }
 
+// DouyinTimeline is the timeline provider the Douyin feed needs; tests
+// substitute their own implementation.
+type DouyinTimeline interface {
+	Timeline(ctx context.Context, secUID string, limit int) (*douyin.Timeline, error)
+}
+
 // Service coordinates the upstream client and the on-disk cache.
 // Clients bundles the upstream providers a Service can serve.
 type Clients struct {
@@ -57,6 +64,7 @@ type Clients struct {
 	Smzdm   *smzdm.Client
 	Youtube *youtube.Client
 	Reddit  *reddit.Client
+	Douyin  DouyinTimeline
 }
 
 type Service struct {

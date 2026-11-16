@@ -1,6 +1,7 @@
 package httpapi_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/cache"
+	"github.com/yilong-musk/feedmesh/internal/douyin"
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
@@ -217,7 +219,7 @@ func newTestServer(t *testing.T) http.Handler {
 		// Tests never reach the real embed endpoint.
 		DisableEnrichment: true,
 	})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond})}, c, logx.Discard(), feed.DefaultTTLs())
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond}), Douyin: fakeDouyin{}}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,
@@ -623,4 +625,39 @@ func TestSmallLimitDoesNotTruncateCachedFeeds(t *testing.T) {
 	if len(out.Items) != 10 || !out.Cached {
 		t.Fatalf("/api/v1/sspai after limit=30 = %d items, cached=%v; want 10 from cache", len(out.Items), out.Cached)
 	}
+}
+
+// fakeDouyin answers the Douyin routes without starting a browser.
+type fakeDouyin struct{}
+
+func (fakeDouyin) Timeline(_ context.Context, secUID string, limit int) (*douyin.Timeline, error) {
+	items := []douyin.Item{
+		{
+			ID:         "7002",
+			Desc:       "newest video",
+			Author:     "Test Creator",
+			SecUID:     secUID,
+			CreatedAt:  time.Unix(1800000000, 0).UTC(),
+			DurationMS: 93000,
+			Width:      1080,
+			Height:     1920,
+			PlayURL:    "https://v3-dy-o.zjcdn.com/a.mp4",
+			CoverURL:   "https://p3.douyinpic.com/c.jpeg",
+		},
+		{
+			ID:         "7001",
+			Desc:       "pinned older",
+			Author:     "Test Creator",
+			SecUID:     secUID,
+			CreatedAt:  time.Unix(1700000000, 0).UTC(),
+			DurationMS: 15000,
+			Width:      1080,
+			Height:     1920,
+			IsTop:      true,
+		},
+	}
+	if limit > 0 && limit < len(items) {
+		items = items[:limit]
+	}
+	return &douyin.Timeline{SecUID: secUID, Author: "Test Creator", FetchedAt: time.Unix(1800000100, 0).UTC(), Items: items}, nil
 }
