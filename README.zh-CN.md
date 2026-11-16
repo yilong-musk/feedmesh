@@ -10,7 +10,7 @@
 
 ## 支持的平台
 
-| 平台<img src="docs/assets/spacer.png" width="12" height="1" alt=""> | 内容 | RSS | JSON |
+| 平台&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | 内容 | RSS | JSON |
 |---|---|---|---|
 | <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 账号时间线 | `/rss/user/{uid}`<br>`/rss/domain/{name}` | `/api/v1/feed?uid=` |
 | <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
@@ -20,7 +20,7 @@
 | <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 优惠精选（好价） | `/rss/smzdm` | `/api/v1/smzdm` |
 | <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 社区文章 | `/rss/smzdm/post` | `/api/v1/smzdm?channel=post` |
 | <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 海淘好价 | `/rss/smzdm/haitao` | `/api/v1/smzdm?channel=haitao` |
-| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 品类好价 | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei&slug=` |
+| <img src="docs/assets/smzdm.png" width="18" height="18" align="absmiddle" alt="SMZDM">&nbsp;什么值得买 | 品类好价 | `/rss/smzdm/fenlei/{slug}` | `/api/v1/smzdm?channel=fenlei`<br>`&slug={slug}` |
 | <img src="docs/assets/x.png" width="18" height="18" align="absmiddle" alt="X">&nbsp;X | 账号时间线 | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 | <img src="docs/assets/youtube.png" width="18" height="18" align="absmiddle" alt="YouTube">&nbsp;YouTube | 频道上传 | `/rss/youtube/{handle或id}` | `/api/v1/youtube?ref=` |
 | <img src="docs/assets/douyin.png" width="18" height="18" align="absmiddle" alt="抖音">&nbsp;抖音 | 创作者视频 | `/rss/douyin/{sec_uid}` | `/api/v1/douyin?user=` |
