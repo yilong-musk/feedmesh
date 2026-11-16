@@ -10,7 +10,7 @@
 
 ## 支持的平台
 
-| 平台&nbsp;&nbsp; | 内容 | RSS | JSON |
+| 平台&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | 内容 | RSS | JSON |
 |---|---|---|---|
 | <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 账号时间线 | `/rss/user/{uid}`、`/rss/domain/{name}` | `/api/v1/feed?uid=` |
 | <img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博 | 实时热搜 | `/rss/hot` | `/api/v1/hot` |
