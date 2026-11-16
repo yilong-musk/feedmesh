@@ -213,6 +213,27 @@ Official site <https://www.reddit.com> · Data source: the public Atom listing (
 
 ---
 
+## <img src="assets/douyin.png" width="28" height="28" alt="Douyin"> Douyin
+
+Official site <https://www.douyin.com> · Data source: the public creator page, driven by a headless Chromium (anonymous visitor identity; no account)
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Creator videos | `/rss/douyin/{sec_uid}` | `/api/v1/douyin?user=` | 20 | 44 | 10 minutes |
+
+### Creator videos
+
+- `{sec_uid}` is the `MS4w…` segment of `https://www.douyin.com/user/<sec_uid>`; the JSON route takes it in `user=`. The downloader-facing view is `/api/v1/douyin/timeline?user=`.
+- Douyin signs every web API call with a browser-generated token, so the service does **not** reimplement the signature: it starts Chromium with `--remote-debugging-pipe`, opens `douyin.com`, and issues the request from inside the page. The DevTools protocol is implemented with the standard library; the binary stays free of third-party Go modules.
+- Chromium is a runtime dependency: set `FEEDMESH_CHROME` to an explicit binary when the default lookup (`chromium`, `chromium-browser`, `google-chrome`, or the Hermes bundled build) does not find one. The visitor profile lives in `<cache>/douyin-profile`.
+- The page needs about 15 seconds before its signer is ready, so a cold read takes roughly half a minute; the browser is closed after two minutes without a request. Cached reads are served in milliseconds.
+- One page carries at most 44 videos. Guest sessions cannot paginate (`max_cursor` answers an empty body), so a creator with a longer history is covered by the newest page only.
+- Pinned videos (`is_top`) arrive first upstream; the service re-sorts every item by publish time and keeps the pinned flag in the body text.
+- The play address (`play_url`) is a time-limited watermark-free MP4 URL. It is exposed by `/api/v1/douyin/timeline` for the download tool and never embedded in the RSS document, because a stored address expires within hours.
+- Cache: fresh for 10 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails. An invalid `sec_uid` returns `BAD_REQUEST` (400); an unavailable page returns `UPSTREAM_UNAVAILABLE` (504).
+
+---
+
 ## Adding a platform
 
 1. Create `internal/<platform>/client.go`; it only handles HTTP and parsing and returns the neutral `Article` struct.

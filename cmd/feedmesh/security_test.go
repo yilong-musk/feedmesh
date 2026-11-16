@@ -38,19 +38,21 @@ func TestProviderTimeoutsClampX(t *testing.T) {
 		wantSmzdm   time.Duration
 		wantYouTube time.Duration
 		wantReddit  time.Duration
+		wantDouyin  time.Duration
 	}{
-		{"defaults", &options{}, 15 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second},
-		{"explicit", &options{timeout: 2 * time.Second, timeoutSet: true}, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second},
-		{"x capped", &options{timeout: 60 * time.Second, timeoutSet: true}, 60 * time.Second, 60 * time.Second, 25 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second},
+		{"defaults", &options{}, 15 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 45 * time.Second},
+		{"explicit", &options{timeout: 2 * time.Second, timeoutSet: true}, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 20 * time.Second},
+		{"x capped", &options{timeout: 60 * time.Second, timeoutSet: true}, 60 * time.Second, 60 * time.Second, 25 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout := providerTimeouts(tc.opts)
+			sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout := providerTimeouts(tc.opts)
 			if sspaiTimeout != tc.wantSspai || v2exTimeout != tc.wantV2ex || xTimeout != tc.wantX ||
-				smzdmTimeout != tc.wantSmzdm || youtubeTimeout != tc.wantYouTube || redditTimeout != tc.wantReddit {
-				t.Fatalf("timeouts = %v/%v/%v/%v/%v/%v, want %v/%v/%v/%v/%v/%v",
-					sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout,
-					tc.wantSspai, tc.wantV2ex, tc.wantX, tc.wantSmzdm, tc.wantYouTube, tc.wantReddit)
+				smzdmTimeout != tc.wantSmzdm || youtubeTimeout != tc.wantYouTube || redditTimeout != tc.wantReddit ||
+				douyinTimeout != tc.wantDouyin {
+				t.Fatalf("timeouts = %v/%v/%v/%v/%v/%v/%v, want %v/%v/%v/%v/%v/%v/%v",
+					sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout,
+					tc.wantSspai, tc.wantV2ex, tc.wantX, tc.wantSmzdm, tc.wantYouTube, tc.wantReddit, tc.wantDouyin)
 			}
 		})
 	}

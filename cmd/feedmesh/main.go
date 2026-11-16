@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/cache"
+	"github.com/yilong-musk/feedmesh/internal/douyin"
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
@@ -48,6 +49,7 @@ const (
 	defaultXTimeout       = 20 * time.Second
 	maxXTimeout           = 25 * time.Second
 	defaultYouTubeTimeout = 20 * time.Second
+	defaultDouyinTimeout  = 45 * time.Second
 	defaultRedditTimeout  = 15 * time.Second
 	breakerCooloff        = 10 * time.Minute
 )
@@ -381,27 +383,34 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		Retries: 3,
 		Backoff: 300 * time.Millisecond,
 	})
-	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout := providerTimeouts(o)
+	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout := providerTimeouts(o)
 	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
 	vx := v2ex.New(v2ex.Config{Timeout: v2exTimeout})
 	xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: o.noXEnrich})
 	sz := smzdm.New(smzdm.Config{Timeout: smzdmTimeout})
 	yt := youtube.New(youtube.Config{Timeout: youtubeTimeout})
 	rd := reddit.New(reddit.Config{Timeout: redditTimeout, Log: logger})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd}, c, logger, feed.DefaultTTLs())
+	dy := douyin.New(douyin.Config{
+		ChromePath: os.Getenv("FEEDMESH_CHROME"),
+		ProfileDir: filepath.Join(c.Dir(), "douyin-profile"),
+		Timeout:    douyinTimeout,
+		Log:        logger,
+	})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 
 // providerTimeouts resolves the per-provider request timeouts. X is capped even
 // when --timeout is larger, so a single X feed request cannot spend the whole
 // handler deadline on slow mirror attempts.
-func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout time.Duration) {
+func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout time.Duration) {
 	sspaiTimeout = defaultSspaiTimeout
 	v2exTimeout = defaultV2exTimeout
 	xTimeout = defaultXTimeout
 	smzdmTimeout = defaultSmzdmTimeout
 	youtubeTimeout = defaultYouTubeTimeout
 	redditTimeout = defaultRedditTimeout
+	douyinTimeout = defaultDouyinTimeout
 	if o.timeoutSet {
 		sspaiTimeout = o.timeout
 		v2exTimeout = o.timeout
@@ -409,6 +418,7 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 		smzdmTimeout = o.timeout
 		youtubeTimeout = o.timeout
 		redditTimeout = o.timeout
+		douyinTimeout = o.timeout
 	}
 	if sspaiTimeout <= 0 {
 		sspaiTimeout = defaultTimeout
@@ -431,7 +441,12 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 	if redditTimeout <= 0 {
 		redditTimeout = defaultTimeout
 	}
-	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout
+	// The Douyin page needs about fifteen seconds to become ready, so a very
+	// small shared deadline would make every call fail; keep a floor.
+	if douyinTimeout < 20*time.Second {
+		douyinTimeout = 20 * time.Second
+	}
+	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout
 }
 
 func exitCodeFor(code string) int {
@@ -612,7 +627,7 @@ func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
 	var steps []doctorStep
 	if o.xHandle != "" {
 		mode = "x"
-		_, _, xTimeout, _, _, _ := providerTimeouts(o)
+		_, _, xTimeout, _, _, _, _ := providerTimeouts(o)
 		xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: true})
 		for _, st := range xn.Probe(ctx, strings.TrimSpace(o.xHandle)) {
 			steps = append(steps, doctorStep{

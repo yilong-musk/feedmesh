@@ -167,6 +167,21 @@ curl -s 'http://127.0.0.1:3000/rss/youtube/UC_x5XG1OV2P6uZZ5FSM9Ttw.xml'
 - A successful read that comes back with no entries keeps the list already cached (served as degraded) instead of replacing it; a channel with no uploads and no cache still gets an empty feed.
 - A reference that does not resolve to a channel returns `USER_NOT_FOUND` (404); one that cannot name a channel at all (empty, malformed, an unsupported URL form) returns `BAD_REQUEST` (400).
 
+### `GET /rss/douyin/{sec_uid}`
+
+A creator's video timeline, read from the public profile page through a headless Chromium: Douyin signs every API call with a browser-generated token, so the request is issued from inside the page instead of being reimplemented. No account is needed; the browser uses a visitor identity stored under the cache directory.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/douyin/MS4wLjABAAAAlVAfjJp4JQqjNIFKLDwWDHjjcS11yIMJ2a1kRhLiAD8?limit=20'
+curl -s 'http://127.0.0.1:3000/rss/douyin/<sec_uid>.xml'
+```
+
+- 20 items by default, maximum 44 (one page). Pinned videos are marked but ordered by publish time like every other item.
+- Cached for 10 minutes, `Cache-Control: max-age=600`; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when the upstream read fails.
+- A cold read starts Chromium and waits for the page's signer (about 15 seconds), so the first request after the cache expires can take half a minute. The browser is closed after two minutes without use.
+- `link`/`guid` is `https://www.douyin.com/video/<aweme_id>`; the body carries the caption, the cover image and the duration/resolution line. The play address expires within hours, so it is not embedded in the feed.
+- `limit` above 44 returns 44; only the first page is available without a logged-in cookie.
+
 ### `GET /rss/reddit/{sub}`
 
 A subreddit listing, read from the public Atom document (`/r/<sub>/<sort>/.rss`); no account, no OAuth application and no API key. `{sub}` is the subreddit name (`r/` prefix and case accepted); `/rss/reddit/r/{sub}` accepts the name exactly as it is copied from the site, and `.xml` is optional.
@@ -317,6 +332,31 @@ One SMZDM category page. `slug` is required for this channel (`BAD_REQUEST` with
 - `degraded: true` means the list came from the last good cache entry because the upstream read failed; `cached` tells whether the TTL was still valid.
 - `created_at` is exact on the Atom path; fallback items carry a day-granular approximation, so several uploads can share one timestamp and their order follows the upstream list.
 
+### `GET /api/v1/douyin?user=<sec_uid>&limit=N`
+
+```json
+{"user":"MS4w…","title":"Creator on Douyin","description":"Douyin videos from Creator",
+ "fetched_at":"…","cached":false,"degraded":false,
+ "items":[{"id":"7706127120845719717","title":"…","text":"…","url":"https://www.douyin.com/video/7706127120845719717",
+           "html":"…","images":["https://p3-pic.douyinpic.com/…"],"created_at":"2026-11-09T11:08:58Z"}]}
+```
+
+- `user` is required (the profile's `sec_uid`, the `MS4w…` segment of `douyin.com/user/…`); `limit` defaults to 20 with a maximum of 44, `refresh=1` is supported.
+- `title` is `<author> on Douyin`; `degraded: true` means the last good list was served because the upstream read failed.
+
+### `GET /api/v1/douyin/timeline?user=<sec_uid>&limit=N`
+
+The same list in the downloader's schema, so a separate download tool can consume it without touching a browser:
+
+```json
+{"author":"Creator","sec_uid":"MS4w…","fetched_at":"…","source":"douyin",
+ "items":[{"aweme_id":"7706127120845719717","desc":"…","author":"Creator","sec_uid":"MS4w…",
+           "create_time":1794222538,"duration_ms":93202,"width":1080,"height":1920,
+           "is_top":0,"play_url":"https://v3-dy-o.zjcdn.com/…","cover_url":"https://p3-pic.douyinpic.com/…"}]}
+```
+
+- `play_url` is a time-limited, watermark-free MP4 address; download it promptly instead of storing it for later.
+
 ### `GET /api/v1/reddit?sub=<sub>&sort=<sort>&window=<window>&limit=N`
 
 ```json
@@ -396,6 +436,7 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | X timeline | `x:<handle>` | 40 minutes |
 | YouTube uploads | `youtube:feed:<channel_id>` | 10 minutes (last good kept for 24 hours) |
 | YouTube handle mapping | `youtube:channel:<ref>` | 24 hours |
+| `douyin:user:<sec_uid>` | 10 minutes (last good kept for 6 hours) |
 | Reddit listing | `reddit:list:<sub>:<sort>:<window>` | 10 minutes (last good kept for 24 hours) |
 
 - **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube and Reddit.

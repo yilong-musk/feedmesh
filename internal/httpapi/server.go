@@ -98,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/smzdm/fenlei/{slug}", s.getOnly(s.handleSmzdmFenlei))
 	mux.HandleFunc("/rss/x/{handle}", s.getOnly(s.handleX))
 	mux.HandleFunc("/rss/youtube/{ref}", s.getOnly(s.handleYouTube))
+	mux.HandleFunc("/rss/douyin/{sec}", s.getOnly(s.handleDouyin))
 	mux.HandleFunc("/rss/reddit/r/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/rss/reddit/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
@@ -107,6 +108,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/smzdm", s.getOnly(s.handleAPISmzdm))
 	mux.HandleFunc("/api/v1/x", s.getOnly(s.handleAPIX))
 	mux.HandleFunc("/api/v1/youtube", s.getOnly(s.handleAPIYouTube))
+	mux.HandleFunc("/api/v1/douyin", s.getOnly(s.handleAPIDouyin))
+	mux.HandleFunc("/api/v1/douyin/timeline", s.getOnly(s.handleAPIDouyinTimeline))
 	mux.HandleFunc("/api/v1/reddit", s.getOnly(s.handleAPIReddit))
 	mux.HandleFunc("/", s.handleNotFound)
 
@@ -943,4 +946,124 @@ func atoiClamp(raw string, def, max int) int {
 		return max
 	}
 	return n
+}
+
+// douyinItemResponse is one video in the JSON view.
+type douyinItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type douyinResponse struct {
+	User        string               `json:"user"`
+	Title       string               `json:"title"`
+	Description string               `json:"description"`
+	FetchedAt   time.Time            `json:"fetched_at"`
+	Cached      bool                 `json:"cached"`
+	Degraded    bool                 `json:"degraded"`
+	Items       []douyinItemResponse `json:"items"`
+}
+
+// handleDouyin renders one creator's timeline as RSS.
+func (s *Server) handleDouyin(w http.ResponseWriter, r *http.Request) {
+	sec := strings.TrimSuffix(r.PathValue("sec"), ".xml")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetDouyin(r.Context(), sec, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	s.setRSSCacheFor(w, f, int(feed.DouyinTTL().Seconds()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+// handleAPIDouyin returns the same timeline as JSON.
+func (s *Server) handleAPIDouyin(w http.ResponseWriter, r *http.Request) {
+	sec := strings.TrimSpace(r.URL.Query().Get("user"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetDouyin(r.Context(), sec, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]douyinItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		items = append(items, douyinItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, douyinResponse{
+		User: f.UID, Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
+	})
+}
+
+// douyinTimelineItem is the downloader-facing shape: it keeps the identifiers
+// and media addresses that the RSS view does not need.
+type douyinTimelineItem struct {
+	AwemeID    string `json:"aweme_id"`
+	Desc       string `json:"desc"`
+	Author     string `json:"author"`
+	SecUID     string `json:"sec_uid"`
+	CreateTime int64  `json:"create_time"`
+	DurationMS int    `json:"duration_ms"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	IsTop      int    `json:"is_top"`
+	PlayURL    string `json:"play_url"`
+	CoverURL   string `json:"cover_url"`
+}
+
+type douyinTimelineResponse struct {
+	Author    string               `json:"author"`
+	SecUID    string               `json:"sec_uid"`
+	FetchedAt time.Time            `json:"fetched_at"`
+	Source    string               `json:"source"`
+	Items     []douyinTimelineItem `json:"items"`
+}
+
+// handleAPIDouyinTimeline serves the timeline in the downloader's schema so a
+// separate download tool can consume it without touching a browser.
+func (s *Server) handleAPIDouyinTimeline(w http.ResponseWriter, r *http.Request) {
+	sec := strings.TrimSpace(r.URL.Query().Get("user"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetDouyin(r.Context(), sec, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]douyinTimelineItem, 0, len(f.Items))
+	for _, it := range f.Items {
+		cover := ""
+		if len(it.Images) > 0 {
+			cover = it.Images[0]
+		}
+		top := 0
+		if it.IsTop {
+			top = 1
+		}
+		items = append(items, douyinTimelineItem{
+			AwemeID: it.ID, Desc: it.Text, Author: it.Author, SecUID: f.UID,
+			CreateTime: it.CreatedAt.Unix(), DurationMS: it.DurationMS,
+			Width: it.Width, Height: it.Height, IsTop: top,
+			PlayURL: it.PlayURL, CoverURL: cover,
+		})
+	}
+	writeJSON(w, http.StatusOK, douyinTimelineResponse{
+		Author: f.ScreenName, SecUID: f.UID, FetchedAt: f.FetchedAt, Source: "douyin", Items: items,
+	})
 }
