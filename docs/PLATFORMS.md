@@ -229,6 +229,7 @@ Official site <https://www.douyin.com> · Data source: the public creator page, 
 - Chromium is a runtime dependency: set `FEEDMESH_CHROME` to an explicit binary when the default lookup (`chromium`, `chromium-browser`, `google-chrome`, or the Hermes bundled build) does not find one. The visitor profile lives in `<cache>/douyin-profile`.
 - The page needs about 15 seconds before its signer is ready, so a cold read takes roughly half a minute; the browser is closed after two minutes without a request. Cached reads are served in milliseconds.
 - One page carries at most 44 videos. Guest sessions cannot paginate (`max_cursor` answers an empty body), so a creator with a longer history is covered by the newest page only.
+- The cache is width-aware like the other list providers: a `?limit=3` read is widened in place by a later `?limit=20` read (the upstream `count` follows the request), so a small read never narrows the creator's cache for the rest of the TTL.
 - Pinned videos (`is_top`) arrive first upstream; the service re-sorts every item by publish time and keeps the pinned flag in the body text.
 - The play address (`play_url`) is a time-limited watermark-free MP4 URL. It is exposed by `/api/v1/douyin/timeline` for the download tool and never embedded in the RSS document, because a stored address expires within hours.
 - The caption (`desc`) is the only text field Douyin provides, so it is kept verbatim in both the item title and the body: no first-line rule and no length cap.
