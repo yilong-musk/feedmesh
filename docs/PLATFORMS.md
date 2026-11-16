@@ -213,7 +213,7 @@ Official site <https://www.reddit.com> · Data source: the public Atom listing (
 
 ---
 
-## Douyin
+## <img src="assets/douyin.png" width="28" height="28" alt="Douyin"> Douyin
 
 Official site <https://www.douyin.com> · Data source: the public creator page, driven by a headless Chromium (anonymous visitor identity; no account)
 
