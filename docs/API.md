@@ -179,7 +179,7 @@ curl -s 'http://127.0.0.1:3000/rss/douyin/<sec_uid>.xml'
 - 20 items by default, maximum 44 (one page). Pinned videos are marked but ordered by publish time like every other item.
 - Cached for 10 minutes, `Cache-Control: max-age=600`; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when the upstream read fails.
 - A cold read starts Chromium and waits for the page's signer (about 15 seconds), so the first request after the cache expires can take half a minute. The browser is closed after two minutes without use.
-- `link`/`guid` is `https://www.douyin.com/video/<aweme_id>`; the body carries the caption, the cover image and the duration/resolution line. The play address expires within hours, so it is not embedded in the feed.
+- `link`/`guid` is `https://www.douyin.com/video/<aweme_id>`; the body carries the caption, the cover image and the duration/resolution line. The item `title` is the whole caption, not a shortened label. The play address expires within hours, so it is not embedded in the feed.
 - `limit` above 44 returns 44; only the first page is available without a logged-in cookie.
 
 ### `GET /rss/reddit/{sub}`
@@ -342,7 +342,7 @@ One SMZDM category page. `slug` is required for this channel (`BAD_REQUEST` with
 ```
 
 - `user` is required (the profile's `sec_uid`, the `MS4w…` segment of `douyin.com/user/…`); `limit` defaults to 20 with a maximum of 44, `refresh=1` is supported.
-- `title` is `<author> on Douyin`; `degraded: true` means the last good list was served because the upstream read failed.
+- `title` is `<author> on Douyin`; each item's `title` is the full caption, the same text as `text` — Douyin has no separate title field, so neither is shortened. `degraded: true` means the last good list was served because the upstream read failed.
 
 ### `GET /api/v1/douyin/timeline?user=<sec_uid>&limit=N`
 
