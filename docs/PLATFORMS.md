@@ -1,6 +1,6 @@
 # Supported platforms
 
-**9 platforms and 14 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**10 platforms and 15 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -18,6 +18,7 @@
 | <img src="assets/reddit.png" width="20" height="20" align="absmiddle" alt="Reddit"> **Reddit** | Subreddit listing | `/rss/reddit/{sub}`<br>`/rss/reddit/r/{sub}` | `/api/v1/reddit?sub=` |
 | <img src="assets/douyin.png" width="20" height="20" align="absmiddle" alt="Douyin"> **Douyin** | Creator videos | `/rss/douyin/{sec_uid}` | `/api/v1/douyin?user=` |
 | <img src="assets/tiktok.png" width="20" height="20" align="absmiddle" alt="TikTok"> **TikTok** | Creator videos | `/rss/tiktok/{handle}` | `/api/v1/tiktok?user=` |
+| <img src="assets/bilibili.png" width="20" height="20" align="absmiddle" alt="Bilibili"> **Bilibili** | Creator videos | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
@@ -256,6 +257,27 @@ Official site <https://www.tiktok.com> · Data source: the public profile page a
 - The play address (`play_url`) is a time-limited, watermark-free MP4 URL for the highest-bitrate rendition. It is exposed by `/api/v1/tiktok/timeline` for the download tool and never embedded in the RSS document, because a stored address expires within hours. Photo posts carry a cover but no play address.
 - Cache: fresh for 10 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails. The cache is width-aware like the other list providers.
 - Limits worth knowing: private accounts and content that TikTok gates by region answer `USER_NOT_FOUND` (404) — the same post works or fails depending on the viewer's IP, so a failure is not always a bad handle. Hashtags, sounds and search are not exposed: only creator timelines are available. A handle that does not exist returns `USER_NOT_FOUND` (404); a malformed one returns `BAD_REQUEST` (400); an unsolvable challenge returns `UPSTREAM_UNAVAILABLE` (504).
+
+---
+
+## <img src="assets/bilibili.png" width="28" height="28" align="absmiddle" alt="Bilibili"> Bilibili
+
+Official site <https://www.bilibili.com> · Data source: the public space API with a WBI signature (anonymous visitor cookie; no account)
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Creator videos | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` | 20 | 50 | 10 minutes |
+
+### Creator videos
+
+- `{mid}` is the numeric account id from `space.bilibili.com/<mid>`; the JSON route takes it in `user=`.
+- Bilibili signs every space request with WBI: two rotating image names from `/x/web-interface/nav` are permuted through a fixed 64-entry table to build a mixin key, then the sorted query plus the key is hashed with MD5 into `w_rid`. The algorithm is implemented with `crypto/md5` and the standard library only — no browser, no JavaScript engine, no third-party module.
+- The API also wants a visitor identity: `buvid3`/`buvid4` are fetched once per process from `/x/frontend/finger/spi`, and the browser-fingerprint parameters (`dm_img_list`, `dm_img_str`, `dm_cover_img_str`, `dm_img_inter`) are generated per request.
+- Bilibili rate-limits datacenter IPs aggressively: a signed request often answers `412 Precondition Failed` or `code -352`, and the same request succeeds moments later. The provider retries up to six times with a short backoff (about nine seconds total), which lifts the cold-read success rate to roughly 80% from this host; the ten-minute cache keeps the steady-state request rate low.
+- The profile card (`/x/web-interface/card`) does not need a signature and supplies the display name, avatar, signature and follower count; the video list comes from `/x/space/wbi/arc/search` with `order=pubdate` and up to 50 items per page.
+- Item `title` is the upload title, `text` is the description, and the body carries the cover, description, duration, play/danmaku/comment counters and the category name. `views` is the play counter.
+- Cache: fresh for 10 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails. The cache is width-aware like the other list providers.
+- Limits worth knowing: only a creator's uploads are exposed (no dynamics, collections, live or search). A missing mid returns `USER_NOT_FOUND` (404); a non-numeric one returns `BAD_REQUEST` (400); an exhausted rate-limit retry returns `UPSTREAM_BLOCKED` (502). Because the block is IP-based, a cookie from a logged-in browser (not required today) is the usual way to raise the success rate further.
 
 ---
 

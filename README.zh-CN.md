@@ -28,6 +28,7 @@
     <tr><td><img src="docs/assets/youtube.png" width="18" height="18" align="absmiddle" alt="YouTube">&nbsp;YouTube</td><td>频道上传</td><td><code>/rss/youtube/{handle或id}</code></td><td><code>/api/v1/youtube?ref=</code></td></tr>
     <tr><td><img src="docs/assets/douyin.png" width="18" height="18" align="absmiddle" alt="抖音">&nbsp;抖音</td><td>创作者视频</td><td><code>/rss/douyin/{sec_uid}</code></td><td><code>/api/v1/douyin?user=</code></td></tr>
     <tr><td><img src="docs/assets/tiktok.png" width="18" height="18" align="absmiddle" alt="TikTok">&nbsp;TikTok</td><td>创作者视频</td><td><code>/rss/tiktok/{handle}</code></td><td><code>/api/v1/tiktok?user=</code></td></tr>
+    <tr><td><img src="docs/assets/bilibili.png" width="18" height="18" align="absmiddle" alt="哔哩哔哩">&nbsp;哔哩哔哩</td><td>UP 主视频</td><td><code>/rss/bilibili/{mid}</code></td><td><code>/api/v1/bilibili?user=</code></td></tr>
     <tr><td><img src="docs/assets/reddit.png" width="18" height="18" align="absmiddle" alt="Reddit">&nbsp;Reddit</td><td>版块列表</td><td><code>/rss/reddit/{sub}</code></td><td><code>/api/v1/reddit?sub=</code></td></tr>
   </tbody>
 </table>

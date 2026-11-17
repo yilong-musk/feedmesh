@@ -100,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/youtube/{ref}", s.getOnly(s.handleYouTube))
 	mux.HandleFunc("/rss/douyin/{sec}", s.getOnly(s.handleDouyin))
 	mux.HandleFunc("/rss/tiktok/{user}", s.getOnly(s.handleTikTok))
+	mux.HandleFunc("/rss/bilibili/{mid}", s.getOnly(s.handleBilibili))
 	mux.HandleFunc("/rss/reddit/r/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/rss/reddit/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
@@ -113,6 +114,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/douyin/timeline", s.getOnly(s.handleAPIDouyinTimeline))
 	mux.HandleFunc("/api/v1/tiktok", s.getOnly(s.handleAPITikTok))
 	mux.HandleFunc("/api/v1/tiktok/timeline", s.getOnly(s.handleAPITikTokTimeline))
+	mux.HandleFunc("/api/v1/bilibili", s.getOnly(s.handleAPIBilibili))
 	mux.HandleFunc("/api/v1/reddit", s.getOnly(s.handleAPIReddit))
 	mux.HandleFunc("/", s.handleNotFound)
 
@@ -1189,5 +1191,73 @@ func (s *Server) handleAPITikTokTimeline(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusOK, tiktokTimelineResponse{
 		Author: f.ScreenName, User: f.UID, FetchedAt: f.FetchedAt, Source: "tiktok", Items: items,
+	})
+}
+
+// bilibiliItemResponse is one upload in the JSON view.
+type bilibiliItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	Author    string    `json:"author"`
+	Views     int64     `json:"views"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type bilibiliResponse struct {
+	User        string                 `json:"user"`
+	Title       string                 `json:"title"`
+	Description string                 `json:"description"`
+	FetchedAt   time.Time              `json:"fetched_at"`
+	Cached      bool                   `json:"cached"`
+	Degraded    bool                   `json:"degraded"`
+	Items       []bilibiliItemResponse `json:"items"`
+}
+
+// handleBilibili renders one creator's video timeline as RSS.
+func (s *Server) handleBilibili(w http.ResponseWriter, r *http.Request) {
+	mid := strings.TrimSuffix(r.PathValue("mid"), ".xml")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultBilibiliLimit, feed.MaxBilibiliLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetBilibili(r.Context(), mid, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	s.setRSSCacheFor(w, f, int(feed.BilibiliTTL().Seconds()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+// handleAPIBilibili returns the same timeline as JSON.
+func (s *Server) handleAPIBilibili(w http.ResponseWriter, r *http.Request) {
+	mid := strings.TrimSpace(r.URL.Query().Get("user"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultBilibiliLimit, feed.MaxBilibiliLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetBilibili(r.Context(), mid, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]bilibiliItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		items = append(items, bilibiliItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, Author: it.Author,
+			Views: it.Views, CreatedAt: it.CreatedAt,
+		})
+	}
+	if f.Degraded {
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+	}
+	writeJSON(w, http.StatusOK, bilibiliResponse{
+		User: f.UID, Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
 	})
 }

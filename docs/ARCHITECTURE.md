@@ -48,6 +48,7 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 | `reddit:list:<sub>:<sort>:<window>` | 10 minutes old counts as fresh; stored for 24 hours so the last good listing survives a rate-limit window |
 | `douyin:user:<sec_uid>` | 10 minutes old counts as fresh; stored for 6 hours so the last good list survives a browser failure |
 | `tiktok:user:<handle>` | 10 minutes old counts as fresh; stored for 6 hours so the last good list survives a WAF or upstream failure |
+| `bilibili:user:<mid>` | 10 minutes old counts as fresh; stored for 6 hours so the last good list survives a rate-limit window |
 
 Every entry is stored for at least 6 hours; the column is the freshness window,
 not the on-disk lifetime, and a failed read serves the newest entry inside that
@@ -82,6 +83,7 @@ internal/xnitter/   X timelines: Nitter instance pool + Anubis PoW + RSS parsing
 internal/youtube/   YouTube upload feed (Atom) + web-client fallback
 internal/douyin/    Douyin creator timeline via headless Chromium + CDP over pipes
 internal/tiktok/    TikTok creator timeline: WAF proof-of-work solver + web JSON endpoint
+internal/bilibili/  Bilibili creator timeline: WBI signature + space API
 internal/reddit/    Reddit subreddit Atom listing + global rate-limited read slot
 internal/feed/      unified model, RSS rendering, cache orchestration
 internal/cache/     key-per-file cache, TTL, atomic writes
@@ -180,6 +182,23 @@ when TikTok expires it, the next page fetch answers with another challenge and
 the solver runs again. The profile HTML then supplies the account identity
 (`__UNIVERSAL_DATA_FOR_REHYDRATION__` → `webapp.user-detail`), and the videos
 come from `/api/creator/item_list/`, whose `count` parameter only accepts 15.
+
+## Bilibili's WBI signature
+
+Bilibili signs space requests with WBI: `/x/web-interface/nav` publishes two
+image names, they are concatenated and permuted through a fixed 64-entry table
+to a 32-character mixin key, and every query is sorted, stripped of `!'()*`,
+URL-encoded, stamped with `wts` and hashed with MD5 into `w_rid`. The whole
+algorithm is `crypto/md5` plus a string permutation, so `internal/bilibili`
+keeps the zero-module property and needs no browser.
+
+The harder part is the rate limit. Bilibili answers datacenter IPs with
+`412 Precondition Failed` or `code -352` seemingly at random — the same signed
+request succeeds moments later — so the client retries up to six times with a
+short backoff (about nine seconds in total), and the ten-minute cache plus the
+six-hour last-good window absorb the rest. Visitor cookies (`buvid3`/`buvid4`)
+come from `/x/frontend/finger/spi` once per process; the browser-fingerprint
+parameters are regenerated per request.
 
 ## Douyin's browser
 

@@ -30,30 +30,31 @@ func TestParseArgsMarksExplicitTimeout(t *testing.T) {
 
 func TestProviderTimeoutsClampX(t *testing.T) {
 	cases := []struct {
-		name        string
-		opts        *options
-		wantSspai   time.Duration
-		wantV2ex    time.Duration
-		wantX       time.Duration
-		wantSmzdm   time.Duration
-		wantYouTube time.Duration
-		wantReddit  time.Duration
-		wantDouyin  time.Duration
-		wantTikTok  time.Duration
+		name         string
+		opts         *options
+		wantSspai    time.Duration
+		wantV2ex     time.Duration
+		wantX        time.Duration
+		wantSmzdm    time.Duration
+		wantYouTube  time.Duration
+		wantReddit   time.Duration
+		wantDouyin   time.Duration
+		wantTikTok   time.Duration
+		wantBilibili time.Duration
 	}{
-		{"defaults", &options{}, 15 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 45 * time.Second, 30 * time.Second},
-		{"explicit", &options{timeout: 2 * time.Second, timeoutSet: true}, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 20 * time.Second, 10 * time.Second},
-		{"x capped", &options{timeout: 60 * time.Second, timeoutSet: true}, 60 * time.Second, 60 * time.Second, 25 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second},
+		{"defaults", &options{}, 15 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 45 * time.Second, 30 * time.Second, 40 * time.Second},
+		{"explicit", &options{timeout: 2 * time.Second, timeoutSet: true}, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 20 * time.Second, 10 * time.Second, 20 * time.Second},
+		{"x capped", &options{timeout: 60 * time.Second, timeoutSet: true}, 60 * time.Second, 60 * time.Second, 25 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout := providerTimeouts(tc.opts)
+			sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout := providerTimeouts(tc.opts)
 			if sspaiTimeout != tc.wantSspai || v2exTimeout != tc.wantV2ex || xTimeout != tc.wantX ||
 				smzdmTimeout != tc.wantSmzdm || youtubeTimeout != tc.wantYouTube || redditTimeout != tc.wantReddit ||
-				douyinTimeout != tc.wantDouyin || tiktokTimeout != tc.wantTikTok {
-				t.Fatalf("timeouts = %v/%v/%v/%v/%v/%v/%v/%v, want %v/%v/%v/%v/%v/%v/%v/%v",
-					sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout,
-					tc.wantSspai, tc.wantV2ex, tc.wantX, tc.wantSmzdm, tc.wantYouTube, tc.wantReddit, tc.wantDouyin, tc.wantTikTok)
+				douyinTimeout != tc.wantDouyin || tiktokTimeout != tc.wantTikTok || bilibiliTimeout != tc.wantBilibili {
+				t.Fatalf("timeouts = %v/%v/%v/%v/%v/%v/%v/%v/%v, want %v/%v/%v/%v/%v/%v/%v/%v/%v",
+					sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout,
+					tc.wantSspai, tc.wantV2ex, tc.wantX, tc.wantSmzdm, tc.wantYouTube, tc.wantReddit, tc.wantDouyin, tc.wantTikTok, tc.wantBilibili)
 			}
 		})
 	}
