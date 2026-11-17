@@ -15,6 +15,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/reddit"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
+	"github.com/yilong-musk/feedmesh/internal/tiktok"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
@@ -54,6 +55,12 @@ type DouyinTimeline interface {
 	Timeline(ctx context.Context, secUID string, limit int) (*douyin.Timeline, error)
 }
 
+// TikTokTimeline is the timeline provider the TikTok feed needs; tests
+// substitute their own implementation.
+type TikTokTimeline interface {
+	Timeline(ctx context.Context, user string, limit int) (*tiktok.Timeline, error)
+}
+
 // Service coordinates the upstream client and the on-disk cache.
 // Clients bundles the upstream providers a Service can serve.
 type Clients struct {
@@ -65,6 +72,7 @@ type Clients struct {
 	Youtube *youtube.Client
 	Reddit  *reddit.Client
 	Douyin  DouyinTimeline
+	TikTok  TikTokTimeline
 }
 
 type Service struct {

@@ -182,6 +182,21 @@ curl -s 'http://127.0.0.1:3000/rss/douyin/<sec_uid>.xml'
 - `link`/`guid` is `https://www.douyin.com/video/<aweme_id>`; the body carries the caption, the cover image and the duration/resolution line. The item `title` is the whole caption, not a shortened label. The play address expires within hours, so it is not embedded in the feed.
 - `limit` above 44 returns 44; only the first page is available without a logged-in cookie.
 
+### `GET /rss/tiktok/{handle}`
+
+A creator's video timeline, read from the public profile page plus the web client's creator endpoint. No account or cookie is needed: the profile page sits behind a Slardar WAF proof-of-work puzzle, and the provider solves it with the standard library (SHA-256 search) instead of a browser.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa?limit=10'
+curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa.xml'
+```
+
+- `{handle}` is the account name without `@`; a `secUid` (`MS4wLjABAAAA…`) also works.
+- 20 items by default, maximum 45 (three upstream pages of 15). The upstream rejects any other page size.
+- Cached for 10 minutes, `Cache-Control: max-age=600`; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when the upstream read fails.
+- `link`/`guid` is `https://www.tiktok.com/@{author}/video/<aweme_id>`; the body carries the caption, the cover image, duration/resolution, engagement counters and the music credit. The item `title` is the whole caption. Play addresses expire within hours, so they are not embedded in the feed.
+- Private accounts and region-gated posts answer `USER_NOT_FOUND` (404); a malformed handle answers `BAD_REQUEST` (400); an unsolvable challenge answers `UPSTREAM_UNAVAILABLE` (504).
+
 ### `GET /rss/reddit/{sub}`
 
 A subreddit listing, read from the public Atom document (`/r/<sub>/<sort>/.rss`); no account, no OAuth application and no API key. `{sub}` is the subreddit name (`r/` prefix and case accepted); `/rss/reddit/r/{sub}` accepts the name exactly as it is copied from the site, and `.xml` is optional.
@@ -357,6 +372,34 @@ The same list in the downloader's schema, so a separate download tool can consum
 
 - `play_url` is a time-limited, watermark-free MP4 address; download it promptly instead of storing it for later.
 
+### `GET /api/v1/tiktok?user=<handle>&limit=N`
+
+```json
+{"user":"nasa","title":"NASA on TikTok","description":"TikTok videos from NASA",
+ "fetched_at":"…","cached":false,"degraded":false,
+ "items":[{"id":"7708867568920038669","title":"…","text":"…",
+           "url":"https://www.tiktok.com/@nasa/video/7708867568920038669",
+           "html":"…","images":["https://p16-common-sign.tiktokcdn.com/…"],
+           "author":"nasa","created_at":"2026-11-16T20:23:31Z"}]}
+```
+
+- `user` is required (the handle without `@`, or a `secUid`); `limit` defaults to 20 with a maximum of 45, `refresh=1` is supported.
+- `title` is `<display name> on TikTok`; each item's `title` is the full caption, the same text as `text` — TikTok has no separate title field, so neither is shortened. `degraded: true` means the last good list was served because the upstream read failed.
+
+### `GET /api/v1/tiktok/timeline?user=<handle>&limit=N`
+
+The same list in the downloader's schema:
+
+```json
+{"author":"NASA","user":"nasa","fetched_at":"…","source":"tiktok",
+ "items":[{"aweme_id":"7708867568920038669","desc":"…","author":"nasa",
+           "create_time":1794860611,"duration_ms":63000,"width":720,"height":1280,
+           "is_top":0,"play_url":"https://v16-webapp-prime.tiktok.com/…","cover_url":"https://p16-common-sign.tiktokcdn.com/…"}]}
+```
+
+- `play_url` is a time-limited, watermark-free MP4 address (the highest-bitrate rendition); download it promptly instead of storing it for later.
+- `is_top` is `1` for a pinned video. Photo posts have a `cover_url` but an empty `play_url`.
+
 ### `GET /api/v1/reddit?sub=<sub>&sort=<sort>&window=<window>&limit=N`
 
 ```json
@@ -437,9 +480,10 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | YouTube uploads | `youtube:feed:<channel_id>` | 10 minutes (last good kept for 24 hours) |
 | YouTube handle mapping | `youtube:channel:<ref>` | 24 hours |
 | `douyin:user:<sec_uid>` | 10 minutes (last good kept for 6 hours) |
+| `tiktok:user:<handle>` | 10 minutes (last good kept for 6 hours) |
 | Reddit listing | `reddit:list:<sub>:<sort>:<window>` | 10 minutes (last good kept for 24 hours) |
 
-- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin and Reddit.
+- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok and Reddit.
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).
 - Cache directory: `--cache-dir` / `FEEDMESH_CACHE`, default `~/.cache/feedmesh`; one JSON file per key, written atomically. The directory mode is 0700 and the file mode 0600; expired entries are cleaned at startup. `cache purge --all` deletes only entries it can verify were written by feedmesh (it checks the `key` inside the entry against the file name) and leaves other `.json` files in the same directory alone.

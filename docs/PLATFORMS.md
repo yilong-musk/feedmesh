@@ -1,6 +1,6 @@
 # Supported platforms
 
-**7 platforms and 12 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**9 platforms and 14 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -16,6 +16,8 @@
 | <img src="assets/x.png" width="20" height="20" align="absmiddle" alt="X"> **X** | Account timeline | `/rss/x/{handle}` | `/api/v1/x?handle=` |
 | <img src="assets/youtube.png" width="20" height="20" align="absmiddle" alt="YouTube"> **YouTube** | Channel uploads | `/rss/youtube/{ref}` | `/api/v1/youtube?ref=` |
 | <img src="assets/reddit.png" width="20" height="20" align="absmiddle" alt="Reddit"> **Reddit** | Subreddit listing | `/rss/reddit/{sub}`<br>`/rss/reddit/r/{sub}` | `/api/v1/reddit?sub=` |
+| <img src="assets/douyin.png" width="20" height="20" align="absmiddle" alt="Douyin"> **Douyin** | Creator videos | `/rss/douyin/{sec_uid}` | `/api/v1/douyin?user=` |
+| <img src="assets/tiktok.png" width="20" height="20" align="absmiddle" alt="TikTok"> **TikTok** | Creator videos | `/rss/tiktok/{handle}` | `/api/v1/tiktok?user=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
@@ -234,6 +236,26 @@ Official site <https://www.douyin.com> · Data source: the public creator page, 
 - The play address (`play_url`) is a time-limited watermark-free MP4 URL. It is exposed by `/api/v1/douyin/timeline` for the download tool and never embedded in the RSS document, because a stored address expires within hours.
 - The caption (`desc`) is the only text field Douyin provides, so it is kept verbatim in both the item title and the body: no first-line rule and no length cap.
 - Cache: fresh for 10 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails. An invalid `sec_uid` returns `BAD_REQUEST` (400); an unavailable page returns `UPSTREAM_UNAVAILABLE` (504).
+
+---
+
+## <img src="assets/tiktok.png" width="28" height="28" align="absmiddle" alt="TikTok"> TikTok
+
+Official site <https://www.tiktok.com> · Data source: the public profile page and the web client's creator endpoint (anonymous; no account, no cookie)
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Creator videos | `/rss/tiktok/{handle}` | `/api/v1/tiktok?user=` | 20 | 45 | 10 minutes |
+
+### Creator videos
+
+- `{handle}` is the `@name` without the `@`; the JSON route takes it in `user=`. A `secUid` (`MS4wLjABAAAA…`) is accepted too, but then the display name is recovered from the first video instead of the profile page. The downloader-facing view is `/api/v1/tiktok/timeline?user=`.
+- TikTok serves profile pages behind a Slardar WAF proof-of-work puzzle. The puzzle is pure SHA-256 — find the integer whose digest matches a target — so the provider solves it with `crypto/sha256` in a millisecond and retries the page with the returned cookie. No browser, no JavaScript engine and no third-party module is involved; a cold read takes about 0.8 seconds.
+- The creator endpoint returns at most 15 items per page and rejects any other `count` with `invalid count parameter`, so the provider walks up to three pages (45 items) using the newest item's `createTime` as the next cursor.
+- Item `title` is the whole caption: TikTok has no separate title field, and shortening it here would be the only place data gets shorter. The body carries the caption, the cover image, duration/resolution, play/like/comment/share counters and the music credit.
+- The play address (`play_url`) is a time-limited, watermark-free MP4 URL for the highest-bitrate rendition. It is exposed by `/api/v1/tiktok/timeline` for the download tool and never embedded in the RSS document, because a stored address expires within hours. Photo posts carry a cover but no play address.
+- Cache: fresh for 10 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails. The cache is width-aware like the other list providers.
+- Limits worth knowing: private accounts and content that TikTok gates by region answer `USER_NOT_FOUND` (404) — the same post works or fails depending on the viewer's IP, so a failure is not always a bad handle. Hashtags, sounds and search are not exposed: only creator timelines are available. A handle that does not exist returns `USER_NOT_FOUND` (404); a malformed one returns `BAD_REQUEST` (400); an unsolvable challenge returns `UPSTREAM_UNAVAILABLE` (504).
 
 ---
 

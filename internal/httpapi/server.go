@@ -99,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/x/{handle}", s.getOnly(s.handleX))
 	mux.HandleFunc("/rss/youtube/{ref}", s.getOnly(s.handleYouTube))
 	mux.HandleFunc("/rss/douyin/{sec}", s.getOnly(s.handleDouyin))
+	mux.HandleFunc("/rss/tiktok/{user}", s.getOnly(s.handleTikTok))
 	mux.HandleFunc("/rss/reddit/r/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/rss/reddit/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
@@ -110,6 +111,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/youtube", s.getOnly(s.handleAPIYouTube))
 	mux.HandleFunc("/api/v1/douyin", s.getOnly(s.handleAPIDouyin))
 	mux.HandleFunc("/api/v1/douyin/timeline", s.getOnly(s.handleAPIDouyinTimeline))
+	mux.HandleFunc("/api/v1/tiktok", s.getOnly(s.handleAPITikTok))
+	mux.HandleFunc("/api/v1/tiktok/timeline", s.getOnly(s.handleAPITikTokTimeline))
 	mux.HandleFunc("/api/v1/reddit", s.getOnly(s.handleAPIReddit))
 	mux.HandleFunc("/", s.handleNotFound)
 
@@ -1065,5 +1068,126 @@ func (s *Server) handleAPIDouyinTimeline(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusOK, douyinTimelineResponse{
 		Author: f.ScreenName, SecUID: f.UID, FetchedAt: f.FetchedAt, Source: "douyin", Items: items,
+	})
+}
+
+// tiktokItemResponse is one video in the JSON view.
+type tiktokItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	Author    string    `json:"author"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type tiktokResponse struct {
+	User        string               `json:"user"`
+	Title       string               `json:"title"`
+	Description string               `json:"description"`
+	FetchedAt   time.Time            `json:"fetched_at"`
+	Cached      bool                 `json:"cached"`
+	Degraded    bool                 `json:"degraded"`
+	Items       []tiktokItemResponse `json:"items"`
+}
+
+// handleTikTok renders one creator's timeline as RSS.
+func (s *Server) handleTikTok(w http.ResponseWriter, r *http.Request) {
+	user := strings.TrimSuffix(r.PathValue("user"), ".xml")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetTikTok(r.Context(), user, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	s.setRSSCacheFor(w, f, int(feed.TikTokTTL().Seconds()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+// handleAPITikTok returns the same timeline as JSON.
+func (s *Server) handleAPITikTok(w http.ResponseWriter, r *http.Request) {
+	user := strings.TrimSpace(r.URL.Query().Get("user"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetTikTok(r.Context(), user, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]tiktokItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		items = append(items, tiktokItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: it.Images, Author: it.Author, CreatedAt: it.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, tiktokResponse{
+		User: f.UID, Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
+	})
+}
+
+// tiktokTimelineItem is the downloader-facing shape: it keeps the identifiers
+// and media addresses that the RSS view does not need. Play addresses are
+// signed and expire within hours, so a consumer must re-read the endpoint.
+type tiktokTimelineItem struct {
+	AwemeID    string `json:"aweme_id"`
+	Desc       string `json:"desc"`
+	Author     string `json:"author"`
+	CreateTime int64  `json:"create_time"`
+	DurationMS int    `json:"duration_ms"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	IsTop      int    `json:"is_top"`
+	PlayURL    string `json:"play_url"`
+	CoverURL   string `json:"cover_url"`
+}
+
+type tiktokTimelineResponse struct {
+	Author    string               `json:"author"`
+	User      string               `json:"user"`
+	FetchedAt time.Time            `json:"fetched_at"`
+	Source    string               `json:"source"`
+	Items     []tiktokTimelineItem `json:"items"`
+}
+
+// handleAPITikTokTimeline serves the timeline in the downloader's schema so a
+// separate download tool can consume it without solving the WAF itself.
+func (s *Server) handleAPITikTokTimeline(w http.ResponseWriter, r *http.Request) {
+	user := strings.TrimSpace(r.URL.Query().Get("user"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetTikTok(r.Context(), user, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]tiktokTimelineItem, 0, len(f.Items))
+	for _, it := range f.Items {
+		cover := ""
+		if len(it.Images) > 0 {
+			cover = it.Images[0]
+		}
+		top := 0
+		if it.IsTop {
+			top = 1
+		}
+		items = append(items, tiktokTimelineItem{
+			AwemeID: it.ID, Desc: it.Text, Author: it.Author,
+			CreateTime: it.CreatedAt.Unix(), DurationMS: it.DurationMS,
+			Width: it.Width, Height: it.Height, IsTop: top,
+			PlayURL: it.PlayURL, CoverURL: cover,
+		})
+	}
+	writeJSON(w, http.StatusOK, tiktokTimelineResponse{
+		Author: f.ScreenName, User: f.UID, FetchedAt: f.FetchedAt, Source: "tiktok", Items: items,
 	})
 }

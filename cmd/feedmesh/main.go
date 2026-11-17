@@ -31,6 +31,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/reddit"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
+	"github.com/yilong-musk/feedmesh/internal/tiktok"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
@@ -50,6 +51,7 @@ const (
 	maxXTimeout           = 25 * time.Second
 	defaultYouTubeTimeout = 20 * time.Second
 	defaultDouyinTimeout  = 45 * time.Second
+	defaultTikTokTimeout  = 30 * time.Second
 	defaultRedditTimeout  = 15 * time.Second
 	breakerCooloff        = 10 * time.Minute
 )
@@ -383,7 +385,7 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		Retries: 3,
 		Backoff: 300 * time.Millisecond,
 	})
-	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout := providerTimeouts(o)
+	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout := providerTimeouts(o)
 	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
 	vx := v2ex.New(v2ex.Config{Timeout: v2exTimeout})
 	xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: o.noXEnrich})
@@ -396,14 +398,15 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		Timeout:    douyinTimeout,
 		Log:        logger,
 	})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy}, c, logger, feed.DefaultTTLs())
+	tk := tiktok.New(tiktok.Config{Timeout: tiktokTimeout, Log: logger})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 
 // providerTimeouts resolves the per-provider request timeouts. X is capped even
 // when --timeout is larger, so a single X feed request cannot spend the whole
 // handler deadline on slow mirror attempts.
-func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout time.Duration) {
+func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout time.Duration) {
 	sspaiTimeout = defaultSspaiTimeout
 	v2exTimeout = defaultV2exTimeout
 	xTimeout = defaultXTimeout
@@ -411,6 +414,7 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 	youtubeTimeout = defaultYouTubeTimeout
 	redditTimeout = defaultRedditTimeout
 	douyinTimeout = defaultDouyinTimeout
+	tiktokTimeout = defaultTikTokTimeout
 	if o.timeoutSet {
 		sspaiTimeout = o.timeout
 		v2exTimeout = o.timeout
@@ -419,6 +423,7 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 		youtubeTimeout = o.timeout
 		redditTimeout = o.timeout
 		douyinTimeout = o.timeout
+		tiktokTimeout = o.timeout
 	}
 	if sspaiTimeout <= 0 {
 		sspaiTimeout = defaultTimeout
@@ -446,7 +451,12 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 	if douyinTimeout < 20*time.Second {
 		douyinTimeout = 20 * time.Second
 	}
-	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout
+	// A TikTok call solves one WAF puzzle before the API request; keep a small
+	// floor so a tiny shared --timeout does not make every call fail.
+	if tiktokTimeout < 10*time.Second {
+		tiktokTimeout = 10 * time.Second
+	}
+	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout
 }
 
 func exitCodeFor(code string) int {
@@ -627,7 +637,7 @@ func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
 	var steps []doctorStep
 	if o.xHandle != "" {
 		mode = "x"
-		_, _, xTimeout, _, _, _, _ := providerTimeouts(o)
+		_, _, xTimeout, _, _, _, _, _ := providerTimeouts(o)
 		xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: true})
 		for _, st := range xn.Probe(ctx, strings.TrimSpace(o.xHandle)) {
 			steps = append(steps, doctorStep{
