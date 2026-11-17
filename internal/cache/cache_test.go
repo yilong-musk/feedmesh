@@ -263,6 +263,7 @@ func TestEveryProviderPrefixIsManaged(t *testing.T) {
 		"smzdm:deals",
 		"smzdm:fenlei:tixuhuli",
 		"reddit:list:programming:hot:day",
+		"telegram:channel:sspai",
 	}
 	for _, key := range keys {
 		// ManagedKey takes the filename stem, so the key goes through SafeKey

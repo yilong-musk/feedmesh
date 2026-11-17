@@ -101,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/douyin/{sec}", s.getOnly(s.handleDouyin))
 	mux.HandleFunc("/rss/tiktok/{user}", s.getOnly(s.handleTikTok))
 	mux.HandleFunc("/rss/bilibili/{mid}", s.getOnly(s.handleBilibili))
+	mux.HandleFunc("/rss/telegram/{channel}", s.getOnly(s.handleTelegram))
 	mux.HandleFunc("/rss/reddit/r/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/rss/reddit/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
@@ -115,6 +116,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/tiktok", s.getOnly(s.handleAPITikTok))
 	mux.HandleFunc("/api/v1/tiktok/timeline", s.getOnly(s.handleAPITikTokTimeline))
 	mux.HandleFunc("/api/v1/bilibili", s.getOnly(s.handleAPIBilibili))
+	mux.HandleFunc("/api/v1/telegram", s.getOnly(s.handleAPITelegram))
 	mux.HandleFunc("/api/v1/reddit", s.getOnly(s.handleAPIReddit))
 	mux.HandleFunc("/", s.handleNotFound)
 
@@ -1258,6 +1260,78 @@ func (s *Server) handleAPIBilibili(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, bilibiliResponse{
 		User: f.UID, Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
+	})
+}
+
+// telegramItemResponse is one post in the JSON view.
+type telegramItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	Author    string    `json:"author"`
+	Views     int64     `json:"views"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type telegramResponse struct {
+	Channel     string                 `json:"channel"`
+	Title       string                 `json:"title"`
+	Description string                 `json:"description"`
+	FetchedAt   time.Time              `json:"fetched_at"`
+	Cached      bool                   `json:"cached"`
+	Degraded    bool                   `json:"degraded"`
+	Items       []telegramItemResponse `json:"items"`
+}
+
+// handleTelegram renders one public channel preview as RSS.
+func (s *Server) handleTelegram(w http.ResponseWriter, r *http.Request) {
+	channel := strings.TrimSuffix(r.PathValue("channel"), ".xml")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTelegramLimit, feed.MaxTelegramLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetTelegram(r.Context(), channel, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	s.setRSSCacheFor(w, f, int(feed.TelegramTTL().Seconds()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+// handleAPITelegram returns the same channel preview as JSON.
+func (s *Server) handleAPITelegram(w http.ResponseWriter, r *http.Request) {
+	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTelegramLimit, feed.MaxTelegramLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetTelegram(r.Context(), channel, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]telegramItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		images := it.Images
+		if images == nil {
+			images = []string{}
+		}
+		items = append(items, telegramItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: images, Author: it.Author,
+			Views: it.Views, CreatedAt: it.CreatedAt,
+		})
+	}
+	if f.Degraded {
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+	}
+	writeJSON(w, http.StatusOK, telegramResponse{
+		Channel: f.UID, Title: f.Title(), Description: f.Description,
 		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
 	})
 }

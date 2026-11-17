@@ -1,6 +1,6 @@
 # Supported platforms
 
-**10 platforms and 15 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**11 platforms and 16 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -19,6 +19,7 @@
 | <img src="assets/douyin.png" width="20" height="20" align="absmiddle" alt="Douyin"> **Douyin** | Creator videos | `/rss/douyin/{sec_uid}` | `/api/v1/douyin?user=` |
 | <img src="assets/tiktok.png" width="20" height="20" align="absmiddle" alt="TikTok"> **TikTok** | Creator videos | `/rss/tiktok/{handle}` | `/api/v1/tiktok?user=` |
 | <img src="assets/bilibili.png" width="20" height="20" align="absmiddle" alt="Bilibili"> **Bilibili** | Creator videos | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` |
+| <img src="assets/telegram.png" width="20" height="20" align="absmiddle" alt="Telegram"> **Telegram** | Public channel posts | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
@@ -278,6 +279,28 @@ Official site <https://www.bilibili.com> · Data source: the public space API wi
 - Item `title` is the upload title, `text` is the description, and the body carries the cover, description, duration, play/danmaku/comment counters and the category name. `views` is the play counter.
 - Cache: fresh for 10 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails. The cache is width-aware like the other list providers.
 - Limits worth knowing: only a creator's uploads are exposed (no dynamics, collections, live or search). A missing mid returns `USER_NOT_FOUND` (404); a non-numeric one returns `BAD_REQUEST` (400); an exhausted rate-limit retry returns `UPSTREAM_BLOCKED` (502). Because the block is IP-based, a cookie from a logged-in browser (not required today) is the usual way to raise the success rate further.
+
+---
+
+## <img src="assets/telegram.png" width="28" height="28" align="absmiddle" alt="Telegram"> Telegram
+
+Official site <https://telegram.org> · Data source: the public web preview at `t.me/s/<channel>` (anonymous; no account, bot token or API key)
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Public channel posts | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` | 20 | 20 | 10 minutes |
+
+### Public channel posts
+
+- `{channel}` is the public username from `t.me/<channel>`, with or without `@`; a full `t.me/s/<channel>` URL also works. The JSON route takes the same value in `channel=`.
+- Only channels that have the public web preview enabled can be read. Private channels and groups have no anonymous view; they return `USER_NOT_FOUND` (404), because reading them would require a logged-in account, which this service deliberately does not keep.
+- One preview page carries about 20 posts, so 20 is both the default and the maximum. `refresh=1` forces a read; the ten-minute cache keeps polling gentle on t.me.
+- The body carries the post text as sanitised HTML, every photo of an album, a video still, a link card (cover, title, summary and site) and a meta line with the author signature, forward source and view counter. The item `title` is the whole caption — Telegram has no separate title field — and Media RSS repeats the photos.
+- Video messages expose the still frame only. The `<video src>` on the preview page is a signed URL that expires; embedding it would leave a dead player in an archived feed. Use the post permalink (`https://t.me/<channel>/<id>`) to play it.
+- Per-post author signatures (`from_author`) are published as `author` in the JSON view and in the body meta line; the channel title is the feed title with the suffix `on Telegram`.
+- Cache: fresh for 10 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails. The cache is width-aware like the other list providers.
+- A malformed username returns `BAD_REQUEST` (400). A 200 page with no visible post returns `UPSTREAM_UNAVAILABLE` (504) instead of caching an empty feed; a `429` from t.me returns `RATE_LIMITED` (429).
+- The preview page is parsed with the standard library only (regexp plus a balanced-`div` scan). If t.me changes the widget markup, the parser reports `UPSTREAM_UNAVAILABLE` rather than emitting half-empty posts.
 
 ---
 

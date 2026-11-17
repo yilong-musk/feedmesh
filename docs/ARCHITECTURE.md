@@ -84,6 +84,7 @@ internal/youtube/   YouTube upload feed (Atom) + web-client fallback
 internal/douyin/    Douyin creator timeline via headless Chromium + CDP over pipes
 internal/tiktok/    TikTok creator timeline: WAF proof-of-work solver + web JSON endpoint
 internal/bilibili/  Bilibili creator timeline: WBI signature + space API
+internal/telegram/   Telegram public channel previews: t.me/s HTML parsing
 internal/reddit/    Reddit subreddit Atom listing + global rate-limited read slot
 internal/feed/      unified model, RSS rendering, cache orchestration
 internal/cache/     key-per-file cache, TTL, atomic writes

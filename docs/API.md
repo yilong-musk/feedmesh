@@ -213,6 +213,22 @@ curl -s 'http://127.0.0.1:3000/rss/bilibili/946974.xml'
 - Bilibili rate-limits datacenter IPs: the provider retries a `412`/`-352` answer up to six times over about nine seconds. If every attempt is blocked the route returns `UPSTREAM_BLOCKED` (502) — retry later or use the cached copy.
 - A missing account returns `USER_NOT_FOUND` (404); a non-numeric mid returns `BAD_REQUEST` (400).
 
+### `GET /rss/telegram/{channel}`
+
+A public Telegram channel, read from the `t.me/s/<channel>` web preview. No account, bot token or API key is involved; only channels that have the public preview enabled are readable.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=10'
+curl -s 'http://127.0.0.1:3000/rss/telegram/sspai.xml'
+```
+
+- `{channel}` accepts `@name`, `name`, `t.me/name` and `https://t.me/s/name`; the name is case-insensitive.
+- 20 items by default, maximum 20: one preview page carries about that many posts.
+- Cached for 10 minutes, `Cache-Control: max-age=600`; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when the upstream read fails.
+- `link`/`guid` is `https://t.me/<channel>/<message_id>`; the body carries the post text as sanitised HTML, every photo of an album, a video still, a link card and a meta line with the author signature, forward source and view counter. The item `title` is the whole caption.
+- Video posts expose the still frame only: the preview's `<video src>` is a signed URL that expires, so embedding it would leave a dead player behind. Media RSS repeats the photos.
+- A missing channel, or one whose preview is disabled (private channels and groups), returns `USER_NOT_FOUND` (404); a malformed name returns `BAD_REQUEST` (400); a preview with no visible post returns `UPSTREAM_UNAVAILABLE` (504) instead of caching an empty feed; a `429` from t.me returns `RATE_LIMITED`.
+
 ### `GET /rss/reddit/{sub}`
 
 A subreddit listing, read from the public Atom document (`/r/<sub>/<sort>/.rss`); no account, no OAuth application and no API key. `{sub}` is the subreddit name (`r/` prefix and case accepted); `/rss/reddit/r/{sub}` accepts the name exactly as it is copied from the site, and `.xml` is optional.
@@ -430,6 +446,20 @@ The same list in the downloader's schema:
 - `user` is required (the numeric mid); `limit` defaults to 20 with a maximum of 50, `refresh=1` is supported.
 - `title` is `<author> on Bilibili`; `views` is the play counter. `degraded: true` means the last good list was served because the upstream read failed.
 
+### `GET /api/v1/telegram?channel=<channel>&limit=N`
+
+```json
+{"channel":"sspai","title":"sspai Channel on Telegram","description":"sspai official channel",
+ "fetched_at":"2026-11-17T08:01:00Z","cached":false,"degraded":false,
+ "items":[{"id":"14873","title":"…","text":"…","url":"https://t.me/sspai/14873",
+           "html":"…","images":["https://cdn4.telesco.pe/file/…"],
+           "author":"Author Sig","views":3050,"created_at":"2026-11-09T04:20:38Z"}]}
+```
+
+- `channel` is required and accepts every spelling the RSS route accepts; `limit` defaults to 20 with a maximum of 20, `refresh=1` is supported.
+- `title` is `<channel display name> on Telegram`; `author` is the per-post signature when the channel uses one, otherwise the channel display name; `views` is the preview's view counter.
+- `images` is always an array (empty for text-only posts); a video post carries no image URL there and exposes only its still frame inside `html`.
+
 ### `GET /api/v1/reddit?sub=<sub>&sort=<sort>&window=<window>&limit=N`
 
 ```json
@@ -513,8 +543,9 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | `tiktok:user:<handle>` | 10 minutes (last good kept for 6 hours) |
 | `bilibili:user:<mid>` | 10 minutes (last good kept for 6 hours) |
 | Reddit listing | `reddit:list:<sub>:<sort>:<window>` | 10 minutes (last good kept for 24 hours) |
+| Telegram channel | `telegram:channel:<name>` | 10 minutes (last good kept for 6 hours) |
 
-- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili and Reddit.
+- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili, Telegram and Reddit.
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).
 - Cache directory: `--cache-dir` / `FEEDMESH_CACHE`, default `~/.cache/feedmesh`; one JSON file per key, written atomically. The directory mode is 0700 and the file mode 0600; expired entries are cleaned at startup. `cache purge --all` deletes only entries it can verify were written by feedmesh (it checks the `key` inside the entry against the file name) and leaves other `.json` files in the same directory alone.

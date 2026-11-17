@@ -16,6 +16,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/reddit"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
+	"github.com/yilong-musk/feedmesh/internal/telegram"
 	"github.com/yilong-musk/feedmesh/internal/tiktok"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
@@ -68,6 +69,12 @@ type BilibiliTimeline interface {
 	Timeline(ctx context.Context, mid string, limit int) (*bilibili.Timeline, error)
 }
 
+// TelegramChannel is the channel provider the Telegram feed needs; tests
+// substitute their own implementation.
+type TelegramChannel interface {
+	Fetch(ctx context.Context, channel string, limit int) (*telegram.Channel, error)
+}
+
 // Service coordinates the upstream client and the on-disk cache.
 // Clients bundles the upstream providers a Service can serve.
 type Clients struct {
@@ -81,6 +88,7 @@ type Clients struct {
 	Douyin   DouyinTimeline
 	TikTok   TikTokTimeline
 	Bilibili BilibiliTimeline
+	Telegram TelegramChannel
 }
 
 type Service struct {
