@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/bilibili"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
 	"github.com/yilong-musk/feedmesh/internal/feed"
@@ -220,7 +221,7 @@ func newTestServer(t *testing.T) http.Handler {
 		// Tests never reach the real embed endpoint.
 		DisableEnrichment: true,
 	})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond}), Douyin: fakeDouyin{}, TikTok: fakeTikTok{}}, c, logx.Discard(), feed.DefaultTTLs())
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond}), Douyin: fakeDouyin{}, TikTok: fakeTikTok{}, Bilibili: fakeBilibili{}}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,
@@ -701,5 +702,44 @@ func (fakeTikTok) Timeline(_ context.Context, user string, limit int) (*tiktok.T
 		Nickname:  "NASA",
 		FetchedAt: time.Unix(1800000100, 0).UTC(),
 		Items:     items,
+	}, nil
+}
+
+type fakeBilibili struct{}
+
+func (fakeBilibili) Timeline(_ context.Context, mid string, limit int) (*bilibili.Timeline, error) {
+	videos := []bilibili.Video{
+		{
+			BVID:      "BV1kZWX62ENY",
+			Title:     "为什么是最后一期？",
+			Desc:      "简介",
+			Author:    "影视飓风",
+			AuthorID:  mid,
+			CreatedAt: time.Unix(1800000000, 0).UTC(),
+			Duration:  19 * time.Minute,
+			Cover:     "https://i2.hdslb.com/bfs/archive/a.jpg",
+			Play:      6608624,
+			Danmaku:   1234,
+			Comment:   567,
+			TypeName:  "影视杂谈",
+		},
+		{
+			BVID:      "BV1NS4t6oEXQ",
+			Title:     "第二期",
+			Author:    "影视飓风",
+			CreatedAt: time.Unix(1700000000, 0).UTC(),
+			Duration:  59 * time.Second,
+			Cover:     "https://i1.hdslb.com/bfs/archive/b.jpg",
+		},
+	}
+	if limit > 0 && limit < len(videos) {
+		videos = videos[:limit]
+	}
+	return &bilibili.Timeline{
+		Mid:       mid,
+		Author:    "影视飓风",
+		Fans:      19100953,
+		FetchedAt: time.Unix(1800000100, 0).UTC(),
+		Videos:    videos,
 	}, nil
 }

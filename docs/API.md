@@ -197,6 +197,22 @@ curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa.xml'
 - `link`/`guid` is `https://www.tiktok.com/@{author}/video/<aweme_id>`; the body carries the caption, the cover image, duration/resolution, engagement counters and the music credit. The item `title` is the whole caption. Play addresses expire within hours, so they are not embedded in the feed.
 - Private accounts and region-gated posts answer `USER_NOT_FOUND` (404); a malformed handle answers `BAD_REQUEST` (400); an unsolvable challenge answers `UPSTREAM_UNAVAILABLE` (504).
 
+### `GET /rss/bilibili/{mid}`
+
+A creator's uploads, read from the public space API. Bilibili requires a WBI signature; the provider computes it with the standard library (MD5 + a fixed permutation table), so no browser is involved.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=10'
+curl -s 'http://127.0.0.1:3000/rss/bilibili/946974.xml'
+```
+
+- `{mid}` is the numeric account id from `space.bilibili.com/<mid>`.
+- 20 items by default, maximum 50 (one upstream page). `refresh=1` forces a read.
+- Cached for 10 minutes, `Cache-Control: max-age=600`; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when the upstream read fails.
+- `link`/`guid` is `https://www.bilibili.com/video/<bvid>`; the body carries the cover, description, duration, play/danmaku/comment counters and the category. The item `title` is the upload title.
+- Bilibili rate-limits datacenter IPs: the provider retries a `412`/`-352` answer up to six times over about nine seconds. If every attempt is blocked the route returns `UPSTREAM_BLOCKED` (502) — retry later or use the cached copy.
+- A missing account returns `USER_NOT_FOUND` (404); a non-numeric mid returns `BAD_REQUEST` (400).
+
 ### `GET /rss/reddit/{sub}`
 
 A subreddit listing, read from the public Atom document (`/r/<sub>/<sort>/.rss`); no account, no OAuth application and no API key. `{sub}` is the subreddit name (`r/` prefix and case accepted); `/rss/reddit/r/{sub}` accepts the name exactly as it is copied from the site, and `.xml` is optional.
@@ -400,6 +416,20 @@ The same list in the downloader's schema:
 - `play_url` is a time-limited, watermark-free MP4 address (the highest-bitrate rendition); download it promptly instead of storing it for later.
 - `is_top` is `1` for a pinned video. Photo posts have a `cover_url` but an empty `play_url`.
 
+### `GET /api/v1/bilibili?user=<mid>&limit=N`
+
+```json
+{"user":"946974","title":"Creator on Bilibili","description":"Bilibili videos from Creator",
+ "fetched_at":"…","cached":false,"degraded":false,
+ "items":[{"id":"BV1kZWX62ENY","title":"…","text":"…",
+           "url":"https://www.bilibili.com/video/BV1kZWX62ENY","html":"…",
+           "images":["https://i2.hdslb.com/bfs/archive/…"],
+           "author":"creator","views":6613943,"created_at":"2026-11-12T09:00:00Z"}]}
+```
+
+- `user` is required (the numeric mid); `limit` defaults to 20 with a maximum of 50, `refresh=1` is supported.
+- `title` is `<author> on Bilibili`; `views` is the play counter. `degraded: true` means the last good list was served because the upstream read failed.
+
 ### `GET /api/v1/reddit?sub=<sub>&sort=<sort>&window=<window>&limit=N`
 
 ```json
@@ -481,9 +511,10 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | YouTube handle mapping | `youtube:channel:<ref>` | 24 hours |
 | `douyin:user:<sec_uid>` | 10 minutes (last good kept for 6 hours) |
 | `tiktok:user:<handle>` | 10 minutes (last good kept for 6 hours) |
+| `bilibili:user:<mid>` | 10 minutes (last good kept for 6 hours) |
 | Reddit listing | `reddit:list:<sub>:<sort>:<window>` | 10 minutes (last good kept for 24 hours) |
 
-- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok and Reddit.
+- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili and Reddit.
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).
 - Cache directory: `--cache-dir` / `FEEDMESH_CACHE`, default `~/.cache/feedmesh`; one JSON file per key, written atomically. The directory mode is 0700 and the file mode 0600; expired entries are cleaned at startup. `cache purge --all` deletes only entries it can verify were written by feedmesh (it checks the `key` inside the entry against the file name) and leaves other `.json` files in the same directory alone.
