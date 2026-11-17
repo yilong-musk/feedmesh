@@ -1,6 +1,6 @@
 # Supported platforms
 
-**11 platforms and 16 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**12 platforms and 17 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -20,6 +20,7 @@
 | <img src="assets/tiktok.png" width="20" height="20" align="absmiddle" alt="TikTok"> **TikTok** | Creator videos | `/rss/tiktok/{handle}` | `/api/v1/tiktok?user=` |
 | <img src="assets/bilibili.png" width="20" height="20" align="absmiddle" alt="Bilibili"> **Bilibili** | Creator videos | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` |
 | <img src="assets/telegram.png" width="20" height="20" align="absmiddle" alt="Telegram"> **Telegram** | Public channel posts | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` |
+| <img src="assets/linuxdo.png" width="20" height="20" align="absmiddle" alt="LINUX DO"> **LINUX DO** | Forum topics | `/rss/linuxdo`<br>`/rss/linuxdo/top`<br>`/rss/linuxdo/hot`<br>`/rss/linuxdo/c/{slug}/{id}`<br>`/rss/linuxdo/tag/{tag}` | `/api/v1/linuxdo?feed=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
@@ -301,6 +302,31 @@ Official site <https://telegram.org> · Data source: the public web preview at `
 - Cache: fresh for 10 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails. The cache is width-aware like the other list providers.
 - A malformed username returns `BAD_REQUEST` (400). A 200 page with no visible post returns `UPSTREAM_UNAVAILABLE` (504) instead of caching an empty feed; a `429` from t.me returns `RATE_LIMITED` (429).
 - The preview page is parsed with the standard library only (regexp plus a balanced-`div` scan). If t.me changes the widget markup, the parser reports `UPSTREAM_UNAVAILABLE` rather than emitting half-empty posts.
+
+---
+
+## <img src="assets/linuxdo.png" width="28" height="28" align="absmiddle" alt="LINUX DO"> LINUX DO
+
+Official site <https://linux.do> · Data source: the forum's official Discourse RSS feeds (anonymous; no account, cookie or API key)
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Latest topics | `/rss/linuxdo` | `/api/v1/linuxdo?feed=latest` | 30 | 90 | 15 minutes |
+| Top topics | `/rss/linuxdo/top?period=daily` | `/api/v1/linuxdo?feed=top&period=` | 30 | 90 | 15 minutes |
+| Hot topics | `/rss/linuxdo/hot` | `/api/v1/linuxdo?feed=hot` | 30 | 90 | 15 minutes |
+| Category topics | `/rss/linuxdo/c/{slug}/{id}` | `/api/v1/linuxdo?feed=category&category={slug}/{id}` | 30 | 90 | 15 minutes |
+| Tag topics | `/rss/linuxdo/tag/{tag}` | `/api/v1/linuxdo?feed=tag&tag=` | 30 | 90 | 15 minutes |
+
+### Forum topics
+
+- Feeds are read from the official `.rss` paths only. The forum's JSON and HTML paths answer a Cloudflare managed challenge, and once that challenge fires it also blocks RSS for several minutes; the provider therefore never requests them.
+- The client keeps a cookie jar (Cloudflare's visitor cookie) and a global read slot: at most one request every five seconds across every LINUX DO feed. A challenge pauses all feeds for ten minutes instead of retrying, because retrying extends the block.
+- `latest` defaults to `?order=created` (stable creation order); pass `order=activity` to follow the forum's last-reply order. Top and hot are rankings and keep the upstream order; the other feeds are sorted by publication time.
+- The RSS feeds carry 30 topics per page (25 for categories). `limit` may go up to 90 and the client walks up to three pages; the cache is width-aware like the other list providers.
+- A category accepts both `{slug}/{id}` (recommended, e.g. `develop/4`) and an id-only path (`/rss/linuxdo/c/4`), which follows the forum's redirect to the canonical slug.
+- Each item carries the first post as sanitised HTML, the author, the category, the topic state (pinned/closed/archived), the topic permalink and Media RSS images. The body keeps Discourse's reply count and "read the full topic" footer; the forum's RSS does not expose reply counts, view counts or tags as separate fields.
+- Cache: fresh for 15 minutes; the last good list is kept for 24 hours and served with `X-Feedmesh-Degraded: 1` when Cloudflare challenges a read. With nothing cached a challenge returns `UPSTREAM_BLOCKED` (502); a missing category or tag returns `USER_NOT_FOUND` (404); a malformed reference returns `BAD_REQUEST` (400).
+- The forum is high-traffic: one page covers roughly the last 15 minutes of topics, so this is a rolling window, not a complete archive. It is also a cloud-hosted IP; Cloudflare may challenge it more often than a residential connection.
 
 ---
 

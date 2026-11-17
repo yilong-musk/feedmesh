@@ -27,6 +27,7 @@ Bridges content from multiple platforms into RSS — self-hosted, one static bin
 | <img src="docs/assets/tiktok.png" width="18" height="18" align="absmiddle" alt="TikTok">&nbsp;TikTok | Creator videos | `/rss/tiktok/{handle}` | `/api/v1/tiktok?user=` |
 | <img src="docs/assets/bilibili.png" width="18" height="18" align="absmiddle" alt="Bilibili">&nbsp;Bilibili | Creator videos | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` |
 | <img src="docs/assets/telegram.png" width="18" height="18" align="absmiddle" alt="Telegram">&nbsp;Telegram | Public channel posts | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` |
+| <img src="docs/assets/linuxdo.png" width="18" height="18" align="absmiddle" alt="LINUX DO">&nbsp;LINUX DO | Forum topics (latest / top / hot / category / tag) | `/rss/linuxdo`, `/rss/linuxdo/top`, `/rss/linuxdo/hot`, `/rss/linuxdo/c/{slug}/{id}`, `/rss/linuxdo/tag/{tag}` | `/api/v1/linuxdo?feed=` |
 | <img src="docs/assets/reddit.png" width="18" height="18" align="absmiddle" alt="Reddit">&nbsp;Reddit | Subreddit listing | `/rss/reddit/{sub}` | `/api/v1/reddit?sub=` |
 
 Parameters, data sources and limits live in **[docs/PLATFORMS.md](docs/PLATFORMS.md)**.
@@ -59,6 +60,7 @@ curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
 
@@ -88,7 +90,7 @@ The unit uses systemd's `%h` / `%C` expansion for the home and cache directories
 | `cache purge --handle <handle>` | Remove one X handle's timeline entries |
 | `--dry-run` | Report only, delete nothing |
 
-Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX/SMZDM/Reddit, 20s for X/YouTube, 30s for TikTok, 40s for Bilibili, 45s for Douyin (a cold browser takes about half a minute) and 15s for Telegram; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
+Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX/SMZDM/Reddit, 20s for X/YouTube, 30s for TikTok, 40s for Bilibili, 45s for Douyin (a cold browser takes about half a minute), 15s for Telegram and 20s for LINUX DO; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
 
 ## Documentation
 

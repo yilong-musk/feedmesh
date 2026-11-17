@@ -12,6 +12,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
 	"github.com/yilong-musk/feedmesh/internal/guard"
+	"github.com/yilong-musk/feedmesh/internal/linuxdo"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/reddit"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
@@ -75,6 +76,13 @@ type TelegramChannel interface {
 	Fetch(ctx context.Context, channel string, limit int) (*telegram.Channel, error)
 }
 
+// LinuxDoFeed is the provider the LINUX DO feed needs; tests substitute their
+// own implementation.
+type LinuxDoFeed interface {
+	Fetch(ctx context.Context, ref linuxdo.Ref, limit int) (*linuxdo.Feed, error)
+	Budget() time.Duration
+}
+
 // Service coordinates the upstream client and the on-disk cache.
 // Clients bundles the upstream providers a Service can serve.
 type Clients struct {
@@ -89,6 +97,7 @@ type Clients struct {
 	TikTok   TikTokTimeline
 	Bilibili BilibiliTimeline
 	Telegram TelegramChannel
+	LinuxDo  LinuxDoFeed
 }
 
 type Service struct {
@@ -447,9 +456,10 @@ type cachedList[T any] struct {
 }
 
 // maxListFetchWidth is the largest list width any provider exposes today
-// (V2EX). It caps the width carried over from an old cache entry so a forged
-// or legacy value cannot make a refresh fetch an unbounded list.
-const maxListFetchWidth = 50
+// (LINUX DO, three RSS pages). It caps the width carried over from an old cache
+// entry so a forged or legacy value cannot make a refresh fetch an unbounded
+// list.
+const maxListFetchWidth = 90
 
 // covers reports whether the entry can answer a request for n entries.
 func (c cachedList[T]) covers(n int) bool {

@@ -229,6 +229,25 @@ curl -s 'http://127.0.0.1:3000/rss/telegram/sspai.xml'
 - Video posts expose the still frame only: the preview's `<video src>` is a signed URL that expires, so embedding it would leave a dead player behind. Media RSS repeats the photos.
 - A missing channel, or one whose preview is disabled (private channels and groups), returns `USER_NOT_FOUND` (404); a malformed name returns `BAD_REQUEST` (400); a preview with no visible post returns `UPSTREAM_UNAVAILABLE` (504) instead of caching an empty feed; a `429` from t.me returns `RATE_LIMITED`.
 
+### `GET /rss/linuxdo`, `/rss/linuxdo/top`, `/rss/linuxdo/hot`, `/rss/linuxdo/c/{slug}/{id}`, `/rss/linuxdo/tag/{tag}`
+
+LINUX DO forum topics, read from the official Discourse RSS feeds. No account or API key is involved. Only `.rss` paths are requested: the forum's JSON and HTML paths answer a Cloudflare challenge that would also take RSS down for several minutes.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/linuxdo/top?period=weekly&limit=10'
+curl -s 'http://127.0.0.1:3000/rss/linuxdo/hot'
+curl -s 'http://127.0.0.1:3000/rss/linuxdo/c/develop/4'
+curl -s 'http://127.0.0.1:3000/rss/linuxdo/tag/chatgpt'
+```
+
+- `latest` defaults to `order=created` (stable creation time); `order=activity` follows the last-reply order. `top` takes `period=daily|weekly|monthly|quarterly|yearly|all` and defaults to `daily`. `hot` takes no parameters.
+- A category accepts `{slug}/{id}` from the forum URL (`develop/4`) or the id alone (`/rss/linuxdo/c/4`), which follows the forum's redirect to the canonical slug. A tag takes the tag name.
+- 30 items by default, maximum 90 (three RSS pages; category pages carry 25). `refresh=1` forces a read.
+- Cached for 15 minutes, `Cache-Control: max-age=900`; the last good list is kept for 24 hours and served with `X-Feedmesh-Degraded: 1` when a read is challenged.
+- `link`/`guid` is `https://linux.do/t/topic/<id>`; the body carries the first post as sanitised HTML, the category, author, pinned/closed/archived state and Media RSS images. The item `title` is the topic title. Discourse's reply count and "read the full topic" footer stay in the body; the feed does not expose reply or view counts as fields.
+- A malformed reference returns `BAD_REQUEST` (400); a missing category or tag returns `USER_NOT_FOUND` (404); a Cloudflare challenge returns `UPSTREAM_BLOCKED` (502). A challenge pauses every LINUX DO feed for ten minutes instead of retrying.
+
 ### `GET /rss/reddit/{sub}`
 
 A subreddit listing, read from the public Atom document (`/r/<sub>/<sort>/.rss`); no account, no OAuth application and no API key. `{sub}` is the subreddit name (`r/` prefix and case accepted); `/rss/reddit/r/{sub}` accepts the name exactly as it is copied from the site, and `.xml` is optional.
@@ -460,6 +479,22 @@ The same list in the downloader's schema:
 - `title` is `<channel display name> on Telegram`; `author` is the per-post signature when the channel uses one, otherwise the channel display name; `views` is the preview's view counter.
 - `images` is always an array (empty for text-only posts); a video post carries no image URL there and exposes only its still frame inside `html`.
 
+### `GET /api/v1/linuxdo?feed=<kind>&limit=N`
+
+```json
+{"feed":"latest:created","title":"LINUX DO · Latest topics","description":"LINUX DO topics via the official RSS feed.",
+ "fetched_at":"2026-11-17T08:51:06Z","cached":false,"degraded":false,
+ "items":[{"id":"3191343","title":"…","text":"…","url":"https://linux.do/t/topic/3191343",
+           "html":"…","images":["https://cdn3.ldstatic.com/…"],
+           "author":"alice","category":"Development","pinned":false,"closed":false,
+           "archived":false,"created_at":"2026-11-17T08:49:44Z"}]}
+```
+
+- `feed` is `latest` (default), `top`, `hot`, `category` or `tag`. `latest` accepts `order=created|activity`; `top` accepts `period=`; `category` requires `category=<slug>/<id>` or `category=<id>`; `tag` requires `tag=`.
+- `limit` defaults to 30 with a maximum of 90, `refresh=1` is supported.
+- `feed` in the response is the cache key (`latest:created`, `top:daily`, `category:develop:4`, `tag:chatgpt`); `images` is always an array.
+- `category`, `pinned`, `closed` and `archived` describe the forum topic and are unique to this view.
+
 ### `GET /api/v1/reddit?sub=<sub>&sort=<sort>&window=<window>&limit=N`
 
 ```json
@@ -544,8 +579,9 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | `bilibili:user:<mid>` | 10 minutes (last good kept for 6 hours) |
 | Reddit listing | `reddit:list:<sub>:<sort>:<window>` | 10 minutes (last good kept for 24 hours) |
 | Telegram channel | `telegram:channel:<name>` | 10 minutes (last good kept for 6 hours) |
+| LINUX DO feed | `linuxdo:feed:<kind>:<params>` | 15 minutes (last good kept for 24 hours) |
 
-- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili, Telegram and Reddit.
+- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili, Telegram, LINUX DO and Reddit.
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).
 - Cache directory: `--cache-dir` / `FEEDMESH_CACHE`, default `~/.cache/feedmesh`; one JSON file per key, written atomically. The directory mode is 0700 and the file mode 0600; expired entries are cleaned at startup. `cache purge --all` deletes only entries it can verify were written by feedmesh (it checks the `key` inside the entry against the file name) and leaves other `.json` files in the same directory alone.
