@@ -29,6 +29,7 @@
     <tr><td><img src="docs/assets/douyin.png" width="18" height="18" align="absmiddle" alt="抖音">&nbsp;抖音</td><td>创作者视频</td><td><code>/rss/douyin/{sec_uid}</code></td><td><code>/api/v1/douyin?user=</code></td></tr>
     <tr><td><img src="docs/assets/tiktok.png" width="18" height="18" align="absmiddle" alt="TikTok">&nbsp;TikTok</td><td>创作者视频</td><td><code>/rss/tiktok/{handle}</code></td><td><code>/api/v1/tiktok?user=</code></td></tr>
     <tr><td><img src="docs/assets/bilibili.png" width="18" height="18" align="absmiddle" alt="哔哩哔哩">&nbsp;哔哩哔哩</td><td>UP 主视频</td><td><code>/rss/bilibili/{mid}</code></td><td><code>/api/v1/bilibili?user=</code></td></tr>
+    <tr><td><img src="docs/assets/telegram.png" width="18" height="18" align="absmiddle" alt="Telegram">&nbsp;Telegram</td><td>公开频道推送</td><td><code>/rss/telegram/{channel}</code></td><td><code>/api/v1/telegram?channel=</code></td></tr>
     <tr><td><img src="docs/assets/reddit.png" width="18" height="18" align="absmiddle" alt="Reddit">&nbsp;Reddit</td><td>版块列表</td><td><code>/rss/reddit/{sub}</code></td><td><code>/api/v1/reddit?sub=</code></td></tr>
   </tbody>
 </table>
@@ -89,7 +90,7 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 | `cache purge --handle <handle>` | 清除某个 X handle 的时间线缓存 |
 | `--dry-run` | 只报告，不删除 |
 
-全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit 15 秒、X/YouTube 20 秒、抖音 45 秒（冷启动浏览器约 30 秒）；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
+全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit 15 秒、X/YouTube 20 秒、抖音 45 秒（冷启动浏览器约 30 秒）、Telegram 15 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
 
 ## 文档
 
