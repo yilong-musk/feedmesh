@@ -17,6 +17,11 @@ const staleWindow = 6 * time.Hour
 // misinform a reader more than an error would.
 const hotStaleWindow = time.Hour
 
+// linuxdoStaleWindow keeps a LINUX DO list for a day. Cloudflare can challenge
+// the forum's RSS paths for several minutes at a time; a day-old topic list is
+// still a useful feed and beats a 5xx.
+const linuxdoStaleWindow = 24 * time.Hour
+
 // failureBackoff is how long a key that just failed is answered from its last
 // good entry before another upstream attempt is made. Without it a reader that
 // keeps polling a degraded 200 drives one full retry chain per poll, and the
@@ -30,6 +35,9 @@ func staleWindowFor(key string, ttl time.Duration) time.Duration {
 	window := staleWindow
 	if strings.HasPrefix(key, "hot:") {
 		window = hotStaleWindow
+	}
+	if strings.HasPrefix(key, "linuxdo:") {
+		window = linuxdoStaleWindow
 	}
 	if ttl > window {
 		return ttl

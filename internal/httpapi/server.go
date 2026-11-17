@@ -11,6 +11,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/guard"
+	"github.com/yilong-musk/feedmesh/internal/linuxdo"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/reddit"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
@@ -102,6 +103,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/tiktok/{user}", s.getOnly(s.handleTikTok))
 	mux.HandleFunc("/rss/bilibili/{mid}", s.getOnly(s.handleBilibili))
 	mux.HandleFunc("/rss/telegram/{channel}", s.getOnly(s.handleTelegram))
+	mux.HandleFunc("/rss/linuxdo", s.getOnly(s.handleLinuxDoLatest))
+	mux.HandleFunc("/rss/linuxdo.xml", s.getOnly(s.handleLinuxDoLatest))
+	mux.HandleFunc("/rss/linuxdo/top", s.getOnly(s.handleLinuxDoTop))
+	mux.HandleFunc("/rss/linuxdo/top.xml", s.getOnly(s.handleLinuxDoTop))
+	mux.HandleFunc("/rss/linuxdo/hot", s.getOnly(s.handleLinuxDoHot))
+	mux.HandleFunc("/rss/linuxdo/hot.xml", s.getOnly(s.handleLinuxDoHot))
+	mux.HandleFunc("/rss/linuxdo/c/{slug}/{id}", s.getOnly(s.handleLinuxDoCategory))
+	mux.HandleFunc("/rss/linuxdo/c/{id}", s.getOnly(s.handleLinuxDoCategory))
+	mux.HandleFunc("/rss/linuxdo/tag/{tag}", s.getOnly(s.handleLinuxDoTag))
 	mux.HandleFunc("/rss/reddit/r/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/rss/reddit/{sub}", s.getOnly(s.handleReddit))
 	mux.HandleFunc("/api/v1/feed", s.getOnly(s.handleAPIFeed))
@@ -117,6 +127,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/tiktok/timeline", s.getOnly(s.handleAPITikTokTimeline))
 	mux.HandleFunc("/api/v1/bilibili", s.getOnly(s.handleAPIBilibili))
 	mux.HandleFunc("/api/v1/telegram", s.getOnly(s.handleAPITelegram))
+	mux.HandleFunc("/api/v1/linuxdo", s.getOnly(s.handleAPILinuxDo))
 	mux.HandleFunc("/api/v1/reddit", s.getOnly(s.handleAPIReddit))
 	mux.HandleFunc("/", s.handleNotFound)
 
@@ -1332,6 +1343,140 @@ func (s *Server) handleAPITelegram(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, telegramResponse{
 		Channel: f.UID, Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
+	})
+}
+
+// linuxdoItemResponse is one forum topic in the JSON view.
+type linuxdoItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	Author    string    `json:"author"`
+	Category  string    `json:"category"`
+	Pinned    bool      `json:"pinned"`
+	Closed    bool      `json:"closed"`
+	Archived  bool      `json:"archived"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type linuxdoResponse struct {
+	Feed        string                `json:"feed"`
+	Title       string                `json:"title"`
+	Description string                `json:"description"`
+	FetchedAt   time.Time             `json:"fetched_at"`
+	Cached      bool                  `json:"cached"`
+	Degraded    bool                  `json:"degraded"`
+	Items       []linuxdoItemResponse `json:"items"`
+}
+
+// serveLinuxDoRSS renders one forum feed as RSS.
+func (s *Server) serveLinuxDoRSS(w http.ResponseWriter, r *http.Request, ref linuxdo.Ref) {
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultLinuxDoLimit, feed.MaxLinuxDoLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetLinuxDo(r.Context(), ref, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	s.setRSSCacheFor(w, f, int(feed.LinuxDoTTL().Seconds()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+// handleLinuxDoLatest serves the latest-topics feed.
+func (s *Server) handleLinuxDoLatest(w http.ResponseWriter, r *http.Request) {
+	s.serveLinuxDoRSS(w, r, linuxdo.Ref{Kind: linuxdo.KindLatest, Order: r.URL.Query().Get("order")})
+}
+
+// handleLinuxDoTop serves the ranked top feed for one period.
+func (s *Server) handleLinuxDoTop(w http.ResponseWriter, r *http.Request) {
+	s.serveLinuxDoRSS(w, r, linuxdo.Ref{Kind: linuxdo.KindTop, Period: r.URL.Query().Get("period")})
+}
+
+// handleLinuxDoHot serves the ranked hot feed.
+func (s *Server) handleLinuxDoHot(w http.ResponseWriter, r *http.Request) {
+	s.serveLinuxDoRSS(w, r, linuxdo.Ref{Kind: linuxdo.KindHot})
+}
+
+// handleLinuxDoCategory serves /c/<slug>/<id> and the id-only redirect form.
+func (s *Server) handleLinuxDoCategory(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	id := strings.TrimSuffix(r.PathValue("id"), ".xml")
+	if slug == "-" {
+		slug = ""
+	}
+	s.serveLinuxDoRSS(w, r, linuxdo.Ref{Kind: linuxdo.KindCategory, Slug: slug, ID: id})
+}
+
+// handleLinuxDoTag serves one forum tag.
+func (s *Server) handleLinuxDoTag(w http.ResponseWriter, r *http.Request) {
+	tag := strings.TrimSuffix(r.PathValue("tag"), ".xml")
+	s.serveLinuxDoRSS(w, r, linuxdo.Ref{Kind: linuxdo.KindTag, Tag: tag})
+}
+
+// handleAPILinuxDo returns the same feed as JSON.
+func (s *Server) handleAPILinuxDo(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	kind := strings.ToLower(strings.TrimSpace(q.Get("feed")))
+	if kind == "" {
+		kind = string(linuxdo.KindLatest)
+	}
+	ref := linuxdo.Ref{Kind: linuxdo.Kind(kind)}
+	switch ref.Kind {
+	case linuxdo.KindLatest:
+		ref.Order = q.Get("order")
+	case linuxdo.KindTop:
+		ref.Period = q.Get("period")
+	case linuxdo.KindHot:
+	case linuxdo.KindCategory:
+		raw := strings.TrimSpace(q.Get("category"))
+		if raw == "" {
+			s.writeError(w, weibo.NewError(weibo.CodeBadRequest, 0, "missing category"))
+			return
+		}
+		if i := strings.LastIndex(raw, "/"); i >= 0 {
+			ref.Slug, ref.ID = raw[:i], raw[i+1:]
+		} else {
+			ref.ID = raw
+		}
+	case linuxdo.KindTag:
+		ref.Tag = q.Get("tag")
+	default:
+		s.writeError(w, weibo.NewError(weibo.CodeBadRequest, 0, "unknown linux.do feed %q", kind))
+		return
+	}
+
+	limit := atoiClamp(q.Get("limit"), feed.DefaultLinuxDoLimit, feed.MaxLinuxDoLimit)
+	refresh := q.Get("refresh") == "1"
+	f, err := s.cfg.Service.GetLinuxDo(r.Context(), ref, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	items := make([]linuxdoItemResponse, 0, len(f.Items))
+	for _, it := range f.Items {
+		images := it.Images
+		if images == nil {
+			images = []string{}
+		}
+		items = append(items, linuxdoItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL, HTML: it.HTML,
+			Images: images, Author: it.Author, Category: it.Category,
+			Pinned: it.Pinned, Closed: it.Closed, Archived: it.Archived,
+			CreatedAt: it.CreatedAt,
+		})
+	}
+	if f.Degraded {
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+	}
+	writeJSON(w, http.StatusOK, linuxdoResponse{
+		Feed: f.UID, Title: f.Title(), Description: f.Description,
 		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
 	})
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
+	"github.com/yilong-musk/feedmesh/internal/linuxdo"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/reddit"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
@@ -57,6 +58,7 @@ const (
 	defaultBilibiliTimeout = 40 * time.Second
 	defaultRedditTimeout   = 15 * time.Second
 	defaultTelegramTimeout = 15 * time.Second
+	defaultLinuxDoTimeout  = 20 * time.Second
 	breakerCooloff         = 10 * time.Minute
 )
 
@@ -389,7 +391,7 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		Retries: 3,
 		Backoff: 300 * time.Millisecond,
 	})
-	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout := providerTimeouts(o)
+	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout, linuxdoTimeout := providerTimeouts(o)
 	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
 	vx := v2ex.New(v2ex.Config{Timeout: v2exTimeout})
 	xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: o.noXEnrich})
@@ -405,14 +407,15 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 	tk := tiktok.New(tiktok.Config{Timeout: tiktokTimeout, Log: logger})
 	bl := bilibili.New(bilibili.Config{Timeout: bilibiliTimeout, Log: logger})
 	tg := telegram.New(telegram.Config{Timeout: telegramTimeout, Log: logger})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk, Bilibili: bl, Telegram: tg}, c, logger, feed.DefaultTTLs())
+	ld := linuxdo.New(linuxdo.Config{Timeout: linuxdoTimeout, Log: logger})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk, Bilibili: bl, Telegram: tg, LinuxDo: ld}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 
 // providerTimeouts resolves the per-provider request timeouts. X is capped even
 // when --timeout is larger, so a single X feed request cannot spend the whole
 // handler deadline on slow mirror attempts.
-func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout time.Duration) {
+func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout, linuxdoTimeout time.Duration) {
 	sspaiTimeout = defaultSspaiTimeout
 	v2exTimeout = defaultV2exTimeout
 	xTimeout = defaultXTimeout
@@ -423,6 +426,7 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 	tiktokTimeout = defaultTikTokTimeout
 	bilibiliTimeout = defaultBilibiliTimeout
 	telegramTimeout = defaultTelegramTimeout
+	linuxdoTimeout = defaultLinuxDoTimeout
 	if o.timeoutSet {
 		sspaiTimeout = o.timeout
 		v2exTimeout = o.timeout
@@ -434,6 +438,7 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 		tiktokTimeout = o.timeout
 		bilibiliTimeout = o.timeout
 		telegramTimeout = o.timeout
+		linuxdoTimeout = o.timeout
 	}
 	if sspaiTimeout <= 0 {
 		sspaiTimeout = defaultTimeout
@@ -474,7 +479,12 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 	if telegramTimeout <= 0 {
 		telegramTimeout = defaultTimeout
 	}
-	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout
+	// A LINUX DO call may walk three RSS pages through a five-second global
+	// slot; a tiny shared --timeout would make every paged read fail.
+	if linuxdoTimeout < 20*time.Second {
+		linuxdoTimeout = 20 * time.Second
+	}
+	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout, linuxdoTimeout
 }
 
 func exitCodeFor(code string) int {
@@ -655,7 +665,7 @@ func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
 	var steps []doctorStep
 	if o.xHandle != "" {
 		mode = "x"
-		_, _, xTimeout, _, _, _, _, _, _, _ := providerTimeouts(o)
+		_, _, xTimeout, _, _, _, _, _, _, _, _ := providerTimeouts(o)
 		xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: true})
 		for _, st := range xn.Probe(ctx, strings.TrimSpace(o.xHandle)) {
 			steps = append(steps, doctorStep{

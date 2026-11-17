@@ -31,6 +31,13 @@ type Item struct {
 	// Views is the upstream play counter (YouTube only); the YouTube JSON
 	// view publishes it.
 	Views int64 `json:"-"`
+	// Category, Pinned, Closed and Archived describe a forum topic (LINUX DO
+	// only). The LINUX DO JSON view publishes them; other views leave them
+	// empty.
+	Category string `json:"-"`
+	Pinned   bool   `json:"-"`
+	Closed   bool   `json:"-"`
+	Archived bool   `json:"-"`
 	// Price is the upstream listed price of a good-price card (SMZDM category
 	// pages only). Nil means the card carried no price. The SMZDM JSON view
 	// publishes it as a number or null.

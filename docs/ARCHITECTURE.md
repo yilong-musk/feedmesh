@@ -85,6 +85,7 @@ internal/douyin/    Douyin creator timeline via headless Chromium + CDP over pip
 internal/tiktok/    TikTok creator timeline: WAF proof-of-work solver + web JSON endpoint
 internal/bilibili/  Bilibili creator timeline: WBI signature + space API
 internal/telegram/   Telegram public channel previews: t.me/s HTML parsing
+internal/linuxdo/    LINUX DO forum RSS: Discourse feeds behind Cloudflare
 internal/reddit/    Reddit subreddit Atom listing + global rate-limited read slot
 internal/feed/      unified model, RSS rendering, cache orchestration
 internal/cache/     key-per-file cache, TTL, atomic writes
