@@ -47,6 +47,7 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 | `youtube:channel:<ref>` | 24 hours; an expired entry is reused when the channel page cannot be read |
 | `reddit:list:<sub>:<sort>:<window>` | 10 minutes old counts as fresh; stored for 24 hours so the last good listing survives a rate-limit window |
 | `douyin:user:<sec_uid>` | 10 minutes old counts as fresh; stored for 6 hours so the last good list survives a browser failure |
+| `tiktok:user:<handle>` | 10 minutes old counts as fresh; stored for 6 hours so the last good list survives a WAF or upstream failure |
 
 Every entry is stored for at least 6 hours; the column is the freshness window,
 not the on-disk lifetime, and a failed read serves the newest entry inside that
@@ -80,6 +81,7 @@ internal/smzdm/     SMZDM official deal RSS and category pages
 internal/xnitter/   X timelines: Nitter instance pool + Anubis PoW + RSS parsing
 internal/youtube/   YouTube upload feed (Atom) + web-client fallback
 internal/douyin/    Douyin creator timeline via headless Chromium + CDP over pipes
+internal/tiktok/    TikTok creator timeline: WAF proof-of-work solver + web JSON endpoint
 internal/reddit/    Reddit subreddit Atom listing + global rate-limited read slot
 internal/feed/      unified model, RSS rendering, cache orchestration
 internal/cache/     key-per-file cache, TTL, atomic writes
@@ -161,6 +163,23 @@ go run ./tools/rsscheck f.xml    # validate that the RSS is well-formed
 
 CI (GitHub Actions) runs the same `gofmt` / language / `vet` / `test -race` /
 static build checks.
+
+## TikTok's challenge solver
+
+TikTok's profile pages sit behind a Slardar WAF challenge instead of a signature
+scheme: the first response is a ~1.4 KB "Please wait..." document whose `cs`
+element carries a base64 JSON puzzle, and the retry needs a cookie built from
+the answer. The puzzle is a plain hash preimage search — `sha256(seed || i)`
+must equal a target digest — so `internal/tiktok` solves it with `crypto/sha256`
+in under a millisecond and retries with `_wafchallengeid` set. No browser, no
+JavaScript engine, and no third-party module is involved; a cold read finishes in
+about 0.8 seconds against roughly 200 µs for a cached read.
+
+The solved cookie lives in an in-memory cookie jar and is reused across calls;
+when TikTok expires it, the next page fetch answers with another challenge and
+the solver runs again. The profile HTML then supplies the account identity
+(`__UNIVERSAL_DATA_FOR_REHYDRATION__` → `webapp.user-detail`), and the videos
+come from `/api/creator/item_list/`, whose `count` parameter only accepts 15.
 
 ## Douyin's browser
 

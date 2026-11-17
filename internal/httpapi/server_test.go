@@ -19,6 +19,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
+	"github.com/yilong-musk/feedmesh/internal/tiktok"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
@@ -219,7 +220,7 @@ func newTestServer(t *testing.T) http.Handler {
 		// Tests never reach the real embed endpoint.
 		DisableEnrichment: true,
 	})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond}), Douyin: fakeDouyin{}}, c, logx.Discard(), feed.DefaultTTLs())
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond}), Douyin: fakeDouyin{}, TikTok: fakeTikTok{}}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,
@@ -660,4 +661,45 @@ func (fakeDouyin) Timeline(_ context.Context, secUID string, limit int) (*douyin
 		items = items[:limit]
 	}
 	return &douyin.Timeline{SecUID: secUID, Author: "Test Creator", FetchedAt: time.Unix(1800000100, 0).UTC(), Items: items}, nil
+}
+
+type fakeTikTok struct{}
+
+func (fakeTikTok) Timeline(_ context.Context, user string, limit int) (*tiktok.Timeline, error) {
+	items := []tiktok.Item{
+		{
+			ID:         "7708408003065580831",
+			Desc:       "first tiktok caption",
+			Author:     "nasa",
+			Nickname:   "NASA",
+			SecUID:     "MS4wLjABAAAAtestsecuid0000000000",
+			CreatedAt:  time.Unix(1800000000, 0).UTC(),
+			DurationMS: 79000,
+			Width:      1080,
+			Height:     1920,
+			PlayURL:    "https://v16-webapp-prime.tiktok.com/a.mp4",
+			CoverURL:   "https://p16-common-sign.tiktokcdn.com/c.jpeg",
+			PlayCount:  275700,
+		},
+		{
+			ID:        "7704774145829063967",
+			Desc:      "second tiktok caption",
+			Author:    "nasa",
+			Nickname:  "NASA",
+			SecUID:    "MS4wLjABAAAAtestsecuid0000000000",
+			CreatedAt: time.Unix(1700000000, 0).UTC(),
+			IsTop:     true,
+			CoverURL:  "https://p16-common-sign.tiktokcdn.com/c2.jpeg",
+		},
+	}
+	if limit > 0 && limit < len(items) {
+		items = items[:limit]
+	}
+	return &tiktok.Timeline{
+		SecUID:    "MS4wLjABAAAAtestsecuid0000000000",
+		Author:    user,
+		Nickname:  "NASA",
+		FetchedAt: time.Unix(1800000100, 0).UTC(),
+		Items:     items,
+	}, nil
 }
