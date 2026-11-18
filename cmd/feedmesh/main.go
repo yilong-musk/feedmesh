@@ -41,9 +41,6 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/youtube"
 )
 
-// version is injected at build time with -X main.version=...
-var version = "dev"
-
 const (
 	defaultListen          = "127.0.0.1:3000"
 	defaultTimeout         = weibo.DefaultTimeout
