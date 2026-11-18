@@ -55,6 +55,17 @@ Linux、macOS、Windows（amd64/arm64）的静态二进制和 Debian/RPM 包随�
 go install github.com/yilong-musk/feedmesh/cmd/feedmesh@latest
 ```
 
+### Docker
+
+```bash
+docker run -d --name feedmesh -p 127.0.0.1:3000:3000 \
+  -v feedmesh-data:/data ghcr.io/yilong-musk/feedmesh:latest
+```
+
+每次发布都会推送 `linux/amd64` 与 `linux/arm64` 镜像，以非 root 用户运行，缓存放在
+`/data` 卷里。除抖音外所有 provider 都可用 —— 抖音阅读器需要 Chromium
+（`FEEDMESH_CHROME`）。
+
 ## 快速开始
 
 需要 Go 1.27+。

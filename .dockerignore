@@ -1,0 +1,9 @@
+.git
+.github
+dist
+feedmesh
+feedmesh.exe
+*.test
+*.out
+/cache
+/data
