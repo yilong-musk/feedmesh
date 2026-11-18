@@ -51,6 +51,17 @@ lives in `cmd/feedmesh`, so the install path includes it:
 go install github.com/yilong-musk/feedmesh/cmd/feedmesh@latest
 ```
 
+### Docker
+
+```bash
+docker run -d --name feedmesh -p 127.0.0.1:3000:3000 \
+  -v feedmesh-data:/data ghcr.io/yilong-musk/feedmesh:latest
+```
+
+Images are published for `linux/amd64` and `linux/arm64` with every release,
+run as a non-root user, and keep the cache in the `/data` volume. Every
+provider works except Douyin, whose reader needs Chromium (`FEEDMESH_CHROME`).
+
 ## Quick start
 
 Requires Go 1.27+.
