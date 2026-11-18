@@ -39,6 +39,18 @@ Parameters, data sources and limits live in **[docs/PLATFORMS.md](docs/PLATFORMS
 - **Two views**: RSS for readers, JSON for scripts and agents (one line per response).
 - **Single binary**: statically linked (CGO off), about 8.3 MB, roughly 11 MB of RSS at rest.
 
+## Install
+
+Prebuilt static binaries for Linux, macOS and Windows (amd64/arm64) and
+Debian/RPM packages are attached to every
+[release](https://github.com/yilong-musk/feedmesh/releases); verify archives
+against `checksums.txt`. With a Go toolchain (1.27+) note that the main package
+lives in `cmd/feedmesh`, so the install path includes it:
+
+```bash
+go install github.com/yilong-musk/feedmesh/cmd/feedmesh@latest
+```
+
 ## Quick start
 
 Requires Go 1.27+.

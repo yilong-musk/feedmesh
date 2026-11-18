@@ -1,0 +1,77 @@
+# Release pipeline: pushing a vX.Y.Z tag builds static binaries for Linux,
+# macOS and Windows (amd64/arm64), Debian/RPM packages, checksums, and attaches
+# everything to the GitHub release. No third-party dependencies.
+version: 2
+
+project_name: feedmesh
+
+before:
+  hooks:
+    - go run ./tools/langcheck
+
+builds:
+  - id: feedmesh
+    main: ./cmd/feedmesh
+    binary: feedmesh
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: feedmesh
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - README.zh-CN.md
+      - deploy/feedmesh.service
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+nfpms:
+  - id: packages
+    package_name: feedmesh
+    vendor: YiLong
+    homepage: https://github.com/yilong-musk/feedmesh
+    maintainer: YiLong <yilong-musk@users.noreply.github.com>
+    description: Self-hosted RSS bridge for multiple content platforms.
+    license: MIT
+    section: net
+    priority: optional
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/feedmesh/LICENSE
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

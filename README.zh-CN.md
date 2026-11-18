@@ -44,6 +44,17 @@
 - **两种视图**：RSS 给阅读器，JSON 给脚本与 agent（每次响应一行 JSON）。
 - **单二进制**：静态链接（CGO 关闭），约 8.3 MB，常驻内存约 11 MB。
 
+## 安装
+
+Linux、macOS、Windows（amd64/arm64）的静态二进制和 Debian/RPM 包随每个
+[release](https://github.com/yilong-musk/feedmesh/releases) 发布，压缩包可用
+`checksums.txt` 校验。已有 Go 工具链（1.27+）时，注意主包在 `cmd/feedmesh`，
+安装路径要带上一级：
+
+```bash
+go install github.com/yilong-musk/feedmesh/cmd/feedmesh@latest
+```
+
 ## 快速开始
 
 需要 Go 1.27+。
