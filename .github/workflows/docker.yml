@@ -30,11 +30,16 @@ jobs:
         id: tags
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            printf 'tags=%s:%s\n%s:latest\n' "$image" "$GITHUB_REF_NAME" "$image" >> "$GITHUB_OUTPUT"
-          else
-            printf 'tags=%s:edge\n' "$image" >> "$GITHUB_OUTPUT"
-          fi
+          {
+            echo "tags<<EOF"
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              echo "$image:$GITHUB_REF_NAME"
+              echo "$image:latest"
+            else
+              echo "$image:edge"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
