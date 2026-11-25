@@ -50,6 +50,9 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 | `tiktok:user:<handle>` | 10 minutes old counts as fresh; stored for 6 hours so the last good list survives a WAF or upstream failure |
 | `bilibili:user:<mid>` | 10 minutes old counts as fresh; stored for 6 hours so the last good list survives a rate-limit window |
 | `pinterest:user:<user>` / `pinterest:board:<user>/<board>` | 10 minutes old counts as fresh; stored for 6 hours so the last good feed survives an upstream failure |
+| `polymarket:events:<order>:<tag>` | 10 minutes old counts as fresh; stored for 6 hours |
+| `polymarket:event:<slug>` | 5 minutes old counts as fresh; stored for 6 hours |
+| `polymarket:activity:<address>` | 5 minutes old counts as fresh; stored for 6 hours |
 
 Every entry is stored for at least 6 hours; the column is the freshness window,
 not the on-disk lifetime, and a failed read serves the newest entry inside that
@@ -87,6 +90,7 @@ internal/tiktok/    TikTok creator timeline: WAF proof-of-work solver + web JSON
 internal/bilibili/  Bilibili creator timeline: WBI signature + space API
 internal/telegram/   Telegram public channel previews: t.me/s HTML parsing
 internal/pinterest/  Pinterest public profile and board RSS feeds
+internal/polymarket/ Polymarket Gamma API events/odds + Data API v2 wallet activity
 internal/linuxdo/    LINUX DO forum RSS: Discourse feeds behind Cloudflare
 internal/reddit/    Reddit subreddit Atom listing + global rate-limited read slot
 internal/feed/      unified model, RSS rendering, cache orchestration

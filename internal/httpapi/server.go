@@ -105,6 +105,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/telegram/{channel}", s.getOnly(s.handleTelegram))
 	mux.HandleFunc("/rss/pinterest/{user}", s.getOnly(s.handlePinterest))
 	mux.HandleFunc("/rss/pinterest/{user}/{board}", s.getOnly(s.handlePinterest))
+	mux.HandleFunc("/rss/polymarket/new", s.getOnly(s.handlePolymarketNew))
+	mux.HandleFunc("/rss/polymarket/new.xml", s.getOnly(s.handlePolymarketNew))
+	mux.HandleFunc("/rss/polymarket/hot", s.getOnly(s.handlePolymarketHot))
+	mux.HandleFunc("/rss/polymarket/hot.xml", s.getOnly(s.handlePolymarketHot))
+	mux.HandleFunc("/rss/polymarket/event/{slug}", s.getOnly(s.handlePolymarketEvent))
+	mux.HandleFunc("/rss/polymarket/user/{address}", s.getOnly(s.handlePolymarketUser))
 	mux.HandleFunc("/rss/linuxdo", s.getOnly(s.handleLinuxDoLatest))
 	mux.HandleFunc("/rss/linuxdo.xml", s.getOnly(s.handleLinuxDoLatest))
 	mux.HandleFunc("/rss/linuxdo/top", s.getOnly(s.handleLinuxDoTop))
@@ -130,6 +136,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/bilibili", s.getOnly(s.handleAPIBilibili))
 	mux.HandleFunc("/api/v1/telegram", s.getOnly(s.handleAPITelegram))
 	mux.HandleFunc("/api/v1/pinterest", s.getOnly(s.handleAPIPinterest))
+	mux.HandleFunc("/api/v1/polymarket", s.getOnly(s.handleAPIPolymarket))
 	mux.HandleFunc("/api/v1/linuxdo", s.getOnly(s.handleAPILinuxDo))
 	mux.HandleFunc("/api/v1/reddit", s.getOnly(s.handleAPIReddit))
 	mux.HandleFunc("/", s.handleNotFound)
@@ -1429,6 +1436,159 @@ func (s *Server) handleAPIPinterest(w http.ResponseWriter, r *http.Request) {
 		User: respUser, Board: respBoard, Title: f.Title(), Description: f.Description,
 		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
 		Items: pinterestItems(f.Items),
+	})
+}
+
+// polymarketItemResponse is one event, market or wallet action in the JSON view.
+type polymarketItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	CreatedAt time.Time `json:"created_at"`
+	Volume24H float64   `json:"volume_24h,omitempty"`
+	Liquidity float64   `json:"liquidity,omitempty"`
+	EndsAt    time.Time `json:"ends_at,omitzero"`
+}
+
+type polymarketResponse struct {
+	Feed        string                   `json:"feed"`
+	Tag         string                   `json:"tag,omitempty"`
+	Slug        string                   `json:"slug,omitempty"`
+	Address     string                   `json:"address,omitempty"`
+	Title       string                   `json:"title"`
+	Description string                   `json:"description"`
+	FetchedAt   time.Time                `json:"fetched_at"`
+	Cached      bool                     `json:"cached"`
+	Degraded    bool                     `json:"degraded"`
+	Items       []polymarketItemResponse `json:"items"`
+}
+
+func polymarketItems(items []feed.Item) []polymarketItemResponse {
+	out := make([]polymarketItemResponse, 0, len(items))
+	for _, it := range items {
+		images := it.Images
+		if images == nil {
+			images = []string{}
+		}
+		out = append(out, polymarketItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: images, CreatedAt: it.CreatedAt,
+			Volume24H: it.Volume24H, Liquidity: it.Liquidity, EndsAt: it.EndsAt,
+		})
+	}
+	return out
+}
+
+func (s *Server) servePolymarketRSS(w http.ResponseWriter, f *feed.Feed, kind string) {
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	s.setRSSCacheFor(w, f, int(feed.PolymarketTTL(kind).Seconds()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+// handlePolymarketNew serves the newest markets.
+func (s *Server) handlePolymarketNew(w http.ResponseWriter, r *http.Request) {
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	f, err := s.cfg.Service.GetPolymarketEvents(r.Context(), "createdAt", tag, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.servePolymarketRSS(w, f, "events")
+}
+
+// handlePolymarketHot serves events ranked by 24-hour volume.
+func (s *Server) handlePolymarketHot(w http.ResponseWriter, r *http.Request) {
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	f, err := s.cfg.Service.GetPolymarketEvents(r.Context(), "volume24hr", tag, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.servePolymarketRSS(w, f, "events")
+}
+
+// handlePolymarketEvent serves one event's markets.
+func (s *Server) handlePolymarketEvent(w http.ResponseWriter, r *http.Request) {
+	slug := strings.TrimSuffix(r.PathValue("slug"), ".xml")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	f, err := s.cfg.Service.GetPolymarketEvent(r.Context(), slug, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.servePolymarketRSS(w, f, "event")
+}
+
+// handlePolymarketUser serves one wallet's activity.
+func (s *Server) handlePolymarketUser(w http.ResponseWriter, r *http.Request) {
+	address := strings.TrimSuffix(r.PathValue("address"), ".xml")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketActivityLimit, feed.MaxPolymarketActivityLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+	f, err := s.cfg.Service.GetPolymarketActivity(r.Context(), address, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	s.servePolymarketRSS(w, f, "activity")
+}
+
+// handleAPIPolymarket returns any Polymarket feed as JSON.
+func (s *Server) handleAPIPolymarket(w http.ResponseWriter, r *http.Request) {
+	kind := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("feed")))
+	if kind == "" {
+		kind = "new"
+	}
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	slug := strings.TrimSpace(r.URL.Query().Get("slug"))
+	address := strings.TrimSpace(r.URL.Query().Get("address"))
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	var (
+		f     *feed.Feed
+		limit int
+		err   error
+	)
+	switch kind {
+	case "new", "hot":
+		order := "createdAt"
+		if kind == "hot" {
+			order = "volume24hr"
+		}
+		limit = atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+		f, err = s.cfg.Service.GetPolymarketEvents(r.Context(), order, tag, limit, refresh)
+	case "event":
+		limit = atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+		f, err = s.cfg.Service.GetPolymarketEvent(r.Context(), slug, limit, refresh)
+	case "user", "activity":
+		kind = "user"
+		limit = atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketActivityLimit, feed.MaxPolymarketActivityLimit)
+		f, err = s.cfg.Service.GetPolymarketActivity(r.Context(), address, limit, refresh)
+	default:
+		s.writeErrorStatus(w, http.StatusBadRequest,
+			weibo.NewError(weibo.CodeBadRequest, 0, "unknown polymarket feed %q", kind))
+		return
+	}
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if f.Degraded {
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+	}
+	writeJSON(w, http.StatusOK, polymarketResponse{
+		Feed: kind, Tag: tag, Slug: slug, Address: address,
+		Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
+		Items: polymarketItems(f.Items),
 	})
 }
 

@@ -31,6 +31,9 @@
     <tr><td><img src="docs/assets/bilibili.png" width="18" height="18" align="absmiddle" alt="哔哩哔哩">&nbsp;哔哩哔哩</td><td>UP 主视频</td><td><code>/rss/bilibili/{mid}</code></td><td><code>/api/v1/bilibili?user=</code></td></tr>
     <tr><td><img src="docs/assets/telegram.png" width="18" height="18" align="absmiddle" alt="Telegram">&nbsp;Telegram</td><td>公开频道推送</td><td><code>/rss/telegram/{channel}</code></td><td><code>/api/v1/telegram?channel=</code></td></tr>
     <tr><td><img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest</td><td>个人主页 / 板子 pin</td><td><code>/rss/pinterest/{user}</code>, <code>/rss/pinterest/{user}/{board}</code></td><td><code>/api/v1/pinterest?user=&amp;board=</code></td></tr>
+    <tr><td><img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket</td><td>新市场 / 热门事件</td><td><code>/rss/polymarket/new</code>, <code>/rss/polymarket/hot</code></td><td><code>/api/v1/polymarket?feed=new|hot</code></td></tr>
+    <tr><td><img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket</td><td>单事件赔率</td><td><code>/rss/polymarket/event/{slug}</code></td><td><code>/api/v1/polymarket?feed=event&amp;slug=</code></td></tr>
+    <tr><td><img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket</td><td>钱包成交流</td><td><code>/rss/polymarket/user/{address}</code></td><td><code>/api/v1/polymarket?feed=user&amp;address=</code></td></tr>
     <tr><td><img src="docs/assets/linuxdo.png" width="18" height="18" align="absmiddle" alt="LINUX DO">&nbsp;LINUX DO</td><td>论坛话题（最新 / 热门 / 分类 / 标签）</td><td><code>/rss/linuxdo</code>, <code>/rss/linuxdo/top</code>, <code>/rss/linuxdo/hot</code>, <code>/rss/linuxdo/c/{slug}/{id}</code>, <code>/rss/linuxdo/tag/{tag}</code></td><td><code>/api/v1/linuxdo?feed=</code></td></tr>
     <tr><td><img src="docs/assets/reddit.png" width="18" height="18" align="absmiddle" alt="Reddit">&nbsp;Reddit</td><td>版块列表</td><td><code>/rss/reddit/{sub}</code></td><td><code>/api/v1/reddit?sub=</code></td></tr>
   </tbody>
@@ -124,7 +127,7 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 | `cache purge --handle <handle>` | 清除某个 X handle 的时间线缓存 |
 | `--dry-run` | 只报告，不删除 |
 
-全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit/Pinterest 15 秒、X/YouTube 20 秒、抖音 45 秒（冷启动浏览器约 30 秒）、Telegram 15 秒、LINUX DO 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
+全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit/Pinterest/Polymarket 15 秒、X/YouTube 20 秒、抖音 45 秒（冷启动浏览器约 30 秒）、Telegram 15 秒、LINUX DO 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
 
 ## 文档
 

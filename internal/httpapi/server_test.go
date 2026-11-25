@@ -19,6 +19,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/pinterest"
+	"github.com/yilong-musk/feedmesh/internal/polymarket"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/tiktok"
@@ -183,6 +184,18 @@ func fakeWeibo(t *testing.T) http.HandlerFunc {
 		case r.URL.Path == "/ghost/feed.rss":
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, "User not found")
+		case r.URL.Path == "/events":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, pmUserFeed)
+		case r.URL.Path == "/events/slug/event-one":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, pmEventFeed)
+		case r.URL.Path == "/events/slug/missing":
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"error":"slug not found"}`)
+		case r.URL.Path == "/v2/activity":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, pmActivityFeed)
 		case r.URL.Path == "/" && r.URL.Query().Get("tab") == "":
 			w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 			fmt.Fprint(w, smzdmRSS)
@@ -231,7 +244,7 @@ func newTestServer(t *testing.T) http.Handler {
 		// Tests never reach the real embed endpoint.
 		DisableEnrichment: true,
 	})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond}), Douyin: fakeDouyin{}, TikTok: fakeTikTok{}, Bilibili: fakeBilibili{}, Telegram: fakeTelegram{}, LinuxDo: fakeLinuxDo{}, Pinterest: pinterest.New(pinterest.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second})}, c, logx.Discard(), feed.DefaultTTLs())
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond}), Douyin: fakeDouyin{}, TikTok: fakeTikTok{}, Bilibili: fakeBilibili{}, Telegram: fakeTelegram{}, LinuxDo: fakeLinuxDo{}, Pinterest: pinterest.New(pinterest.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Polymarket: polymarket.New(polymarket.Config{BaseURL: upstream.URL, DataURL: upstream.URL + "/v2", Timeout: 2 * time.Second})}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,

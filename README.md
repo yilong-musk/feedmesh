@@ -28,6 +28,9 @@ Bridges content from multiple platforms into RSS — self-hosted, one static bin
 | <img src="docs/assets/bilibili.png" width="18" height="18" align="absmiddle" alt="Bilibili">&nbsp;Bilibili | Creator videos | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` |
 | <img src="docs/assets/telegram.png" width="18" height="18" align="absmiddle" alt="Telegram">&nbsp;Telegram | Public channel posts | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` |
 | <img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest | Profile / board pins | `/rss/pinterest/{user}`, `/rss/pinterest/{user}/{board}` | `/api/v1/pinterest?user=&board=` |
+| <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | New / trending events | `/rss/polymarket/new`, `/rss/polymarket/hot` | `/api/v1/polymarket?feed=new\|hot` |
+| <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Event odds | `/rss/polymarket/event/{slug}` | `/api/v1/polymarket?feed=event&slug=` |
+| <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Wallet activity | `/rss/polymarket/user/{address}` | `/api/v1/polymarket?feed=user&address=` |
 | <img src="docs/assets/linuxdo.png" width="18" height="18" align="absmiddle" alt="LINUX DO">&nbsp;LINUX DO | Forum topics (latest / top / hot / category / tag) | `/rss/linuxdo`, `/rss/linuxdo/top`, `/rss/linuxdo/hot`, `/rss/linuxdo/c/{slug}/{id}`, `/rss/linuxdo/tag/{tag}` | `/api/v1/linuxdo?feed=` |
 | <img src="docs/assets/reddit.png" width="18" height="18" align="absmiddle" alt="Reddit">&nbsp;Reddit | Subreddit listing | `/rss/reddit/{sub}` | `/api/v1/reddit?sub=` |
 
