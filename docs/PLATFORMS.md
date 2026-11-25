@@ -330,6 +330,28 @@ Official site <https://linux.do> · Data source: the forum's official Discourse 
 
 ---
 
+## <img src="assets/pinterest.png" width="28" height="28" align="absmiddle" alt="Pinterest"> Pinterest
+
+Official site <https://www.pinterest.com> · Data source: the public RSS feeds at `/<user>/feed.rss` and `/<user>/<board>.rss` (anonymous; no account, cookie, token or browser)
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Profile pins | `/rss/pinterest/{user}` | `/api/v1/pinterest?user=` | 20 | 25 | 10 minutes |
+| Board pins | `/rss/pinterest/{user}/{board}` | `/api/v1/pinterest?user=&board=` | 20 | 25 | 10 minutes |
+
+### Profile and board pins
+
+- `{user}` accepts a bare profile name (`nasa`), an `@handle` or a profile URL. `{board}` is the slug from the board URL (`https://www.pinterest.com/<user>/<board>/`). Both are case-insensitive upstream; the cache key lowercases them.
+- One feed slice carries at most 25 pins and has no pagination, so 25 is both the default and the maximum. Polling more often than the reader needs only adds Pinterest traffic; the cache is fresh for ten minutes.
+- The feed keeps Pinterest's own order. A pin added to a board today can carry an old creation date, and re-sorting by `pubDate` would bury it. The profile feed is newest-first upstream.
+- Each item carries the pin permalink, the pin title (falling back to the caption and then `(no content)`), the caption as plain text, and one image. The feed stamps every thumbnail as `/236x/`; the provider upgrades it to `/736x/` before publishing. The `/originals/` path is not used: four of six tested pins answered 403 there, while 736x answered for every one.
+- `refresh=1` forces a read. The last good result is kept for six hours and served with `X-Feedmesh-Degraded: 1` when the read fails.
+- A missing profile or board returns `USER_NOT_FOUND` (404), with `User not found` or `Board not found` in the message; a malformed name returns `BAD_REQUEST` (400); a `429` returns `RATE_LIMITED` (429). A 200 answer that is an HTML shell instead of RSS returns `UPSTREAM_UNAVAILABLE` (504) and is never cached.
+- The endpoints are public and have been recommended to feed readers for years, but Pinterest's `robots.txt` says `User-agent: *` → `Disallow: /`: generic crawlers are not on its allowlist. That is a policy decision for the operator, not a technical limit of this provider.
+- The official API v5 is not an alternative for this use case: it requires a registered app and OAuth, trial-created entities are sandboxed, and apps registered after 2026-09-14 can receive `PINNER_DATA_ACCESS_DENIED` for personal (non-business) boards and pins. Standard access needs a business account, a privacy policy and a recorded review.
+
+---
+
 ## Adding a platform
 
 1. Create `internal/<platform>/client.go`; it only handles HTTP and parsing and returns the neutral `Article` struct.

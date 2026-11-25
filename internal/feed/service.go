@@ -14,6 +14,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/linuxdo"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/pinterest"
 	"github.com/yilong-musk/feedmesh/internal/reddit"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
@@ -86,18 +87,19 @@ type LinuxDoFeed interface {
 // Service coordinates the upstream client and the on-disk cache.
 // Clients bundles the upstream providers a Service can serve.
 type Clients struct {
-	Weibo    *weibo.Client
-	Sspai    *sspai.Client
-	V2ex     *v2ex.Client
-	X        *xnitter.Client
-	Smzdm    *smzdm.Client
-	Youtube  *youtube.Client
-	Reddit   *reddit.Client
-	Douyin   DouyinTimeline
-	TikTok   TikTokTimeline
-	Bilibili BilibiliTimeline
-	Telegram TelegramChannel
-	LinuxDo  LinuxDoFeed
+	Weibo     *weibo.Client
+	Sspai     *sspai.Client
+	V2ex      *v2ex.Client
+	X         *xnitter.Client
+	Smzdm     *smzdm.Client
+	Youtube   *youtube.Client
+	Reddit    *reddit.Client
+	Douyin    DouyinTimeline
+	TikTok    TikTokTimeline
+	Bilibili  BilibiliTimeline
+	Telegram  TelegramChannel
+	LinuxDo   LinuxDoFeed
+	Pinterest *pinterest.Client
 }
 
 type Service struct {

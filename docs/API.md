@@ -229,6 +229,23 @@ curl -s 'http://127.0.0.1:3000/rss/telegram/sspai.xml'
 - Video posts expose the still frame only: the preview's `<video src>` is a signed URL that expires, so embedding it would leave a dead player behind. Media RSS repeats the photos.
 - A missing channel, or one whose preview is disabled (private channels and groups), returns `USER_NOT_FOUND` (404); a malformed name returns `BAD_REQUEST` (400); a preview with no visible post returns `UPSTREAM_UNAVAILABLE` (504) instead of caching an empty feed; a `429` from t.me returns `RATE_LIMITED`.
 
+### `GET /rss/pinterest/{user}`, `/rss/pinterest/{user}/{board}`
+
+Pinterest profile or board pins, read from Pinterest's public RSS feeds. No account, cookie, token or browser is involved: both the profile feed (`/<user>/feed.rss`) and a board feed (`/<user>/<board>.rss`) are served anonymously.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/pinterest/nasa?limit=10'
+curl -s 'http://127.0.0.1:3000/rss/pinterest/nasa/earth'
+```
+
+- `{user}` accepts a bare profile name, `@handle` or a profile URL; `{board}` is the board slug from the board URL (`https://www.pinterest.com/<user>/<board>/`). Pinterest treats both case-insensitively, and the cache key lowercases them.
+- One feed slice carries at most 25 pins and has no pagination, so 25 is both the default and the maximum. `refresh=1` forces a read.
+- Cached for 10 minutes, `Cache-Control: max-age=600`; the last good result is kept for six hours and served with `X-Feedmesh-Degraded: 1` when the upstream read fails.
+- The feed keeps Pinterest's own order: a pin added to a board today can carry an old creation date, and re-sorting by `pubDate` would bury it.
+- `link`/`guid` is the pin permalink (`https://www.pinterest.com/pin/<id>/`; Pinterest serves both numeric and opaque ids). The item `title` is the pin title, falling back to the caption and then `(no content)`; the body carries the 736px thumbnail (upgraded from the 236px URL in the feed), the caption and a link to the pin page.
+- A missing profile returns `USER_NOT_FOUND` (404) with `User not found`; a missing board returns `USER_NOT_FOUND` (404) with `Board not found`; a malformed name returns `BAD_REQUEST` (400); a `429` returns `RATE_LIMITED` (429).
+- Pinterest's `robots.txt` disallows generic crawlers (`User-agent: *` → `Disallow: /`) while the RSS endpoints themselves are public and recommended to feed readers by third-party documentation. Operators should decide whether that fits their use.
+
 ### `GET /rss/linuxdo`, `/rss/linuxdo/top`, `/rss/linuxdo/hot`, `/rss/linuxdo/c/{slug}/{id}`, `/rss/linuxdo/tag/{tag}`
 
 LINUX DO forum topics, read from the official Discourse RSS feeds. No account or API key is involved. Only `.rss` paths are requested: the forum's JSON and HTML paths answer a Cloudflare challenge that would also take RSS down for several minutes.
@@ -479,6 +496,21 @@ The same list in the downloader's schema:
 - `title` is `<channel display name> on Telegram`; `author` is the per-post signature when the channel uses one, otherwise the channel display name; `views` is the preview's view counter.
 - `images` is always an array (empty for text-only posts); a video post carries no image URL there and exposes only its still frame inside `html`.
 
+### `GET /api/v1/pinterest?user=<user>&board=<board>&limit=N`
+
+```json
+{"user":"nasa","board":"earth","title":"Earth on Pinterest","description":"Pinterest board nasa/earth",
+ "fetched_at":"2026-11-25T07:40:00Z","cached":false,"degraded":false,
+ "items":[{"id":"e1_Afq…","title":"Polar bears","text":"Polar bears are scrambling.",
+           "url":"https://www.pinterest.com/pin/e1_Afq…/",
+           "html":"<p><img …></p>…","images":["https://i.pinimg.com/736x/17/66/48/….jpg"],
+           "created_at":"2022-06-16T18:20:42Z"}]}
+```
+
+- `user` is required; `board` is optional and selects one board feed. `limit` defaults to 20 with a maximum of 25, `refresh=1` is supported.
+- `user` and `board` are echoed separately (a profile request has no `board` field); `title` is `<display name> on Pinterest` (for a board feed the display name is the board name).
+- `images` is always an array (one 736px thumbnail per pin); `created_at` is the pin's `pubDate` in UTC, and a pin without one uses the read time.
+
 ### `GET /api/v1/linuxdo?feed=<kind>&limit=N`
 
 ```json
@@ -580,8 +612,9 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | Reddit listing | `reddit:list:<sub>:<sort>:<window>` | 10 minutes (last good kept for 24 hours) |
 | Telegram channel | `telegram:channel:<name>` | 10 minutes (last good kept for 6 hours) |
 | LINUX DO feed | `linuxdo:feed:<kind>:<params>` | 15 minutes (last good kept for 24 hours) |
+| Pinterest profile / board | `pinterest:user:<user>` / `pinterest:board:<user>/<board>` | 10 minutes (last good kept for 6 hours) |
 
-- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili, Telegram, LINUX DO and Reddit.
+- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili, Telegram, Pinterest, LINUX DO and Reddit.
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).
 - Cache directory: `--cache-dir` / `FEEDMESH_CACHE`, default `~/.cache/feedmesh`; one JSON file per key, written atomically. The directory mode is 0700 and the file mode 0600; expired entries are cleaned at startup. `cache purge --all` deletes only entries it can verify were written by feedmesh (it checks the `key` inside the entry against the file name) and leaves other `.json` files in the same directory alone.

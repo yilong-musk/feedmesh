@@ -103,6 +103,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/tiktok/{user}", s.getOnly(s.handleTikTok))
 	mux.HandleFunc("/rss/bilibili/{mid}", s.getOnly(s.handleBilibili))
 	mux.HandleFunc("/rss/telegram/{channel}", s.getOnly(s.handleTelegram))
+	mux.HandleFunc("/rss/pinterest/{user}", s.getOnly(s.handlePinterest))
+	mux.HandleFunc("/rss/pinterest/{user}/{board}", s.getOnly(s.handlePinterest))
 	mux.HandleFunc("/rss/linuxdo", s.getOnly(s.handleLinuxDoLatest))
 	mux.HandleFunc("/rss/linuxdo.xml", s.getOnly(s.handleLinuxDoLatest))
 	mux.HandleFunc("/rss/linuxdo/top", s.getOnly(s.handleLinuxDoTop))
@@ -127,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/tiktok/timeline", s.getOnly(s.handleAPITikTokTimeline))
 	mux.HandleFunc("/api/v1/bilibili", s.getOnly(s.handleAPIBilibili))
 	mux.HandleFunc("/api/v1/telegram", s.getOnly(s.handleAPITelegram))
+	mux.HandleFunc("/api/v1/pinterest", s.getOnly(s.handleAPIPinterest))
 	mux.HandleFunc("/api/v1/linuxdo", s.getOnly(s.handleAPILinuxDo))
 	mux.HandleFunc("/api/v1/reddit", s.getOnly(s.handleAPIReddit))
 	mux.HandleFunc("/", s.handleNotFound)
@@ -1344,6 +1347,88 @@ func (s *Server) handleAPITelegram(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, telegramResponse{
 		Channel: f.UID, Title: f.Title(), Description: f.Description,
 		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
+	})
+}
+
+// pinterestItemResponse is one pin in the JSON view.
+type pinterestItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
+	URL       string    `json:"url"`
+	HTML      string    `json:"html"`
+	Images    []string  `json:"images"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type pinterestResponse struct {
+	User        string                  `json:"user"`
+	Board       string                  `json:"board,omitempty"`
+	Title       string                  `json:"title"`
+	Description string                  `json:"description"`
+	FetchedAt   time.Time               `json:"fetched_at"`
+	Cached      bool                    `json:"cached"`
+	Degraded    bool                    `json:"degraded"`
+	Items       []pinterestItemResponse `json:"items"`
+}
+
+func pinterestItems(items []feed.Item) []pinterestItemResponse {
+	out := make([]pinterestItemResponse, 0, len(items))
+	for _, it := range items {
+		images := it.Images
+		if images == nil {
+			images = []string{}
+		}
+		out = append(out, pinterestItemResponse{
+			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
+			HTML: it.HTML, Images: images, CreatedAt: it.CreatedAt,
+		})
+	}
+	return out
+}
+
+// handlePinterest serves a profile feed or, with a second path segment, one
+// board feed.
+func (s *Server) handlePinterest(w http.ResponseWriter, r *http.Request) {
+	user := strings.TrimSuffix(r.PathValue("user"), ".xml")
+	board := strings.TrimSuffix(r.PathValue("board"), ".xml")
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPinterestLimit, feed.MaxPinterestLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetPinterest(r.Context(), user, board, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	s.setRSSCacheFor(w, f, int(feed.PinterestTTL().Seconds()))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(feed.RenderRSS(f))
+}
+
+// handleAPIPinterest returns the same profile or board feed as JSON.
+func (s *Server) handleAPIPinterest(w http.ResponseWriter, r *http.Request) {
+	user := strings.TrimSpace(r.URL.Query().Get("user"))
+	board := strings.TrimSpace(r.URL.Query().Get("board"))
+	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPinterestLimit, feed.MaxPinterestLimit)
+	refresh := r.URL.Query().Get("refresh") == "1"
+
+	f, err := s.cfg.Service.GetPinterest(r.Context(), user, board, limit, refresh)
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if f.Degraded {
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+	}
+	respUser, respBoard := f.UID, ""
+	if i := strings.Index(f.UID, "/"); i >= 0 {
+		respUser, respBoard = f.UID[:i], f.UID[i+1:]
+	}
+	writeJSON(w, http.StatusOK, pinterestResponse{
+		User: respUser, Board: respBoard, Title: f.Title(), Description: f.Description,
+		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
+		Items: pinterestItems(f.Items),
 	})
 }
 
