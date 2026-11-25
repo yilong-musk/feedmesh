@@ -46,6 +46,13 @@ type Item struct {
 	// only); the JSON view publishes it.
 	Slug string `json:"-"`
 
+	// Volume24H and Liquidity describe a Polymarket event or market. The JSON
+	// view publishes them as numbers; other providers leave them zero.
+	Volume24H float64 `json:"-"`
+	Liquidity float64 `json:"-"`
+	// EndsAt is the Polymarket market or event close time.
+	EndsAt time.Time `json:"-"`
+
 	// Douyin-only fields. The play address expires within hours, so the
 	// generic item JSON leaves it out and the dedicated timeline view
 	// publishes it for the downloader.

@@ -352,6 +352,31 @@ Official site <https://www.pinterest.com> · Data source: the public RSS feeds a
 
 ---
 
+## <img src="assets/polymarket.png" width="28" height="28" align="absmiddle" alt="Polymarket"> Polymarket
+
+Official site <https://polymarket.com> · Data source: the public Gamma API (`gamma-api.polymarket.com`) and Data API v2 (`data-api.polymarket.com/v2`), both anonymous
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Newest events | `/rss/polymarket/new` | `/api/v1/polymarket?feed=new` | 20 | 50 | 10 minutes |
+| Trending events | `/rss/polymarket/hot` | `/api/v1/polymarket?feed=hot` | 20 | 50 | 10 minutes |
+| One event's markets | `/rss/polymarket/event/{slug}` | `/api/v1/polymarket?feed=event&slug=` | 20 | 50 | 5 minutes |
+| Wallet activity | `/rss/polymarket/user/{address}` | `/api/v1/polymarket?feed=user&address=` | 30 | 100 | 5 minutes |
+
+### Events, odds and wallet activity
+
+- `new` reads `order=createdAt`; `hot` reads `order=volume24hr`. Both accept `tag=<slug>` (for example `politics`, `sports`, `crypto`; the tag must be a lowercase slug).
+- **The newest list always excludes tag `102169` (`Hide From New`).** In a measured sample, 83 of the 100 newest events were five-minute crypto `Up or Down` markets; with the exclusion, 20 of 20 were normal events. Without it the feed is unusable.
+- The Gamma API is generous but returns large documents: a 50-event page is ~725 KB gzip-decoded before trimming, because multi-market events embed every market. The provider keeps only the top three markets per event for list views, which is what the RSS body shows. Go's HTTP client negotiates gzip automatically; without it Gamma answers `406 gzip_required` for pages above 50.
+- `event/{slug}` sorts markets by volume and caps them at the request limit. Odds are rendered as `Yes 47.5% · No 52.5%`; a market's 24-hour price change is shown in percentage points when present.
+- `user/{address}` reads Data API v2 `/activity` (`sort_by=TIMESTAMP`). Each item is one trade, split, merge, redeem or reward, with side, outcome, price, size and USDC value. Addresses are validated as `0x` + 40 hex characters and lowercased.
+- **RSS semantics**: odds are a snapshot, not an event. Readers do not re-notify an item whose content changed, so the single-event feed is a dashboard. Use `new` or `user` when a new item should trigger a notification.
+- Cache: lists 10 minutes, single event and wallet 5 minutes; last good entry kept for six hours. `refresh=1` forces a read.
+- Errors: unknown event slug → `USER_NOT_FOUND` (404); malformed tag/slug/address → `BAD_REQUEST` (400); upstream rejection → `BAD_REQUEST` or `UPSTREAM_UNAVAILABLE`; `429` → `RATE_LIMITED`.
+- There is no official RSS; the APIs are documented public reads with no key. Rate limits are tiered by Builder status and not published as a fixed number for anonymous reads, so the ten-minute cache is the main protection.
+
+---
+
 ## Adding a platform
 
 1. Create `internal/<platform>/client.go`; it only handles HTTP and parsing and returns the neutral `Article` struct.

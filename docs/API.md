@@ -246,6 +246,26 @@ curl -s 'http://127.0.0.1:3000/rss/pinterest/nasa/earth'
 - A missing profile returns `USER_NOT_FOUND` (404) with `User not found`; a missing board returns `USER_NOT_FOUND` (404) with `Board not found`; a malformed name returns `BAD_REQUEST` (400); a `429` returns `RATE_LIMITED` (429).
 - Pinterest's `robots.txt` disallows generic crawlers (`User-agent: *` → `Disallow: /`) while the RSS endpoints themselves are public and recommended to feed readers by third-party documentation. Operators should decide whether that fits their use.
 
+### `GET /rss/polymarket/new`, `/rss/polymarket/hot`, `/rss/polymarket/event/{slug}`, `/rss/polymarket/user/{address}`
+
+Prediction-market feeds read from Polymarket's public APIs. No account, API key, cookie or browser is involved: market data comes from the Gamma API and wallet activity from Data API v2.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/polymarket/new?limit=10'
+curl -s 'http://127.0.0.1:3000/rss/polymarket/hot?tag=politics'
+curl -s 'http://127.0.0.1:3000/rss/polymarket/event/democratic-presidential-nominee-2028'
+curl -s 'http://127.0.0.1:3000/rss/polymarket/user/0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b'
+```
+
+- `new` lists the newest events (`order=createdAt`), `hot` ranks events by 24-hour volume, `event/{slug}` lists one event's open markets by volume, and `user/{address}` lists a wallet's newest actions.
+- `new`/`hot` accept `tag=<slug>` (e.g. `politics`, `sports`, `crypto`) and `limit` up to 50; `event` accepts `limit` up to 50; `user` accepts `limit` up to 100 (default 30). `refresh=1` forces a read.
+- The newest-events list always sends `exclude_tag_id=102169` (Polymarket's own `Hide From New` tag). Without it, roughly 80% of the newest events are five-minute crypto `Up or Down` markets.
+- Event items carry the title, link, cover image and a summary of the top markets with their current odds (`Yes 47.5% · No 52.5%`), plus 24-hour volume, liquidity and end date. Single-event items are one market each; wallet items are one trade or redemption each.
+- Cache: event lists fresh for 10 minutes, single events and wallet activity for 5 minutes; the last good entry is kept for six hours. `Cache-Control` follows the same TTL.
+- Odds are a snapshot. RSS readers do not re-notify an item whose content changes, so an event feed is a dashboard, not an alert; use the wallet feed or the newest-events feed when a new item should trigger a notification.
+- A missing event returns `USER_NOT_FOUND` (404); a malformed tag, slug or address returns `BAD_REQUEST` (400); upstream `429` returns `RATE_LIMITED`.
+- The Gamma API caps pages at 50 events without gzip; the Go HTTP client negotiates gzip automatically, so `limit=50` works and one page stays around 100–150 KB after the summary trim.
+
 ### `GET /rss/linuxdo`, `/rss/linuxdo/top`, `/rss/linuxdo/hot`, `/rss/linuxdo/c/{slug}/{id}`, `/rss/linuxdo/tag/{tag}`
 
 LINUX DO forum topics, read from the official Discourse RSS feeds. No account or API key is involved. Only `.rss` paths are requested: the forum's JSON and HTML paths answer a Cloudflare challenge that would also take RSS down for several minutes.
@@ -511,6 +531,21 @@ The same list in the downloader's schema:
 - `user` and `board` are echoed separately (a profile request has no `board` field); `title` is `<display name> on Pinterest` (for a board feed the display name is the board name).
 - `images` is always an array (one 736px thumbnail per pin); `created_at` is the pin's `pubDate` in UTC, and a pin without one uses the read time.
 
+### `GET /api/v1/polymarket?feed=<new|hot|event|user>`
+
+```json
+{"feed":"event","slug":"event-one","title":"Event One on Polymarket","description":"First event.",
+ "fetched_at":"2026-11-25T10:00:00Z","cached":false,"degraded":false,
+ "items":[{"id":"m2","title":"B","text":"Yes 90.0% · No 10.0% · 24h volume $90 · liquidity $50",
+           "url":"https://polymarket.com/event/event-one/will-b-win",
+           "html":"…","images":["https://img.example/one.jpg"],
+           "created_at":"2026-11-20T00:00:00Z","volume_24h":90,"liquidity":50,
+           "ends_at":"2026-12-01T00:00:00Z"}]}
+```
+
+- `feed` is `new` (default), `hot`, `event` or `user`; `tag=` filters the event lists, `slug=` selects an event, `address=` selects a wallet. `limit` follows the same bounds as the RSS routes, and `refresh=1` is supported.
+- `volume_24h`, `liquidity` and `ends_at` are Polymarket-only fields; they are omitted when zero or unset.
+
 ### `GET /api/v1/linuxdo?feed=<kind>&limit=N`
 
 ```json
@@ -613,8 +648,11 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | Telegram channel | `telegram:channel:<name>` | 10 minutes (last good kept for 6 hours) |
 | LINUX DO feed | `linuxdo:feed:<kind>:<params>` | 15 minutes (last good kept for 24 hours) |
 | Pinterest profile / board | `pinterest:user:<user>` / `pinterest:board:<user>/<board>` | 10 minutes (last good kept for 6 hours) |
+| Polymarket event list | `polymarket:events:<order>:<tag>` | 10 minutes (last good kept for 6 hours) |
+| Polymarket single event | `polymarket:event:<slug>` | 5 minutes (last good kept for 6 hours) |
+| Polymarket wallet activity | `polymarket:activity:<address>` | 5 minutes (last good kept for 6 hours) |
 
-- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili, Telegram, Pinterest, LINUX DO and Reddit.
+- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili, Telegram, Pinterest, Polymarket, LINUX DO and Reddit.
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).
 - Cache directory: `--cache-dir` / `FEEDMESH_CACHE`, default `~/.cache/feedmesh`; one JSON file per key, written atomically. The directory mode is 0700 and the file mode 0600; expired entries are cleaned at startup. `cache purge --all` deletes only entries it can verify were written by feedmesh (it checks the `key` inside the entry against the file name) and leaves other `.json` files in the same directory alone.
