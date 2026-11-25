@@ -65,6 +65,32 @@ nfpms:
       - src: LICENSE
         dst: /usr/share/doc/feedmesh/LICENSE
 
+homebrew_casks:
+  - name: feedmesh
+    ids:
+      - feedmesh
+    binaries:
+      - feedmesh
+    homepage: https://github.com/yilong-musk/feedmesh
+    description: Self-hosted RSS bridge for multiple content platforms
+    repository:
+      owner: yilong-musk
+      name: homebrew-tap
+      git:
+        url: ssh://git@github.com/yilong-musk/homebrew-tap.git
+        private_key: "{{ .Env.HOMEBREW_TAP_SSH_KEY }}"
+    commit_author:
+      name: goreleaserbot
+      email: goreleaserbot@users.noreply.github.com
+    hooks:
+      post:
+        # The archive is not notarised, so drop the quarantine flag Homebrew
+        # sets on downloaded files; otherwise Gatekeeper blocks the binary.
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/feedmesh"]
+          end
+
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 

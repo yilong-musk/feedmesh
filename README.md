@@ -52,6 +52,17 @@ lives in `cmd/feedmesh`, so the install path includes it:
 go install github.com/yilong-musk/feedmesh/cmd/feedmesh@latest
 ```
 
+### Homebrew
+
+```bash
+brew install --cask yilong-musk/tap/feedmesh
+brew upgrade --cask feedmesh
+```
+
+The cask is published to [yilong-musk/homebrew-tap](https://github.com/yilong-musk/homebrew-tap)
+by the release pipeline. It installs the prebuilt macOS or Linux binary and
+drops the quarantine attribute (the archives are not notarised).
+
 ### Docker
 
 ```bash

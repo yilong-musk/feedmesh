@@ -56,6 +56,16 @@ Linux、macOS、Windows（amd64/arm64）的静态二进制和 Debian/RPM 包随�
 go install github.com/yilong-musk/feedmesh/cmd/feedmesh@latest
 ```
 
+### Homebrew
+
+```bash
+brew install --cask yilong-musk/tap/feedmesh
+brew upgrade --cask feedmesh
+```
+
+cask 由发布流程推送到 [yilong-musk/homebrew-tap](https://github.com/yilong-musk/homebrew-tap)，
+安装的是预编译的 macOS / Linux 二进制，并在安装后去掉 quarantine 属性（归档未做 Apple 公证）。
+
 ### Docker
 
 ```bash
