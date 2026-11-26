@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 )
 
 // ErrInvalidKey is returned for keys that sanitise to an empty filename.
@@ -88,16 +90,18 @@ func New(dir string) (*Cache, error) {
 	return c, nil
 }
 
-// managedPrefixes lists the file stems this package may own. It is a cheap
-// filter for stats and candidates; deletion paths also verify the Entry.Key
-// stored in the file so a shared cache directory cannot lose unrelated JSON
-// that happens to share a prefix.
-var managedPrefixes = []string{
-	"profile_", "timeline_", "longtext_", "domain_", "hot_",
-	"sspai_list", "sspai_detail_", "v2ex_latest", "v2ex_hot",
-	"x_", "feed_", "youtube_", "smzdm_", "reddit_", "telegram_", "linuxdo_",
-	"douyin_", "tiktok_", "bilibili_", "pinterest_", "polymarket_",
-}
+// managedPrefixes lists the file stems this package may own, one per
+// namespace registered in internal/cachekey. It is a cheap filter for stats
+// and candidates; deletion paths also verify the Entry.Key stored in the file
+// so a shared cache directory cannot lose unrelated JSON that happens to share
+// a prefix.
+var managedPrefixes = func() []string {
+	var out []string
+	for _, n := range cachekey.All() {
+		out = append(out, n.StemPrefix())
+	}
+	return out
+}()
 
 // ManagedKey reports whether a cache file stem matches a feedmesh key prefix.
 // It is intentionally cheap; callers that delete should use ListManaged or

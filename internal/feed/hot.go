@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
@@ -29,7 +30,7 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 		limit = MaxHotLimit
 	}
 
-	items, hit, degraded, err := fetchCached(ctx, s, "hot:top", hotTTL, refresh,
+	items, hit, degraded, err := fetchCached(ctx, s, cachekey.Hot.Key("top"), hotTTL, refresh,
 		func(ctx context.Context) ([]weibo.HotItem, error) { return s.clients.Weibo.HotSearch(ctx) })
 	if err != nil {
 		return nil, err

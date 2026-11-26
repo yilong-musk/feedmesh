@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/reddit"
 )
 
@@ -82,7 +83,7 @@ func (s *Service) GetReddit(ctx context.Context, sub string, sort reddit.Sort, w
 		limit = MaxRedditLimit
 	}
 
-	key := "reddit:list:" + name + ":" + string(sort) + ":" + string(window)
+	key := cachekey.Reddit.Key("list", name, string(sort), string(window))
 	unlock, err := s.lockListKey(ctx, key)
 	if err != nil {
 		return nil, err
@@ -107,10 +108,20 @@ func (s *Service) GetReddit(ctx context.Context, sub string, sort reddit.Sort, w
 		if e, ok := s.readReddit(key, false, want); ok {
 			return s.redditFeed(e, limit, true, false), nil
 		}
+		// Same cool-off as fetchCached: a listing that just failed is
+		// answered from its last good copy instead of asking again.
+		if s.coolingDown(key) {
+			if e, ok := s.readReddit(key, true, 0); ok {
+				s.log.Warn("reddit listing is cooling down after a failure, serving the last good one",
+					"sub", name, "sort", string(sort))
+				return s.redditFeed(e, limit, true, true), nil
+			}
+		}
 	}
 
 	listing, err := s.clients.Reddit.List(ctx, name, sort, window, want)
 	if err == nil {
+		s.noteSuccess(key)
 		if len(listing.Posts) == 0 {
 			// A successful read with no entries is either an empty subreddit or
 			// a partial answer. Keeping the listing the cache already has is the
@@ -144,6 +155,9 @@ func (s *Service) GetReddit(ctx context.Context, sub string, sort reddit.Sort, w
 	// The read was refused by the limiter or the site failed. Serving the last
 	// good listing beats failing the reader's poll; the flag keeps the
 	// degradation visible in the JSON view and the response headers.
+	if !callerGone(ctx, err) {
+		s.noteFailure(key)
+	}
 	if e, ok := s.readReddit(key, true, 0); ok {
 		s.log.Warn("reddit listing degraded to the last good one",
 			"sub", name, "sort", string(sort), "error", err.Error())

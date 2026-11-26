@@ -25,7 +25,7 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 ## Cache
 
 - Location: `--cache-dir` / `FEEDMESH_CACHE`, defaulting to `~/.cache/feedmesh` (`~/Library/Caches/feedmesh` on macOS). When `os.UserCacheDir()` is unavailable, a random private temporary directory is used instead of falling back to the shared `/tmp/feedmesh`; that fallback directory is deleted when the process exits.
-- Layout: one JSON file per key, filename derived by sanitizing the key (`profile:2803301701` → `profile_2803301701.json`).
+- Layout: one JSON file per key, filename derived by sanitizing the key (`profile:2803301701` → `profile_2803301701.json`). Every key is built through `internal/cachekey`, and the cache derives the stems it manages (stats, GC, purge) from that list; a test rejects raw key literals in `internal/feed` and `cmd`.
 - Permissions: directory 0700, files 0600; a cache directory that is a symlink is refused.
 - Atomic writes: temporary file → `fsync` → `rename`, so readers never see a half-written file. Only the rename (and GC's compare-and-remove) takes the in-process lock; encoding, writing and `fsync` run concurrently for different keys, and `GC()` scans without blocking writers.
 - Memory layer: recently read entries stay parsed in memory (LRU, 32 MB). A hit costs one `stat` and is used only while the file keeps the same inode, size and modification time, so a write or purge by another process (the CLI next to the server) is seen on the next read. The disk remains the source of truth.
@@ -99,6 +99,7 @@ internal/cache/     key-per-file cache, TTL, atomic writes
 internal/httpapi/   HTTP routing and error envelope
 internal/guard/     breaker + single-flight
 internal/apperr/    shared error envelope: classified errors with stable codes
+internal/cachekey/  the one list of cache key namespaces; the cache manages exactly these
 internal/upstream/  bounded body reads and context-aware request slots for providers
 internal/logx/      stderr JSON line logging
 deploy/             systemd user unit
