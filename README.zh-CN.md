@@ -12,7 +12,7 @@
 
 <table>
   <thead>
-    <tr><th width="120">平台</th><th>内容</th><th>RSS</th><th>JSON</th></tr>
+    <tr><th width="136">平台</th><th>内容</th><th>RSS</th><th>JSON</th></tr>
   </thead>
   <tbody>
     <tr><td><img src="docs/assets/weibo.png" width="18" height="18" align="absmiddle" alt="微博">&nbsp;微博</td><td>账号时间线</td><td><code>/rss/user/{uid}</code>, <code>/rss/domain/{name}</code></td><td><code>/api/v1/feed?uid=</code></td></tr>
