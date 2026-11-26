@@ -153,8 +153,9 @@ func (c *Cache) readStored(key string) (e Entry, raw []byte, p string, ok bool, 
 			c.mem.drop(p)
 		}
 	}
+	readAt := time.Now()
 	e, raw, info, ok, err := readFile(p)
-	if ok && c.mem != nil {
+	if ok && c.mem != nil && mtimeSettled(readAt, info) {
 		c.mem.put(p, info, raw, e)
 	}
 	return e, raw, p, ok, err
@@ -436,10 +437,6 @@ func (c *Cache) Set(key string, v any, ttl time.Duration) error {
 		cleanup()
 		return fmt.Errorf("cache: sync %s: %w", key, err)
 	}
-	// The temporary file's own stat is the identity the renamed file keeps
-	// (rename changes neither inode nor mtime). Statting the final path after
-	// the rename could pick up another process's file instead.
-	info, statErr := tmp.Stat()
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("cache: close %s: %w", key, err)
@@ -447,19 +444,14 @@ func (c *Cache) Set(key string, v any, ttl time.Duration) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.mem != nil {
+		// Drop any prior cached copy; the new file sits inside the mtime safety
+		// window and will be promoted on the first read after mtime settles.
+		c.mem.drop(p)
+	}
 	if err := os.Rename(tmpName, p); err != nil {
 		_ = os.Remove(tmpName)
-		if c.mem != nil {
-			c.mem.drop(p)
-		}
 		return fmt.Errorf("cache: rename %s: %w", key, err)
-	}
-	if c.mem != nil {
-		if statErr == nil {
-			c.mem.put(p, info, buf, e)
-		} else {
-			c.mem.drop(p)
-		}
 	}
 	return nil
 }
