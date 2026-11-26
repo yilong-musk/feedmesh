@@ -22,11 +22,6 @@ import (
 // probeFreshness is how long a /healthz?probe=1 result is reused.
 const probeFreshness = 30 * time.Second
 
-// degradedYouTubeMaxAge is the cache lifetime of a YouTube document served
-// from the last good list: short enough that readers pick the real feed up
-// once the upstream recovers, even though the list itself may be hours old.
-const degradedYouTubeMaxAge = 60
-
 // degradedRSSMaxAge is the reader-facing lifetime of any other document served
 // from its last good cache entry: short enough that readers pick the real feed
 // up soon after the upstream recovers, even though the content may be hours old.
@@ -259,7 +254,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDomain(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSuffix(r.PathValue("name"), ".xml")
-	refresh := r.URL.Query().Get("refresh") == "1"
+	refresh := refreshParam(r)
 	uid, err := s.cfg.Service.ResolveUID(r.Context(), name, refresh)
 	if err != nil {
 		s.writeError(w, err)
@@ -270,16 +265,10 @@ func (s *Server) handleDomain(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveRSS(w http.ResponseWriter, r *http.Request, uid string) {
 	limit := atoiDefault(r.URL.Query().Get("limit"), feed.DefaultLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetFeed(r.Context(), uid, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, 300)
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, 300)
 }
 
 type feedResponse struct {
@@ -299,7 +288,7 @@ func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit := atoiDefault(r.URL.Query().Get("limit"), feed.DefaultLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetFeed(r.Context(), uid, limit, refresh)
 	if err != nil {
@@ -337,22 +326,16 @@ type hotResponse struct {
 }
 
 func (s *Server) handleHot(w http.ResponseWriter, r *http.Request) {
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultHotLimit, feed.MaxHotLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultHotLimit, feed.MaxHotLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetHot(r.Context(), limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, 60)
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, 60)
 }
 
 func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultHotLimit, feed.MaxHotLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultHotLimit, feed.MaxHotLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetHot(r.Context(), limit, refresh)
 	if err != nil {
@@ -400,24 +383,18 @@ type sspaiResponse struct {
 }
 
 func (s *Server) handleSspai(w http.ResponseWriter, r *http.Request) {
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSspaiLimit, feed.MaxSspaiLimit)
+	limit := limitParam(r, feed.DefaultSspaiLimit, feed.MaxSspaiLimit)
 	full := r.URL.Query().Get("full") == "1"
-	refresh := r.URL.Query().Get("refresh") == "1"
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetSspai(r.Context(), limit, full, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, 600)
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, 600)
 }
 
 func (s *Server) handleAPISspai(w http.ResponseWriter, r *http.Request) {
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSspaiLimit, feed.MaxSspaiLimit)
+	limit := limitParam(r, feed.DefaultSspaiLimit, feed.MaxSspaiLimit)
 	full := r.URL.Query().Get("full") == "1"
-	refresh := r.URL.Query().Get("refresh") == "1"
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetSspai(r.Context(), limit, full, refresh)
 	if err != nil {
@@ -457,16 +434,10 @@ type v2exResponse struct {
 }
 
 func (s *Server) serveV2ex(w http.ResponseWriter, r *http.Request, section string) {
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultV2exLimit, feed.MaxV2exLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultV2exLimit, feed.MaxV2exLimit)
+	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetV2ex(r.Context(), section, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, 600)
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, 600)
 }
 
 func (s *Server) handleV2exLatest(w http.ResponseWriter, r *http.Request) {
@@ -479,8 +450,8 @@ func (s *Server) handleAPIV2ex(w http.ResponseWriter, r *http.Request) {
 	if section == "" {
 		section = "latest"
 	}
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultV2exLimit, feed.MaxV2exLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultV2exLimit, feed.MaxV2exLimit)
+	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetV2ex(r.Context(), section, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
@@ -545,17 +516,11 @@ func smzdmItems(items []feed.Item) []smzdmItemResponse {
 
 // serveSmzdm renders one channel as RSS.
 func (s *Server) serveSmzdm(w http.ResponseWriter, r *http.Request, ch smzdm.Channel) {
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetSmzdm(r.Context(), ch, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, int(feed.SmzdmTTL(ch).Seconds()))
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.SmzdmTTL(ch).Seconds()))
 }
 
 func (s *Server) handleSmzdm(w http.ResponseWriter, r *http.Request) {
@@ -575,17 +540,11 @@ func (s *Server) handleSmzdmHaitao(w http.ResponseWriter, r *http.Request) {
 // reloads sooner gets the same document anyway.
 func (s *Server) handleSmzdmFenlei(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSuffix(r.PathValue("slug"), ".xml")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetSmzdmFenlei(r.Context(), slug, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, int(feed.SmzdmFenleiTTL().Seconds()))
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.SmzdmFenleiTTL().Seconds()))
 }
 
 func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
@@ -598,8 +557,8 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultSmzdmLimit, feed.MaxSmzdmLimit)
+	refresh := refreshParam(r)
 
 	// The category channel needs a slug; the RSS channels ignore it.
 	if ch == smzdm.ChannelFenlei {
@@ -680,25 +639,19 @@ type xResponse struct {
 }
 
 func (s *Server) handleX(w http.ResponseWriter, r *http.Request) {
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultXLimit, feed.MaxXLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultXLimit, feed.MaxXLimit)
+	refresh := refreshParam(r)
 	handle := strings.TrimSuffix(r.PathValue("handle"), ".xml")
 	f, err := s.cfg.Service.GetX(r.Context(), handle, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	// Nitter's own <ttl> is 40 minutes; match the cache rather than inviting
 	// readers to hammer volunteer instances.
-	s.setRSSCacheFor(w, f, 2400)
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, 2400)
 }
 
 func (s *Server) handleAPIX(w http.ResponseWriter, r *http.Request) {
 	handle := r.URL.Query().Get("handle")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultXLimit, feed.MaxXLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultXLimit, feed.MaxXLimit)
+	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetX(r.Context(), handle, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
@@ -776,32 +729,17 @@ func setSource(w http.ResponseWriter, source string) {
 // handleYouTube renders one channel's upload feed as RSS.
 func (s *Server) handleYouTube(w http.ResponseWriter, r *http.Request) {
 	ref := strings.TrimSuffix(r.PathValue("ref"), ".xml")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultYouTubeLimit, feed.MaxYouTubeLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultYouTubeLimit, feed.MaxYouTubeLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetYouTube(r.Context(), ref, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	setSource(w, f.Source)
-	maxAge := int(feed.YouTubeTTL().Seconds())
-	if f.Degraded {
-		// The list is the last good one because the upstream read failed. The
-		// readers still get a document, and a short max-age lets them pick the
-		// real feed up soon after the upstream recovers.
-		w.Header().Set("X-Feedmesh-Degraded", "1")
-		maxAge = degradedYouTubeMaxAge
-	}
-	s.setRSSCache(w, maxAge)
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.YouTubeTTL().Seconds()))
 }
 
 func (s *Server) handleAPIYouTube(w http.ResponseWriter, r *http.Request) {
 	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultYouTubeLimit, feed.MaxYouTubeLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultYouTubeLimit, feed.MaxYouTubeLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetYouTube(r.Context(), ref, limit, refresh)
 	if err != nil {
@@ -821,11 +759,6 @@ func (s *Server) handleAPIYouTube(w http.ResponseWriter, r *http.Request) {
 		Source: f.Source, Items: items,
 	})
 }
-
-// degradedRedditMaxAge is the cache lifetime of a Reddit document served from
-// the last good listing: short enough that readers pick the real feed up once
-// the site's quota window reopens.
-const degradedRedditMaxAge = 60
 
 type redditItemResponse struct {
 	ID        string    `json:"id"`
@@ -883,26 +816,11 @@ func (s *Server) handleReddit(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultRedditLimit, feed.MaxRedditLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultRedditLimit, feed.MaxRedditLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetReddit(r.Context(), sub, sort, window, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	setSource(w, f.Source)
-	maxAge := int(feed.RedditTTL().Seconds())
-	if f.Degraded {
-		// The listing is the last good one because the read failed or the
-		// quota window was closed. Readers still get a document, and a short
-		// max-age lets them pick the real listing up soon after.
-		w.Header().Set("X-Feedmesh-Degraded", "1")
-		maxAge = degradedRedditMaxAge
-	}
-	s.setRSSCache(w, maxAge)
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.RedditTTL().Seconds()))
 }
 
 func (s *Server) handleAPIReddit(w http.ResponseWriter, r *http.Request) {
@@ -916,8 +834,8 @@ func (s *Server) handleAPIReddit(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultRedditLimit, feed.MaxRedditLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultRedditLimit, feed.MaxRedditLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetReddit(r.Context(), sub, sort, window, limit, refresh)
 	if err != nil {
@@ -993,24 +911,18 @@ type douyinResponse struct {
 // handleDouyin renders one creator's timeline as RSS.
 func (s *Server) handleDouyin(w http.ResponseWriter, r *http.Request) {
 	sec := strings.TrimSuffix(r.PathValue("sec"), ".xml")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetDouyin(r.Context(), sec, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, int(feed.DouyinTTL().Seconds()))
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.DouyinTTL().Seconds()))
 }
 
 // handleAPIDouyin returns the same timeline as JSON.
 func (s *Server) handleAPIDouyin(w http.ResponseWriter, r *http.Request) {
 	sec := strings.TrimSpace(r.URL.Query().Get("user"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetDouyin(r.Context(), sec, limit, refresh)
 	if err != nil {
@@ -1058,8 +970,8 @@ type douyinTimelineResponse struct {
 // separate download tool can consume it without touching a browser.
 func (s *Server) handleAPIDouyinTimeline(w http.ResponseWriter, r *http.Request) {
 	sec := strings.TrimSpace(r.URL.Query().Get("user"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetDouyin(r.Context(), sec, limit, refresh)
 	if err != nil {
@@ -1113,24 +1025,18 @@ type tiktokResponse struct {
 // handleTikTok renders one creator's timeline as RSS.
 func (s *Server) handleTikTok(w http.ResponseWriter, r *http.Request) {
 	user := strings.TrimSuffix(r.PathValue("user"), ".xml")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetTikTok(r.Context(), user, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, int(feed.TikTokTTL().Seconds()))
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.TikTokTTL().Seconds()))
 }
 
 // handleAPITikTok returns the same timeline as JSON.
 func (s *Server) handleAPITikTok(w http.ResponseWriter, r *http.Request) {
 	user := strings.TrimSpace(r.URL.Query().Get("user"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetTikTok(r.Context(), user, limit, refresh)
 	if err != nil {
@@ -1178,8 +1084,8 @@ type tiktokTimelineResponse struct {
 // separate download tool can consume it without solving the WAF itself.
 func (s *Server) handleAPITikTokTimeline(w http.ResponseWriter, r *http.Request) {
 	user := strings.TrimSpace(r.URL.Query().Get("user"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetTikTok(r.Context(), user, limit, refresh)
 	if err != nil {
@@ -1234,24 +1140,18 @@ type bilibiliResponse struct {
 // handleBilibili renders one creator's video timeline as RSS.
 func (s *Server) handleBilibili(w http.ResponseWriter, r *http.Request) {
 	mid := strings.TrimSuffix(r.PathValue("mid"), ".xml")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultBilibiliLimit, feed.MaxBilibiliLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultBilibiliLimit, feed.MaxBilibiliLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetBilibili(r.Context(), mid, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, int(feed.BilibiliTTL().Seconds()))
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.BilibiliTTL().Seconds()))
 }
 
 // handleAPIBilibili returns the same timeline as JSON.
 func (s *Server) handleAPIBilibili(w http.ResponseWriter, r *http.Request) {
 	mid := strings.TrimSpace(r.URL.Query().Get("user"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultBilibiliLimit, feed.MaxBilibiliLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultBilibiliLimit, feed.MaxBilibiliLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetBilibili(r.Context(), mid, limit, refresh)
 	if err != nil {
@@ -1301,24 +1201,18 @@ type telegramResponse struct {
 // handleTelegram renders one public channel preview as RSS.
 func (s *Server) handleTelegram(w http.ResponseWriter, r *http.Request) {
 	channel := strings.TrimSuffix(r.PathValue("channel"), ".xml")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTelegramLimit, feed.MaxTelegramLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultTelegramLimit, feed.MaxTelegramLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetTelegram(r.Context(), channel, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, int(feed.TelegramTTL().Seconds()))
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.TelegramTTL().Seconds()))
 }
 
 // handleAPITelegram returns the same channel preview as JSON.
 func (s *Server) handleAPITelegram(w http.ResponseWriter, r *http.Request) {
 	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultTelegramLimit, feed.MaxTelegramLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultTelegramLimit, feed.MaxTelegramLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetTelegram(r.Context(), channel, limit, refresh)
 	if err != nil {
@@ -1388,25 +1282,19 @@ func pinterestItems(items []feed.Item) []pinterestItemResponse {
 func (s *Server) handlePinterest(w http.ResponseWriter, r *http.Request) {
 	user := strings.TrimSuffix(r.PathValue("user"), ".xml")
 	board := strings.TrimSuffix(r.PathValue("board"), ".xml")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPinterestLimit, feed.MaxPinterestLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultPinterestLimit, feed.MaxPinterestLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetPinterest(r.Context(), user, board, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, int(feed.PinterestTTL().Seconds()))
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.PinterestTTL().Seconds()))
 }
 
 // handleAPIPinterest returns the same profile or board feed as JSON.
 func (s *Server) handleAPIPinterest(w http.ResponseWriter, r *http.Request) {
 	user := strings.TrimSpace(r.URL.Query().Get("user"))
 	board := strings.TrimSpace(r.URL.Query().Get("board"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPinterestLimit, feed.MaxPinterestLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultPinterestLimit, feed.MaxPinterestLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetPinterest(r.Context(), user, board, limit, refresh)
 	if err != nil {
@@ -1471,16 +1359,14 @@ func polymarketItems(items []feed.Item) []polymarketItemResponse {
 }
 
 func (s *Server) servePolymarketRSS(w http.ResponseWriter, r *http.Request, f *feed.Feed, kind string) {
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, int(feed.PolymarketTTL(kind).Seconds()))
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, nil, int(feed.PolymarketTTL(kind).Seconds()))
 }
 
 // handlePolymarketNew serves the newest markets.
 func (s *Server) handlePolymarketNew(w http.ResponseWriter, r *http.Request) {
 	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetPolymarketEvents(r.Context(), "createdAt", tag, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
@@ -1492,8 +1378,8 @@ func (s *Server) handlePolymarketNew(w http.ResponseWriter, r *http.Request) {
 // handlePolymarketHot serves events ranked by 24-hour volume.
 func (s *Server) handlePolymarketHot(w http.ResponseWriter, r *http.Request) {
 	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetPolymarketEvents(r.Context(), "volume24hr", tag, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
@@ -1505,8 +1391,8 @@ func (s *Server) handlePolymarketHot(w http.ResponseWriter, r *http.Request) {
 // handlePolymarketEvent serves one event's markets.
 func (s *Server) handlePolymarketEvent(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimSuffix(r.PathValue("slug"), ".xml")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetPolymarketEvent(r.Context(), slug, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
@@ -1518,8 +1404,8 @@ func (s *Server) handlePolymarketEvent(w http.ResponseWriter, r *http.Request) {
 // handlePolymarketUser serves one wallet's activity.
 func (s *Server) handlePolymarketUser(w http.ResponseWriter, r *http.Request) {
 	address := strings.TrimSuffix(r.PathValue("address"), ".xml")
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketActivityLimit, feed.MaxPolymarketActivityLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultPolymarketActivityLimit, feed.MaxPolymarketActivityLimit)
+	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetPolymarketActivity(r.Context(), address, limit, refresh)
 	if err != nil {
 		s.writeError(w, err)
@@ -1537,7 +1423,7 @@ func (s *Server) handleAPIPolymarket(w http.ResponseWriter, r *http.Request) {
 	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
 	slug := strings.TrimSpace(r.URL.Query().Get("slug"))
 	address := strings.TrimSpace(r.URL.Query().Get("address"))
-	refresh := r.URL.Query().Get("refresh") == "1"
+	refresh := refreshParam(r)
 
 	var (
 		f     *feed.Feed
@@ -1550,14 +1436,14 @@ func (s *Server) handleAPIPolymarket(w http.ResponseWriter, r *http.Request) {
 		if kind == "hot" {
 			order = "volume24hr"
 		}
-		limit = atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+		limit = limitParam(r, feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
 		f, err = s.cfg.Service.GetPolymarketEvents(r.Context(), order, tag, limit, refresh)
 	case "event":
-		limit = atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
+		limit = limitParam(r, feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
 		f, err = s.cfg.Service.GetPolymarketEvent(r.Context(), slug, limit, refresh)
 	case "user", "activity":
 		kind = "user"
-		limit = atoiClamp(r.URL.Query().Get("limit"), feed.DefaultPolymarketActivityLimit, feed.MaxPolymarketActivityLimit)
+		limit = limitParam(r, feed.DefaultPolymarketActivityLimit, feed.MaxPolymarketActivityLimit)
 		f, err = s.cfg.Service.GetPolymarketActivity(r.Context(), address, limit, refresh)
 	default:
 		s.writeErrorStatus(w, http.StatusBadRequest,
@@ -1607,17 +1493,11 @@ type linuxdoResponse struct {
 
 // serveLinuxDoRSS renders one forum feed as RSS.
 func (s *Server) serveLinuxDoRSS(w http.ResponseWriter, r *http.Request, ref linuxdo.Ref) {
-	limit := atoiClamp(r.URL.Query().Get("limit"), feed.DefaultLinuxDoLimit, feed.MaxLinuxDoLimit)
-	refresh := r.URL.Query().Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultLinuxDoLimit, feed.MaxLinuxDoLimit)
+	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetLinuxDo(r.Context(), ref, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	s.setRSSCacheFor(w, f, int(feed.LinuxDoTTL().Seconds()))
-	s.writeRSS(w, r, f)
+	s.serveFeed(w, r, f, err, int(feed.LinuxDoTTL().Seconds()))
 }
 
 // handleLinuxDoLatest serves the latest-topics feed.

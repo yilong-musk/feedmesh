@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/telegram"
 )
 
@@ -44,7 +45,7 @@ func (s *Service) GetTelegram(ctx context.Context, channel string, limit int, re
 		limit = MaxTelegramLimit
 	}
 
-	key := "telegram:channel:" + name
+	key := cachekey.Telegram.Key("channel", name)
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, telegramTTL, refresh, limit,
 		func(ctx context.Context, n int) ([]telegram.Post, error) {
 			ch, cerr := s.clients.Telegram.Fetch(ctx, name, n)

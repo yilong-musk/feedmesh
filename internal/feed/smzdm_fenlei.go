@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 )
 
@@ -64,7 +65,7 @@ func (s *Service) GetSmzdmFenlei(ctx context.Context, slug string, limit int, re
 		limit = MaxSmzdmLimit
 	}
 
-	key := "smzdm:fenlei:" + slug
+	key := cachekey.Smzdm.Key("fenlei", slug)
 	retryKey := key + smzdmFenleiRetrySuffix
 	now := s.now().UTC()
 

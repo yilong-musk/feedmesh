@@ -12,6 +12,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
 	"github.com/yilong-musk/feedmesh/internal/cache"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/linuxdo"
@@ -232,7 +233,7 @@ func (s *Service) ResolveUID(ctx context.Context, target string, refresh bool) (
 }
 
 func (s *Service) resolveDomain(ctx context.Context, domain string, refresh bool) (string, error) {
-	uid, _, _, err := fetchCached(ctx, s, "domain:"+strings.ToLower(domain), s.ttls.Domain, refresh,
+	uid, _, _, err := fetchCached(ctx, s, cachekey.Domain.Key(strings.ToLower(domain)), s.ttls.Domain, refresh,
 		func(ctx context.Context) (string, error) { return s.clients.Weibo.ResolveDomain(ctx, domain) })
 	return uid, err
 }
@@ -250,13 +251,13 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 		limit = MaxLimit
 	}
 
-	profile, profileHit, profileDegraded, err := fetchCached(ctx, s, "profile:"+uid, s.ttls.Profile, refresh,
+	profile, profileHit, profileDegraded, err := fetchCached(ctx, s, cachekey.Profile.Key(uid), s.ttls.Profile, refresh,
 		func(ctx context.Context) (*weibo.Profile, error) { return s.clients.Weibo.Profile(ctx, uid) })
 	if err != nil {
 		return nil, err
 	}
 
-	timeline, timelineHit, timelineDegraded, err := fetchCached(ctx, s, "timeline:"+uid, s.ttls.Timeline, refresh,
+	timeline, timelineHit, timelineDegraded, err := fetchCached(ctx, s, cachekey.Timeline.Key(uid), s.ttls.Timeline, refresh,
 		func(ctx context.Context) (*weibo.Timeline, error) {
 			return s.clients.Weibo.Timeline(ctx, uid, profile.ContainerID, 0)
 		})
@@ -331,7 +332,7 @@ func (s *Service) hydrate(ctx context.Context, uid string, m *weibo.MBlog, refre
 		if id != "" {
 			// Include the timeline owner so `cache purge --uid` can remove
 			// long-text bodies even after the timeline entry has expired.
-			key := "longtext:" + uid + ":" + id
+			key := cachekey.LongText.Key(uid, id)
 			text, _, _, err := fetchCached(ctx, s, key, s.ttls.LongText, refresh,
 				func(ctx context.Context) (string, error) { return s.clients.Weibo.LongText(ctx, id) })
 			switch {

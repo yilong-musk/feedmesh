@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
 )
 
@@ -57,7 +58,7 @@ func (s *Service) GetSmzdm(ctx context.Context, ch smzdm.Channel, limit int, ref
 	}
 
 	ttl := SmzdmTTL(ch)
-	entry, hit, degraded, err := fetchCachedList(ctx, s, "smzdm:"+string(ch), ttl, refresh, limit,
+	entry, hit, degraded, err := fetchCachedList(ctx, s, cachekey.Smzdm.Key(string(ch)), ttl, refresh, limit,
 		func(ctx context.Context, n int) ([]smzdm.Deal, error) { return s.clients.Smzdm.List(ctx, ch, n) })
 	if err != nil {
 		return nil, sspaiError(err)

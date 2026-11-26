@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/tiktok"
 )
 
@@ -47,7 +48,7 @@ func (s *Service) GetTikTok(ctx context.Context, user string, limit int, refresh
 	// The item carries every field the feed needs, so the cache stores items
 	// and can widen a narrow entry in place instead of letting one ?limit=1
 	// request narrow every later read for the whole TTL.
-	key := "tiktok:user:" + strings.ToLower(user)
+	key := cachekey.TikTok.Key("user", strings.ToLower(user))
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, tiktokTTL, refresh, limit,
 		func(ctx context.Context, n int) ([]tiktok.Item, error) {
 			tl, terr := s.clients.TikTok.Timeline(ctx, user, n)
