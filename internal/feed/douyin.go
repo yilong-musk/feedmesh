@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // Douyin feed bounds and cache lifetimes. One page carries at most 44 videos;
@@ -32,11 +32,11 @@ func DouyinTTL() time.Duration { return douyinTTL }
 // GetDouyin builds a creator feed from the public timeline page.
 func (s *Service) GetDouyin(ctx context.Context, secUID string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.Douyin == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "douyin provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "douyin provider is not configured"}
 	}
 	secUID = strings.TrimSpace(secUID)
 	if secUID == "" {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "missing douyin user"}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "missing douyin user"}
 	}
 	if limit <= 0 {
 		limit = DefaultDouyinLimit
@@ -165,18 +165,18 @@ func douyinError(err error, secUID string) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
 	switch {
 	case errors.Is(err, douyin.ErrInvalidUser):
-		return &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid douyin user " + secUID, Err: err}
+		return &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid douyin user " + secUID, Err: err}
 	case errors.Is(err, context.DeadlineExceeded):
-		return &weibo.Error{Code: weibo.CodeTimeout, Message: "douyin timeline timed out", Err: err}
+		return &apperr.Error{Code: apperr.CodeTimeout, Message: "douyin timeline timed out", Err: err}
 	case errors.Is(err, douyin.ErrNotReady):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "douyin timeline unavailable", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "douyin timeline unavailable", Err: err}
 	default:
-		return &weibo.Error{Code: weibo.CodeInternal, Message: err.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeInternal, Message: err.Error(), Err: err}
 	}
 }

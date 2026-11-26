@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/logx"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // ErrorLog adapts the standard library's http.Server error logger to the
@@ -43,7 +43,7 @@ func (s *Server) withRecovery(next http.Handler) http.Handler {
 					"method", r.Method, "path", r.URL.Path, "panic", fmt.Sprint(rec))
 				if !tw.wroteHeader {
 					s.writeErrorStatus(tw, http.StatusInternalServerError,
-						weibo.NewError(weibo.CodeInternal, 0, "internal server error"))
+						apperr.New(apperr.CodeInternal, 0, "internal server error"))
 				}
 			}
 		}()
@@ -98,7 +98,7 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="feedmesh"`)
 			w.Header().Set("Cache-Control", "no-store")
 			s.writeErrorStatus(w, http.StatusUnauthorized,
-				weibo.NewError(weibo.CodeUnauthorized, 0, "missing or invalid bearer token"))
+				apperr.New(apperr.CodeUnauthorized, 0, "missing or invalid bearer token"))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -112,7 +112,7 @@ func (s *Server) withRateLimit(next http.Handler) http.Handler {
 			w.Header().Set("Retry-After", "60")
 			w.Header().Set("Cache-Control", "no-store")
 			s.writeErrorStatus(w, http.StatusTooManyRequests,
-				weibo.NewError(weibo.CodeRateLimited, 0, "too many requests; try again later"))
+				apperr.New(apperr.CodeRateLimited, 0, "too many requests; try again later"))
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -14,7 +14,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -26,6 +25,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 // DefaultBaseURL is the public forum. Tests point BaseURL at an httptest server.
@@ -195,7 +195,9 @@ type Client struct {
 	mu            sync.Mutex
 	lastRequest   time.Time
 	cooldownUntil time.Time
-	requestMu     sync.Mutex
+	// requestSlot keeps one request in flight; a queued caller leaves when
+	// its own deadline passes instead of waiting behind a slow page.
+	requestSlot upstream.Slot
 }
 
 // New builds a Client.
@@ -211,6 +213,7 @@ func New(cfg Config) *Client {
 	}
 	jar, _ := cookiejar.New(nil)
 	return &Client{
+		requestSlot: upstream.NewSlot(1),
 		cfg:         cfg,
 		minInterval: cfg.MinInterval,
 		cooldown:    cfg.Cooldown,
@@ -384,8 +387,10 @@ func (c *Client) get(ctx context.Context, target string) ([]byte, error) {
 	// One request in flight and a gap measured from the previous completion;
 	// this is stricter than spacing start times and keeps a slow page from
 	// overlapping the next feed.
-	c.requestMu.Lock()
-	defer c.requestMu.Unlock()
+	if err := c.requestSlot.Acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer c.requestSlot.Release()
 	if err := c.acquire(ctx); err != nil {
 		return nil, err
 	}
@@ -401,7 +406,7 @@ func (c *Client) get(ctx context.Context, target string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := upstream.ReadBody(resp.Body, 8<<20)
 	if err != nil {
 		return nil, err
 	}

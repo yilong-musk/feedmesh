@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 // DefaultBaseURL is the public preview host. Tests point BaseURL at an
@@ -334,17 +334,26 @@ func ParsePage(name, body string) (*Channel, error) {
 // findDivEnd returns the index of the </div> that closes the element whose
 // content starts at start. The opening tag has already been consumed, so the
 // scan starts at depth one.
+//
+// Tags are matched one at a time and the scan stops at the closing tag:
+// collecting every remaining match first made each call cost the rest of the
+// page, so a page of posts was quadratic.
 func findDivEnd(s string, start int) int {
 	depth := 1
-	for _, m := range divTagRe.FindAllStringSubmatchIndex(s[start:], -1) {
+	for pos := start; pos < len(s); {
+		m := divTagRe.FindStringSubmatchIndex(s[pos:])
+		if m == nil {
+			break
+		}
 		if m[3] > m[2] {
 			depth--
 		} else {
 			depth++
 		}
 		if depth == 0 {
-			return start + m[0]
+			return pos + m[0]
 		}
+		pos += m[1]
 	}
 	return len(s)
 }
@@ -514,7 +523,7 @@ func (c *Client) get(ctx context.Context, target string) (string, int, error) {
 		return "", 0, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := upstream.ReadBody(resp.Body, 8<<20)
 	if err != nil {
 		return "", resp.StatusCode, err
 	}

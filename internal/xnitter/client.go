@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 const (
@@ -671,6 +672,7 @@ func (c *Client) fetchPool(ctx context.Context) ([]string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		upstream.Drain(resp.Body)
 		return nil, fmt.Errorf("status directory returned HTTP %d", resp.StatusCode)
 	}
 	var doc statusDoc
@@ -768,7 +770,7 @@ func (c *Client) get(ctx context.Context, target string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	body, err := upstream.ReadBody(resp.Body, maxBody)
 	if err != nil {
 		return nil, err
 	}
@@ -1170,9 +1172,8 @@ func rewriteLinks(html, base string) string {
 	if err != nil || u.Host == "" {
 		return html
 	}
-	re := regexp.MustCompile(`(?i)(href|src)="([^"]*)"`)
-	html = re.ReplaceAllStringFunc(html, func(attr string) string {
-		m := re.FindStringSubmatch(attr)
+	html = linkAttrRe.ReplaceAllStringFunc(html, func(attr string) string {
+		m := linkAttrRe.FindStringSubmatch(attr)
 		if len(m) != 3 {
 			return attr
 		}
@@ -1187,7 +1188,7 @@ func rewriteLinks(html, base string) string {
 		if p.Scheme != "" && p.Scheme != "http" && p.Scheme != "https" {
 			return attr
 		}
-		if m[1] == "src" {
+		if strings.EqualFold(m[1], "src") {
 			if up := upgradeMediaURL(raw); up != raw {
 				return m[1] + `="` + stdhtml.EscapeString(up) + `"`
 			}
@@ -1206,10 +1207,14 @@ func rewriteLinks(html, base string) string {
 		p.Fragment = ""
 		return m[1] + `="` + stdhtml.EscapeString(p.String()) + `"`
 	})
-	// Visible URL text in Nitter's <cite> blocks also names the mirror.
-	visible := regexp.MustCompile(`https?://` + regexp.QuoteMeta(u.Host) + `([^"'\s<>]*)`)
-	return visible.ReplaceAllString(html, "https://x.com$1")
+	// Visible URL text in Nitter's <cite> blocks also names the mirror. Only
+	// the scheme and host change, so a plain replacement does what a regexp
+	// compiled per call (once per item) used to.
+	return strings.NewReplacer("https://"+u.Host, "https://x.com", "http://"+u.Host, "https://x.com").Replace(html)
 }
+
+// linkAttrRe matches an href or src attribute in Nitter's item HTML.
+var linkAttrRe = regexp.MustCompile(`(?i)(href|src)="([^"]*)"`)
 
 // nitterMediaURL decodes Nitter's /pic/ proxy path back to pbs.twimg.com.
 func nitterMediaURL(path string) string {

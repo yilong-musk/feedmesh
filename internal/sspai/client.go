@@ -9,12 +9,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 const (
@@ -211,7 +212,7 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 		return fmt.Errorf("sspai request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	body, err := upstream.ReadBody(resp.Body, 4<<20)
 	if err != nil {
 		return fmt.Errorf("sspai read failed: %w", err)
 	}

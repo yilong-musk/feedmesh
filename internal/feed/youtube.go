@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yilong-musk/feedmesh/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/youtube"
 )
 
@@ -55,11 +55,11 @@ func YouTubeTTL() time.Duration { return youtubeTTL }
 // YouTube's feed answers 404/5xx for short windows on channels that exist.
 func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.Youtube == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "youtube provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "youtube provider is not configured"}
 	}
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "missing channel"}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "missing channel"}
 	}
 	if limit <= 0 {
 		limit = DefaultYouTubeLimit
@@ -322,23 +322,23 @@ func youtubeError(err error, ref string) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
 	if errors.Is(err, youtube.ErrInvalidRef) {
-		return &weibo.Error{
-			Code:    weibo.CodeBadRequest,
+		return &apperr.Error{
+			Code:    apperr.CodeBadRequest,
 			Message: err.Error(),
 			Err:     err,
 		}
 	}
 	if errors.Is(err, youtube.ErrChannelNotFound) {
-		return &weibo.Error{
-			Code:    weibo.CodeUserNotFound,
+		return &apperr.Error{
+			Code:    apperr.CodeUserNotFound,
 			Message: fmt.Sprintf("youtube channel %q not found", ref),
 			Err:     err,
 		}
 	}
-	return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: err.Error(), Err: err}
+	return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: err.Error(), Err: err}
 }

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // V2EX feed bounds and cache lifetime.
@@ -25,14 +25,14 @@ var v2exImg = regexp.MustCompile(`(?i)<img[^>]+src="([^"]+)"`)
 // (the hot tab, sorted by replies).
 func (s *Service) GetV2ex(ctx context.Context, section string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.V2ex == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "v2ex provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "v2ex provider is not configured"}
 	}
 	section = strings.ToLower(strings.TrimSpace(section))
 	if section == "" {
 		section = "latest"
 	}
 	if section != "latest" && section != "hot" {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: fmt.Sprintf("unknown v2ex section %q", section)}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: fmt.Sprintf("unknown v2ex section %q", section)}
 	}
 	if limit <= 0 {
 		limit = DefaultV2exLimit

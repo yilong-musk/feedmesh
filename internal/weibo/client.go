@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/yilong-musk/feedmesh/internal/guard"
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 // Endpoints and defaults.
@@ -206,7 +206,7 @@ func (c *Client) fetchVisitor(ctx context.Context) (string, error) {
 		return "", networkError(ctx, err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	body, err := upstream.ReadBody(resp.Body, maxBodyBytes)
 	if err != nil {
 		return "", networkError(ctx, err)
 	}
@@ -463,7 +463,7 @@ func (c *Client) send(ctx context.Context, rawURL, referer string, mode requestM
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	body, err := upstream.ReadBody(resp.Body, maxBodyBytes)
 	if err != nil {
 		return nil, 0, "", networkError(ctx, err)
 	}

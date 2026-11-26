@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/logx"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 	"github.com/yilong-musk/feedmesh/internal/youtube"
 )
 
@@ -329,8 +329,8 @@ func TestGetYouTubeFailsColdWithoutCache(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error")
 	}
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeUpstreamUnavailable {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeUpstreamUnavailable {
 		t.Fatalf("err = %v, want UPSTREAM_UNAVAILABLE", err)
 	}
 }
@@ -346,8 +346,8 @@ func TestGetYouTubeUnknownChannel(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error")
 	}
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeUserNotFound {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeUserNotFound {
 		t.Fatalf("err = %v, want USER_NOT_FOUND", err)
 	}
 }
@@ -424,8 +424,8 @@ func TestGetYouTubeRejectsEmptyReference(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error")
 	}
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeBadRequest {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeBadRequest {
 		t.Fatalf("err = %v, want BAD_REQUEST", err)
 	}
 }
@@ -527,8 +527,8 @@ func TestGetYouTubeInvalidReferenceIsBadRequest(t *testing.T) {
 
 	for _, ref := range []string{"foo bar", "c/a/b", "a/b"} {
 		_, err := svc.GetYouTube(context.Background(), ref, 15, false)
-		var we *weibo.Error
-		if !errors.As(err, &we) || we.Code != weibo.CodeBadRequest {
+		var we *apperr.Error
+		if !errors.As(err, &we) || we.Code != apperr.CodeBadRequest {
 			t.Fatalf("ref %q: err = %v, want BAD_REQUEST", ref, err)
 		}
 	}

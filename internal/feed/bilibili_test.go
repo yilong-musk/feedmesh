@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/logx"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 const testBilibiliMid = "946974"
@@ -162,9 +162,9 @@ func TestGetBilibiliErrors(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"invalid", bilibili.ErrInvalidUser, weibo.CodeBadRequest},
-		{"missing", bilibili.ErrNotFound, weibo.CodeUserNotFound},
-		{"rate limited", bilibili.ErrRateLimited, weibo.CodeUpstreamBlocked},
+		{"invalid", bilibili.ErrInvalidUser, apperr.CodeBadRequest},
+		{"missing", bilibili.ErrNotFound, apperr.CodeUserNotFound},
+		{"rate limited", bilibili.ErrRateLimited, apperr.CodeUpstreamBlocked},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestGetBilibiliErrors(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error")
 			}
-			if code := weibo.CodeOf(err); code != tc.want {
+			if code := apperr.CodeOf(err); code != tc.want {
 				t.Fatalf("code = %s, want %s", code, tc.want)
 			}
 		})
@@ -183,7 +183,7 @@ func TestGetBilibiliErrors(t *testing.T) {
 func TestGetBilibiliMissingUser(t *testing.T) {
 	svc := NewService(Clients{Bilibili: stubBilibili{tl: bilibiliTimeline()}}, nil, logx.Discard(), DefaultTTLs())
 	_, err := svc.GetBilibili(context.Background(), "  ", 10, false)
-	if err == nil || weibo.CodeOf(err) != weibo.CodeBadRequest {
+	if err == nil || apperr.CodeOf(err) != apperr.CodeBadRequest {
 		t.Fatalf("err = %v", err)
 	}
 }

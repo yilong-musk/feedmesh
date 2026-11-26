@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/yilong-musk/feedmesh/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 )
 
 // ErrorCodeHeader carries the machine-readable error code.
@@ -27,19 +27,19 @@ type errorEnvelope struct {
 // statusFor maps an internal error code onto an HTTP status.
 func statusFor(code string) int {
 	switch code {
-	case weibo.CodeBadRequest:
+	case apperr.CodeBadRequest:
 		return http.StatusBadRequest
-	case weibo.CodeUserNotFound, weibo.CodeLoginRequired:
+	case apperr.CodeUserNotFound, apperr.CodeLoginRequired:
 		return http.StatusNotFound
-	case weibo.CodeUpstreamBlocked:
+	case apperr.CodeUpstreamBlocked:
 		return http.StatusBadGateway
-	case weibo.CodeBreakerOpen:
+	case apperr.CodeBreakerOpen:
 		return http.StatusServiceUnavailable
-	case weibo.CodeUnauthorized:
+	case apperr.CodeUnauthorized:
 		return http.StatusUnauthorized
-	case weibo.CodeRateLimited:
+	case apperr.CodeRateLimited:
 		return http.StatusTooManyRequests
-	case weibo.CodeNetwork, weibo.CodeTimeout, weibo.CodeUpstreamUnavailable:
+	case apperr.CodeNetwork, apperr.CodeTimeout, apperr.CodeUpstreamUnavailable:
 		return http.StatusGatewayTimeout
 	default:
 		return http.StatusInternalServerError
@@ -54,14 +54,14 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 }
 
 func (s *Server) writeError(w http.ResponseWriter, err error) {
-	code := weibo.CodeOf(err)
+	code := apperr.CodeOf(err)
 	s.writeErrorStatus(w, statusFor(code), err)
 }
 
 // writeErrorStatus emits the error envelope with an explicit HTTP status, for
 // cases where the status carries information the code alone does not (405).
 func (s *Server) writeErrorStatus(w http.ResponseWriter, status int, err error) {
-	code := weibo.CodeOf(err)
+	code := apperr.CodeOf(err)
 	w.Header().Set(ErrorCodeHeader, code)
 	w.Header().Set(LegacyErrorCodeHeader, code)
 	writeJSON(w, status, errorEnvelope{Error: errorBody{Code: code, Message: err.Error()}})

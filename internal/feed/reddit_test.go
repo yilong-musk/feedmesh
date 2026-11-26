@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/reddit"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // redditCaptured is the Atom document the site answered for r/programming/hot
@@ -331,8 +331,8 @@ func TestGetRedditFailsWithoutALastGoodListing(t *testing.T) {
 	defer srv.Close()
 
 	_, err := newRedditService(t, srv.URL).GetReddit(context.Background(), "programming", reddit.SortHot, reddit.WindowDay, 10, false)
-	if code := weibo.CodeOf(err); code != weibo.CodeUpstreamUnavailable {
-		t.Fatalf("code = %q (%v), want %q", code, err, weibo.CodeUpstreamUnavailable)
+	if code := apperr.CodeOf(err); code != apperr.CodeUpstreamUnavailable {
+		t.Fatalf("code = %q (%v), want %q", code, err, apperr.CodeUpstreamUnavailable)
 	}
 }
 
@@ -362,8 +362,8 @@ func TestGetRedditUnknownSubredditIsNotFound(t *testing.T) {
 	defer srv.Close()
 
 	_, err := newRedditService(t, srv.URL).GetReddit(context.Background(), "zzz_no_such_sub", reddit.SortHot, reddit.WindowDay, 10, false)
-	if code := weibo.CodeOf(err); code != weibo.CodeUserNotFound {
-		t.Fatalf("code = %q (%v), want %q", code, err, weibo.CodeUserNotFound)
+	if code := apperr.CodeOf(err); code != apperr.CodeUserNotFound {
+		t.Fatalf("code = %q (%v), want %q", code, err, apperr.CodeUserNotFound)
 	}
 }
 
@@ -373,14 +373,14 @@ func TestGetRedditRejectsInvalidNamesAndSorts(t *testing.T) {
 	defer srv.Close()
 	svc := newRedditService(t, srv.URL)
 
-	if _, err := svc.GetReddit(context.Background(), "a b", reddit.SortHot, reddit.WindowDay, 10, false); weibo.CodeOf(err) != weibo.CodeBadRequest {
-		t.Fatalf("bad name code = %q (%v)", weibo.CodeOf(err), err)
+	if _, err := svc.GetReddit(context.Background(), "a b", reddit.SortHot, reddit.WindowDay, 10, false); apperr.CodeOf(err) != apperr.CodeBadRequest {
+		t.Fatalf("bad name code = %q (%v)", apperr.CodeOf(err), err)
 	}
-	if _, err := svc.GetReddit(context.Background(), "programming", "rising", reddit.WindowDay, 10, false); weibo.CodeOf(err) != weibo.CodeBadRequest {
-		t.Fatalf("bad sort code = %q (%v)", weibo.CodeOf(err), err)
+	if _, err := svc.GetReddit(context.Background(), "programming", "rising", reddit.WindowDay, 10, false); apperr.CodeOf(err) != apperr.CodeBadRequest {
+		t.Fatalf("bad sort code = %q (%v)", apperr.CodeOf(err), err)
 	}
-	if _, err := svc.GetReddit(context.Background(), "programming", reddit.SortTop, "decade", 10, false); weibo.CodeOf(err) != weibo.CodeBadRequest {
-		t.Fatalf("bad window code = %q (%v)", weibo.CodeOf(err), err)
+	if _, err := svc.GetReddit(context.Background(), "programming", reddit.SortTop, "decade", 10, false); apperr.CodeOf(err) != apperr.CodeBadRequest {
+		t.Fatalf("bad window code = %q (%v)", apperr.CodeOf(err), err)
 	}
 	if up.hits() != 0 {
 		t.Fatalf("upstream reads = %d, want 0: local validation must not reach upstream", up.hits())
@@ -401,8 +401,8 @@ func TestGetRedditLimiterRefusalIsNotAnUpstreamRead(t *testing.T) {
 	if !errors.Is(err, reddit.ErrBusy) {
 		t.Fatalf("second subreddit error = %v, want the limiter refusal", err)
 	}
-	if code := weibo.CodeOf(err); code != weibo.CodeUpstreamUnavailable {
-		t.Fatalf("code = %q, want %q", code, weibo.CodeUpstreamUnavailable)
+	if code := apperr.CodeOf(err); code != apperr.CodeUpstreamUnavailable {
+		t.Fatalf("code = %q, want %q", code, apperr.CodeUpstreamUnavailable)
 	}
 	if up.hits() != 1 {
 		t.Fatalf("upstream reads = %d, want 1", up.hits())
@@ -424,8 +424,8 @@ func TestGetRedditStaleWindowExpires(t *testing.T) {
 	up.down.Store(true)
 
 	_, err := svc.GetReddit(context.Background(), "programming", reddit.SortHot, reddit.WindowDay, 10, true)
-	if code := weibo.CodeOf(err); code != weibo.CodeUpstreamUnavailable {
-		t.Fatalf("code = %q (%v), want %q: the entry is older than the stale window", code, err, weibo.CodeUpstreamUnavailable)
+	if code := apperr.CodeOf(err); code != apperr.CodeUpstreamUnavailable {
+		t.Fatalf("code = %q (%v), want %q: the entry is older than the stale window", code, err, apperr.CodeUpstreamUnavailable)
 	}
 }
 

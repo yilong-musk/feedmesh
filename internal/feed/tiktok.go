@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/tiktok"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // TikTok feed bounds and cache lifetimes. The upstream page size is fixed at
@@ -31,11 +31,11 @@ func TikTokTTL() time.Duration { return tiktokTTL }
 // GetTikTok builds a creator feed from the public timeline endpoint.
 func (s *Service) GetTikTok(ctx context.Context, user string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.TikTok == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "tiktok provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "tiktok provider is not configured"}
 	}
 	user = strings.TrimSpace(strings.TrimPrefix(user, "@"))
 	if user == "" {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "missing tiktok user"}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "missing tiktok user"}
 	}
 	if limit <= 0 {
 		limit = DefaultTikTokLimit
@@ -225,22 +225,22 @@ func tiktokError(err error, user string) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
 	switch {
 	case errors.Is(err, tiktok.ErrInvalidUser):
-		return &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid tiktok user " + user, Err: err}
+		return &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid tiktok user " + user, Err: err}
 	case errors.Is(err, tiktok.ErrNotFound):
-		return &weibo.Error{Code: weibo.CodeUserNotFound, Message: "tiktok user " + user + " not found", Err: err}
+		return &apperr.Error{Code: apperr.CodeUserNotFound, Message: "tiktok user " + user + " not found", Err: err}
 	case errors.Is(err, tiktok.ErrPrivate):
-		return &weibo.Error{Code: weibo.CodeUserNotFound, Message: "tiktok user " + user + " is private", Err: err}
+		return &apperr.Error{Code: apperr.CodeUserNotFound, Message: "tiktok user " + user + " is private", Err: err}
 	case errors.Is(err, context.DeadlineExceeded):
-		return &weibo.Error{Code: weibo.CodeTimeout, Message: "tiktok timeline timed out", Err: err}
+		return &apperr.Error{Code: apperr.CodeTimeout, Message: "tiktok timeline timed out", Err: err}
 	case errors.Is(err, tiktok.ErrChallenge):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "tiktok challenge not solved", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "tiktok challenge not solved", Err: err}
 	default:
-		return &weibo.Error{Code: weibo.CodeInternal, Message: err.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeInternal, Message: err.Error(), Err: err}
 	}
 }

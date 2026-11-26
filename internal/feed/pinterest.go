@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/pinterest"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // Pinterest feed bounds and cache lifetime. One feed slice carries at most 25
@@ -31,17 +31,17 @@ func PinterestTTL() time.Duration { return pinterestTTL }
 // Pinterest's public RSS endpoints.
 func (s *Service) GetPinterest(ctx context.Context, user, board string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.Pinterest == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "pinterest provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "pinterest provider is not configured"}
 	}
 	user, err := pinterest.NormalizeUser(user)
 	if err != nil {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid pinterest user " + strconv.Quote(strings.TrimSpace(user)), Err: err}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid pinterest user " + strconv.Quote(strings.TrimSpace(user)), Err: err}
 	}
 	if board != "" {
 		raw := board
 		board, err = pinterest.NormalizeBoard(board)
 		if err != nil {
-			return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid pinterest board " + strconv.Quote(strings.TrimSpace(raw)), Err: err}
+			return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid pinterest board " + strconv.Quote(strings.TrimSpace(raw)), Err: err}
 		}
 	}
 	if limit <= 0 {
@@ -66,7 +66,7 @@ func (s *Service) GetPinterest(ctx context.Context, user, board string, limit in
 		return nil, pinterestError(err, user, board)
 	}
 	if res == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "pinterest provider returned no result"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "pinterest provider returned no result"}
 	}
 	return pinterestFeed(res, limit, cached, degraded), nil
 }
@@ -173,7 +173,7 @@ func pinterestError(err error, user, board string) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
@@ -183,22 +183,22 @@ func pinterestError(err error, user, board string) error {
 	}
 	switch {
 	case errors.Is(err, pinterest.ErrInvalidUser), errors.Is(err, pinterest.ErrInvalidBoard):
-		return &weibo.Error{Code: weibo.CodeBadRequest, Message: fmt.Sprintf("invalid pinterest target %q", target), Err: err}
+		return &apperr.Error{Code: apperr.CodeBadRequest, Message: fmt.Sprintf("invalid pinterest target %q", target), Err: err}
 	case errors.Is(err, pinterest.ErrUserNotFound):
-		return &weibo.Error{Code: weibo.CodeUserNotFound, Message: "pinterest user " + user + " not found", Err: err}
+		return &apperr.Error{Code: apperr.CodeUserNotFound, Message: "pinterest user " + user + " not found", Err: err}
 	case errors.Is(err, pinterest.ErrBoardNotFound):
-		return &weibo.Error{Code: weibo.CodeUserNotFound, Message: "pinterest board " + target + " not found", Err: err}
+		return &apperr.Error{Code: apperr.CodeUserNotFound, Message: "pinterest board " + target + " not found", Err: err}
 	case errors.Is(err, pinterest.ErrRateLimited):
-		return &weibo.Error{Code: weibo.CodeRateLimited, Message: "pinterest rate limited", Err: err}
+		return &apperr.Error{Code: apperr.CodeRateLimited, Message: "pinterest rate limited", Err: err}
 	case errors.Is(err, pinterest.ErrBlocked):
-		return &weibo.Error{Code: weibo.CodeUpstreamBlocked, Message: "pinterest blocked the request for " + target, Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamBlocked, Message: "pinterest blocked the request for " + target, Err: err}
 	case errors.Is(err, pinterest.ErrUnexpectedPage), errors.Is(err, pinterest.ErrBadFeed):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "pinterest feed for " + target + " could not be parsed", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "pinterest feed for " + target + " could not be parsed", Err: err}
 	case errors.Is(err, context.DeadlineExceeded):
-		return &weibo.Error{Code: weibo.CodeTimeout, Message: "pinterest feed timed out", Err: err}
+		return &apperr.Error{Code: apperr.CodeTimeout, Message: "pinterest feed timed out", Err: err}
 	case errors.Is(err, pinterest.ErrUpstream):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "pinterest feed for " + target + " is unavailable", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "pinterest feed for " + target + " is unavailable", Err: err}
 	default:
-		return &weibo.Error{Code: weibo.CodeNetwork, Message: err.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeNetwork, Message: err.Error(), Err: err}
 	}
 }

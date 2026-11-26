@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -20,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 const (
@@ -144,7 +145,7 @@ func (c *Client) fetchSyndication(ctx context.Context, id string) (*syndicationD
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := upstream.ReadBody(resp.Body, 1<<20)
 	if err != nil {
 		return nil, err
 	}

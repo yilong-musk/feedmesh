@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/logx"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
 )
 
@@ -144,8 +144,8 @@ func TestGetXRejectsBadHandle(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeBadRequest {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeBadRequest {
 		t.Fatalf("error = %v, want CodeBadRequest", err)
 	}
 }
@@ -160,8 +160,8 @@ func TestGetXSurfacesUpstreamFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an upstream error")
 	}
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeUpstreamUnavailable {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeUpstreamUnavailable {
 		t.Fatalf("error = %v, want CodeUpstreamUnavailable", err)
 	}
 }

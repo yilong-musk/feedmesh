@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/polymarket"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 const pmEventsJSON = `[
@@ -167,8 +167,8 @@ func TestGetPolymarketEventCacheWidens(t *testing.T) {
 func TestGetPolymarketNotFound(t *testing.T) {
 	s := newPolymarketService(t)
 	_, err := s.GetPolymarketEvent(context.Background(), "missing", 0, false)
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeUserNotFound {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeUserNotFound {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -176,8 +176,8 @@ func TestGetPolymarketNotFound(t *testing.T) {
 func TestGetPolymarketBadTag(t *testing.T) {
 	s := newPolymarketService(t)
 	_, err := s.GetPolymarketEvents(context.Background(), polymarket.OrderNew, "bad tag", 0, false)
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeBadRequest {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeBadRequest {
 		t.Fatalf("err = %v", err)
 	}
 }

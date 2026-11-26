@@ -247,3 +247,14 @@ func TestParseCompactCount(t *testing.T) {
 		}
 	}
 }
+
+func TestFindDivEndStopsAtTheClosingTag(t *testing.T) {
+	s := `<div class="a"><div>inner</div>text</div><div>after</div>`
+	start := len(`<div class="a">`)
+	if got, want := findDivEnd(s, start), strings.Index(s, `</div><div>after`); got != want {
+		t.Fatalf("findDivEnd = %d, want %d", got, want)
+	}
+	if got := findDivEnd(`<div>unclosed`, 0); got != len(`<div>unclosed`) {
+		t.Fatalf("unclosed element = %d, want the end of the input", got)
+	}
+}

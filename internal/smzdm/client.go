@@ -18,7 +18,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"regexp"
 	"sort"
@@ -27,6 +26,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/guard"
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 const (
@@ -242,7 +242,7 @@ func (c *Client) get(ctx context.Context, ch Channel) ([]byte, error) {
 		return nil, fmt.Errorf("smzdm %s request failed: %w", ch, err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	body, err := upstream.ReadBody(resp.Body, 4<<20)
 	if err != nil {
 		return nil, fmt.Errorf("smzdm %s read failed: %w", ch, err)
 	}

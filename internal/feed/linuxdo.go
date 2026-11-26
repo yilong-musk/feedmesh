@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/linuxdo"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // LINUX DO feed bounds. The forum publishes 25-30 topics per RSS page and
@@ -39,11 +39,11 @@ var (
 // GetLinuxDo builds a feed from the forum's official RSS endpoints.
 func (s *Service) GetLinuxDo(ctx context.Context, raw linuxdo.Ref, limit int, refresh bool) (*Feed, error) {
 	if s.clients.LinuxDo == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "linux.do provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "linux.do provider is not configured"}
 	}
 	ref, err := raw.Validate()
 	if err != nil {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid linux.do feed", Err: err}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid linux.do feed", Err: err}
 	}
 	if limit <= 0 {
 		limit = DefaultLinuxDoLimit
@@ -221,24 +221,24 @@ func linuxdoError(err error, ref linuxdo.Ref) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
 	switch {
 	case errors.Is(err, linuxdo.ErrInvalidRef):
-		return &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid linux.do feed " + ref.Key(), Err: err}
+		return &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid linux.do feed " + ref.Key(), Err: err}
 	case errors.Is(err, linuxdo.ErrNotFound):
-		return &weibo.Error{Code: weibo.CodeUserNotFound, Message: "linux.do feed " + ref.Key() + " not found", Err: err}
+		return &apperr.Error{Code: apperr.CodeUserNotFound, Message: "linux.do feed " + ref.Key() + " not found", Err: err}
 	case errors.Is(err, linuxdo.ErrChallenge):
-		return &weibo.Error{Code: weibo.CodeUpstreamBlocked, Message: "linux.do is challenging automated requests; try again later", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamBlocked, Message: "linux.do is challenging automated requests; try again later", Err: err}
 	case errors.Is(err, linuxdo.ErrNoItems):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "linux.do feed " + ref.Key() + " has no topics", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "linux.do feed " + ref.Key() + " has no topics", Err: err}
 	case errors.Is(err, linuxdo.ErrUnexpectedPage):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "linux.do returned a non-RSS page", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "linux.do returned a non-RSS page", Err: err}
 	case errors.Is(err, context.DeadlineExceeded):
-		return &weibo.Error{Code: weibo.CodeTimeout, Message: "linux.do feed timed out", Err: err}
+		return &apperr.Error{Code: apperr.CodeTimeout, Message: "linux.do feed timed out", Err: err}
 	default:
-		return &weibo.Error{Code: weibo.CodeInternal, Message: fmt.Sprintf("linux.do: %v", err), Err: err}
+		return &apperr.Error{Code: apperr.CodeInternal, Message: fmt.Sprintf("linux.do: %v", err), Err: err}
 	}
 }

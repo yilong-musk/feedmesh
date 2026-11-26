@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // SMZDM category-page (fenlei) support.
@@ -52,10 +52,10 @@ type fenleiFailure struct {
 func (s *Service) GetSmzdmFenlei(ctx context.Context, slug string, limit int, refresh bool) (*Feed, error) {
 	slug = strings.TrimSpace(strings.ToLower(slug))
 	if err := smzdm.ValidateSlug(slug); err != nil {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: err.Error(), Err: err}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: err.Error(), Err: err}
 	}
 	if s.clients.Smzdm == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "smzdm provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "smzdm provider is not configured"}
 	}
 	if limit <= 0 {
 		limit = DefaultSmzdmLimit
@@ -244,8 +244,8 @@ func fenleiBreach(err error) bool {
 // fenleiFailureError reports a suppressed read: the caller learns why it is
 // not being retried and when a fresh attempt is allowed.
 func fenleiFailureError(slug string, f fenleiFailure) error {
-	return &weibo.Error{
-		Code: weibo.CodeUpstreamUnavailable,
+	return &apperr.Error{
+		Code: apperr.CodeUpstreamUnavailable,
 		Message: fmt.Sprintf("smzdm: category %q is not re-read until %s: the last read failed (%s)",
 			slug, f.RetryAt.UTC().Format(time.RFC3339), f.Message),
 	}
@@ -277,15 +277,15 @@ func smzdmFenleiError(err error) error {
 	}
 	var blocked *smzdm.BlockedError
 	if errors.As(err, &blocked) {
-		return &weibo.Error{Code: weibo.CodeUpstreamBlocked, Message: blocked.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamBlocked, Message: blocked.Error(), Err: err}
 	}
 	var cooling *smzdm.CooldownError
 	if errors.As(err, &cooling) {
-		return &weibo.Error{Code: weibo.CodeBreakerOpen, Message: cooling.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeBreakerOpen, Message: cooling.Error(), Err: err}
 	}
 	var slug *smzdm.InvalidSlugError
 	if errors.As(err, &slug) {
-		return &weibo.Error{Code: weibo.CodeBadRequest, Message: slug.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeBadRequest, Message: slug.Error(), Err: err}
 	}
 	return sspaiError(err)
 }

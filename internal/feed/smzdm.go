@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // SMZDM feed bounds and cache lifetimes. The deal slices rotate every few
@@ -44,10 +44,10 @@ func SmzdmTTL(ch smzdm.Channel) time.Duration {
 func (s *Service) GetSmzdm(ctx context.Context, ch smzdm.Channel, limit int, refresh bool) (*Feed, error) {
 	info, ok := smzdmChannels[ch]
 	if !ok {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "unknown smzdm channel " + string(ch)}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "unknown smzdm channel " + string(ch)}
 	}
 	if s.clients.Smzdm == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "smzdm provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "smzdm provider is not configured"}
 	}
 	if limit <= 0 {
 		limit = DefaultSmzdmLimit

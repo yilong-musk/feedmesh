@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/httpapi"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 func TestXMLSuffixRoutes(t *testing.T) {
@@ -69,7 +69,7 @@ func TestRateLimitReturnsJSONEnvelope(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("body is not JSON: %v", err)
 	}
-	if body.Error.Code != weibo.CodeRateLimited {
+	if body.Error.Code != apperr.CodeRateLimited {
 		t.Fatalf("code = %q", body.Error.Code)
 	}
 }
@@ -81,7 +81,7 @@ func TestPanicRecoveryReturns500(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if rec.Header().Get(httpapi.ErrorCodeHeader) != weibo.CodeInternal {
+	if rec.Header().Get(httpapi.ErrorCodeHeader) != apperr.CodeInternal {
 		t.Fatalf("code header = %q", rec.Header().Get(httpapi.ErrorCodeHeader))
 	}
 }

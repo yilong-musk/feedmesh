@@ -17,17 +17,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 // DefaultBaseURL is the API host. Tests point BaseURL at an httptest server.
@@ -81,7 +80,9 @@ type Client struct {
 	cfg  Config
 	http *http.Client
 
-	mu       sync.Mutex
+	// slot serialises Timeline calls (the visitor cookie and WBI keys are
+	// shared); a queued caller leaves when its own deadline passes.
+	slot     upstream.Slot
 	warm     bool
 	buvid3   string
 	buvid4   string
@@ -102,6 +103,7 @@ func New(cfg Config) *Client {
 		cfg.BaseURL = DefaultBaseURL
 	}
 	return &Client{
+		slot:    upstream.NewSlot(1),
 		cfg:     cfg,
 		http:    &http.Client{Timeout: cfg.Timeout},
 		backoff: []time.Duration{0, time.Second, time.Second, 2 * time.Second, 2 * time.Second, 3 * time.Second},
@@ -161,8 +163,10 @@ func (c *Client) Timeline(ctx context.Context, mid string, limit int) (*Timeline
 		limit = MaxLimit
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.slot.Acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer c.slot.Release()
 
 	card, err := c.userCard(ctx, mid)
 	if err != nil {
@@ -462,7 +466,7 @@ func (c *Client) get(ctx context.Context, target, referer string) (string, int, 
 		return "", 0, err
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	data, err := upstream.ReadBody(resp.Body, 8<<20)
 	if err != nil {
 		return "", resp.StatusCode, err
 	}

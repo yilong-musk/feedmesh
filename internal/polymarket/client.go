@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -24,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 const (
@@ -464,7 +465,7 @@ func (c *Client) get(ctx context.Context, rawURL string) ([]byte, error) {
 		return nil, fmt.Errorf("polymarket request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	body, err := upstream.ReadBody(resp.Body, 16<<20)
 	if err != nil {
 		return nil, fmt.Errorf("polymarket read failed: %w", err)
 	}

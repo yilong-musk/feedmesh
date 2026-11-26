@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/sspai"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // sspai feed bounds and cache lifetimes.
@@ -24,7 +24,7 @@ const (
 // fetched (cached 24h per article); without it items carry the summary only.
 func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (*Feed, error) {
 	if s.clients.Sspai == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "sspai provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "sspai provider is not configured"}
 	}
 	if limit <= 0 {
 		limit = DefaultSspaiLimit
@@ -160,9 +160,9 @@ func sspaiError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
-	return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: err.Error(), Err: err}
+	return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: err.Error(), Err: err}
 }
