@@ -99,7 +99,7 @@ func (s *Service) GetSmzdmFenlei(ctx context.Context, slug string, limit int, re
 	// The cache is always filled at full width: one page holds every card the
 	// slug offers, so a wider request must never pay for a second read.
 	entry, hit, degraded, err := fetchCachedList(ctx, s, key, smzdmFenleiTTL, refresh, MaxSmzdmLimit,
-		func(n int) ([]smzdm.Category, error) {
+		func(ctx context.Context, n int) ([]smzdm.Category, error) {
 			s.fenleiMu.Lock()
 			defer s.fenleiMu.Unlock()
 			// Every upstream read is logged: the hourly budget is a hard

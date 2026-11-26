@@ -49,7 +49,7 @@ func (s *Service) GetTikTok(ctx context.Context, user string, limit int, refresh
 	// request narrow every later read for the whole TTL.
 	key := "tiktok:user:" + strings.ToLower(user)
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, tiktokTTL, refresh, limit,
-		func(n int) ([]tiktok.Item, error) {
+		func(ctx context.Context, n int) ([]tiktok.Item, error) {
 			tl, terr := s.clients.TikTok.Timeline(ctx, user, n)
 			if terr != nil {
 				return nil, terr

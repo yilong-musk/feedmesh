@@ -37,7 +37,7 @@ func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (
 	// when a later request asks for more, so ?limit=3 can never truncate the
 	// rest of the TTL. The loader pages upstream only as wide as needed.
 	entry, hit, degraded, err := fetchCachedList(ctx, s, "sspai:list", sspaiListTTL, refresh, limit,
-		func(n int) ([]sspai.Article, error) { return s.clients.Sspai.List(ctx, n) })
+		func(ctx context.Context, n int) ([]sspai.Article, error) { return s.clients.Sspai.List(ctx, n) })
 	if err != nil {
 		return nil, sspaiError(err)
 	}
@@ -72,7 +72,7 @@ func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (
 				defer func() { <-sem }()
 				a := articles[i]
 				d, _, _, derr := fetchCached(ctx, s, "sspai:detail:"+strconv.Itoa(a.ID), sspaiDetailTTL, refresh,
-					func() (sspai.Article, error) { return s.clients.Sspai.Detail(ctx, a.ID) })
+					func(ctx context.Context) (sspai.Article, error) { return s.clients.Sspai.Detail(ctx, a.ID) })
 				if derr != nil {
 					s.log.Warn("sspai detail unavailable, keeping summary",
 						"id", a.ID, "error", derr.Error())

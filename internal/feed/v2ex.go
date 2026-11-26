@@ -46,7 +46,7 @@ func (s *Service) GetV2ex(ctx context.Context, section string, limit int, refres
 	// first. One V2EX request returns the whole list anyway (index.xml carries
 	// 50 entries, the hot tab is a single page).
 	entry, hit, degraded, err := fetchCachedList(ctx, s, "v2ex:"+section, v2exTTL, refresh, limit,
-		func(n int) ([]v2ex.Article, error) {
+		func(ctx context.Context, n int) ([]v2ex.Article, error) {
 			if section == "hot" {
 				return s.clients.V2ex.Hot(ctx, n)
 			}

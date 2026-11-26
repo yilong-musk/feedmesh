@@ -63,7 +63,7 @@ func (s *Service) GetPolymarketEvents(ctx context.Context, order, tag string, li
 
 	key := "polymarket:events:" + order + ":" + firstNonEmpty(tag, "all")
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, polymarketListTTL, refresh, limit,
-		func(n int) ([]polymarket.Event, error) {
+		func(ctx context.Context, n int) ([]polymarket.Event, error) {
 			return s.clients.Polymarket.ListEvents(ctx, order, tag, n)
 		})
 	if err != nil {
@@ -94,7 +94,7 @@ func (s *Service) GetPolymarketEvent(ctx context.Context, slug string, limit int
 	// gets its own limit. Fetching with the caller's limit would let a narrow
 	// first request truncate the cached event for everyone else.
 	ev, cached, degraded, err := fetchCached(ctx, s, key, polymarketEventTTL, refresh,
-		func() (*polymarket.Event, error) {
+		func(ctx context.Context) (*polymarket.Event, error) {
 			return s.clients.Polymarket.Event(ctx, slug, MaxPolymarketLimit)
 		})
 	if err != nil {
@@ -125,7 +125,7 @@ func (s *Service) GetPolymarketActivity(ctx context.Context, address string, lim
 
 	key := "polymarket:activity:" + address
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, polymarketActivityTTL, refresh, limit,
-		func(n int) ([]polymarket.Activity, error) {
+		func(ctx context.Context, n int) ([]polymarket.Activity, error) {
 			return s.clients.Polymarket.Activity(ctx, address, n)
 		})
 	if err != nil {

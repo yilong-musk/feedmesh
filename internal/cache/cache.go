@@ -89,6 +89,7 @@ var managedPrefixes = []string{
 	"profile_", "timeline_", "longtext_", "domain_", "hot_",
 	"sspai_list", "sspai_detail_", "v2ex_latest", "v2ex_hot",
 	"x_", "feed_", "youtube_", "smzdm_", "reddit_", "telegram_", "linuxdo_",
+	"douyin_", "tiktok_", "bilibili_", "pinterest_", "polymarket_",
 }
 
 // ManagedKey reports whether a cache file stem matches a feedmesh key prefix.
