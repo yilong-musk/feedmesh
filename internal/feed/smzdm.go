@@ -58,7 +58,7 @@ func (s *Service) GetSmzdm(ctx context.Context, ch smzdm.Channel, limit int, ref
 
 	ttl := SmzdmTTL(ch)
 	entry, hit, degraded, err := fetchCachedList(ctx, s, "smzdm:"+string(ch), ttl, refresh, limit,
-		func(n int) ([]smzdm.Deal, error) { return s.clients.Smzdm.List(ctx, ch, n) })
+		func(ctx context.Context, n int) ([]smzdm.Deal, error) { return s.clients.Smzdm.List(ctx, ch, n) })
 	if err != nil {
 		return nil, sspaiError(err)
 	}

@@ -79,7 +79,10 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 	}
 
 	key := "youtube:feed:" + channelID
-	unlock := s.lockListKey(key)
+	unlock, err := s.lockListKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
 	defer unlock()
 
 	if !refresh {

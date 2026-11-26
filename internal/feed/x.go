@@ -38,7 +38,7 @@ func (s *Service) GetX(ctx context.Context, handle string, limit int, refresh bo
 
 	// One Nitter page is 20 tweets; cache the page and slice on the way out.
 	entry, hit, degraded, err := fetchCachedList(ctx, s, "x:"+strings.ToLower(handle), xTTL, refresh, limit,
-		func(int) ([]xnitter.Tweet, error) { return s.clients.X.Timeline(ctx, handle) })
+		func(ctx context.Context, _ int) ([]xnitter.Tweet, error) { return s.clients.X.Timeline(ctx, handle) })
 	if err != nil {
 		return nil, sspaiError(err)
 	}

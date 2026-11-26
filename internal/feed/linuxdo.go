@@ -59,7 +59,7 @@ func (s *Service) GetLinuxDo(ctx context.Context, raw linuxdo.Ref, limit int, re
 
 	key := "linuxdo:feed:" + ref.Key()
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, linuxdoTTL, refresh, limit,
-		func(n int) ([]linuxdo.Topic, error) {
+		func(ctx context.Context, n int) ([]linuxdo.Topic, error) {
 			f, ferr := s.clients.LinuxDo.Fetch(ctx, ref, n)
 			if ferr != nil {
 				return nil, ferr

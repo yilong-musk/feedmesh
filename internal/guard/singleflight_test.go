@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -27,7 +28,7 @@ func TestGroupCollapsesConcurrentCalls(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			v, err, s := Do(g, "key", work)
+			v, err, s := Do(context.Background(), g, "key", work)
 			if err != nil {
 				t.Errorf("caller %d: %v", i, err)
 			}
@@ -62,7 +63,7 @@ func TestGroupCollapsesConcurrentCalls(t *testing.T) {
 func TestGroupPropagatesErrors(t *testing.T) {
 	g := NewGroup()
 	want := errors.New("boom")
-	v, err, _ := Do(g, "key", func() (int, error) { return 0, want })
+	v, err, _ := Do(context.Background(), g, "key", func() (int, error) { return 0, want })
 	if !errors.Is(err, want) {
 		t.Fatalf("err = %v, want %v", err, want)
 	}
@@ -73,12 +74,12 @@ func TestGroupPropagatesErrors(t *testing.T) {
 
 func TestGroupRecoversPanicAndClearsKey(t *testing.T) {
 	g := NewGroup()
-	if _, err, _ := Do(g, "key", func() (int, error) {
+	if _, err, _ := Do(context.Background(), g, "key", func() (int, error) {
 		panic("boom")
 	}); err == nil {
 		t.Fatal("expected a panic-derived error")
 	}
-	v, err, _ := Do(g, "key", func() (int, error) { return 7, nil })
+	v, err, _ := Do(context.Background(), g, "key", func() (int, error) { return 7, nil })
 	if err != nil || v != 7 {
 		t.Fatalf("call after panic = %d, %v", v, err)
 	}
@@ -88,7 +89,7 @@ func TestGroupSequentialCallsRunAgain(t *testing.T) {
 	g := NewGroup()
 	var runs atomic.Int32
 	for i := 0; i < 3; i++ {
-		if _, err, _ := Do(g, "key", func() (int, error) {
+		if _, err, _ := Do(context.Background(), g, "key", func() (int, error) {
 			runs.Add(1)
 			return 1, nil
 		}); err != nil {
@@ -97,5 +98,37 @@ func TestGroupSequentialCallsRunAgain(t *testing.T) {
 	}
 	if runs.Load() != 3 {
 		t.Fatalf("runs = %d, want 3 (no caching across sequential calls)", runs.Load())
+	}
+}
+
+func TestGroupWaiterHonoursItsOwnContext(t *testing.T) {
+	g := NewGroup()
+	release := make(chan struct{})
+	started := make(chan struct{})
+	leaderDone := make(chan string, 1)
+	go func() {
+		v, _, _ := Do(context.Background(), g, "key", func() (string, error) {
+			close(started)
+			<-release
+			return "value", nil
+		})
+		leaderDone <- v
+	}()
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err, shared := Do(ctx, g, "key", func() (string, error) {
+		t.Error("a waiter must not run fn while a call is in flight")
+		return "", nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) || !shared {
+		t.Fatalf("waiter err = %v shared = %v, want its own deadline", err, shared)
+	}
+
+	// The in-flight call is unaffected by the waiter that gave up.
+	close(release)
+	if v := <-leaderDone; v != "value" {
+		t.Fatalf("leader got %q, want value", v)
 	}
 }
