@@ -83,12 +83,15 @@ func TestPinterestAPIRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		User        string `json:"user"`
+		Provider    string `json:"provider"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Cached      bool   `json:"cached"`
 		Degraded    bool   `json:"degraded"`
-		Items       []struct {
+		Meta        struct {
+			User string `json:"user"`
+		} `json:"meta"`
+		Items []struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
 			Text      string    `json:"text"`
@@ -101,7 +104,7 @@ func TestPinterestAPIRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v\n%s", err, rec.Body.String())
 	}
-	if out.User != "nasa" || out.Title != "NASA on Pinterest" || out.Description != "Official NASA boards." {
+	if out.Provider != "pinterest" || out.Meta.User != "nasa" || out.Title != "NASA on Pinterest" || out.Description != "Official NASA boards." {
 		t.Fatalf("channel = %+v", out)
 	}
 	if len(out.Items) != 1 {
@@ -136,8 +139,18 @@ func TestPinterestAPIBoard(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"user":"nasa","board":"earth"`) {
-		t.Fatalf("body = %s", rec.Body.String())
+	var out struct {
+		Provider string `json:"provider"`
+		Meta     struct {
+			User  string `json:"user"`
+			Board string `json:"board"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Provider != "pinterest" || out.Meta.User != "nasa" || out.Meta.Board != "earth" {
+		t.Fatalf("envelope = %+v body = %s", out, rec.Body.String())
 	}
 }
 

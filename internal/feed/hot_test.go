@@ -57,8 +57,10 @@ func TestGetHotBuildsFeed(t *testing.T) {
 	if f.Items[0].Title != "1. 小城良方 剧情硬伤" {
 		t.Fatalf("first title = %q", f.Items[0].Title)
 	}
-	if f.Items[0].Rank != 1 || f.Items[1].Rank != 2 {
-		t.Fatalf("ranks = %d,%d", f.Items[0].Rank, f.Items[1].Rank)
+	h0, ok0 := f.Items[0].Extra.(*feed.HotExtra)
+	h1, ok1 := f.Items[1].Extra.(*feed.HotExtra)
+	if !ok0 || !ok1 || h0.Rank != 1 || h1.Rank != 2 {
+		t.Fatalf("extras = %#v, %#v", f.Items[0].Extra, f.Items[1].Extra)
 	}
 	if !strings.Contains(f.Items[0].HTML, "Heat 1.5M") || !strings.Contains(f.Items[0].HTML, "剧集") {
 		t.Fatalf("description missing heat/category: %s", f.Items[0].HTML)
@@ -105,10 +107,10 @@ func TestGetHotUsesRealposOrderAndRank(t *testing.T) {
 	if len(f.Items) != 2 {
 		t.Fatalf("items = %d", len(f.Items))
 	}
-	if f.Items[0].Title != "1. first" || f.Items[0].Rank != 1 {
+	if h0, ok := f.Items[0].Extra.(*feed.HotExtra); f.Items[0].Title != "1. first" || !ok || h0.Rank != 1 {
 		t.Fatalf("first item = %+v", f.Items[0])
 	}
-	if f.Items[1].Title != "3. third" || f.Items[1].Rank != 3 {
+	if h1, ok := f.Items[1].Extra.(*feed.HotExtra); f.Items[1].Title != "3. third" || !ok || h1.Rank != 3 {
 		t.Fatalf("second item = %+v", f.Items[1])
 	}
 }

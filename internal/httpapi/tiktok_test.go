@@ -42,10 +42,13 @@ func TestTikTokAPIRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		User   string `json:"user"`
-		Title  string `json:"title"`
-		Cached bool   `json:"cached"`
-		Items  []struct {
+		Provider string `json:"provider"`
+		Title    string `json:"title"`
+		Cached   bool   `json:"cached"`
+		Meta     struct {
+			User string `json:"user"`
+		} `json:"meta"`
+		Items []struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
 			URL       string    `json:"url"`
@@ -56,7 +59,7 @@ func TestTikTokAPIRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.User != "nasa" || resp.Title != "NASA on TikTok" {
+	if resp.Provider != "tiktok" || resp.Meta.User != "nasa" || resp.Title != "NASA on TikTok" {
 		t.Fatalf("envelope = %+v", resp)
 	}
 	if len(resp.Items) != 1 {

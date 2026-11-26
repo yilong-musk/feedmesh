@@ -277,10 +277,22 @@ func polymarketEventItem(ev polymarket.Event, created time.Time, keep int) Item 
 		URL:       link,
 		Images:    images,
 		CreatedAt: created.UTC(),
-		Volume24H: ev.Volume24h,
-		Liquidity: ev.Liquidity,
-		EndsAt:    ev.EndDate,
+		Extra:     polymarketExtra(ev.Volume24h, ev.Liquidity, ev.EndDate),
 	}
+}
+
+// PolymarketExtra carries prediction-market liquidity and close-time metadata.
+type PolymarketExtra struct {
+	Volume24H float64   `json:"volume_24h,omitempty"`
+	Liquidity float64   `json:"liquidity,omitempty"`
+	EndsAt    time.Time `json:"ends_at,omitzero"`
+}
+
+func polymarketExtra(vol, liq float64, ends time.Time) any {
+	if vol == 0 && liq == 0 && ends.IsZero() {
+		return nil
+	}
+	return &PolymarketExtra{Volume24H: vol, Liquidity: liq, EndsAt: ends}
 }
 
 // polymarketMarketItem renders one market inside a single-event feed.
@@ -323,9 +335,7 @@ func polymarketMarketItem(ev polymarket.Event, m polymarket.Market) Item {
 		URL:       link,
 		Images:    images,
 		CreatedAt: firstTime(m.StartDate, ev.StartDate, ev.FetchedAt),
-		Volume24H: m.Volume24h,
-		Liquidity: m.Liquidity,
-		EndsAt:    m.EndDate,
+		Extra:     polymarketExtra(m.Volume24h, m.Liquidity, m.EndDate),
 	}
 }
 

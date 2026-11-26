@@ -22,9 +22,9 @@ import (
 // probeFreshness is how long a /healthz?probe=1 result is reused.
 const probeFreshness = 30 * time.Second
 
-// degradedRSSMaxAge is the reader-facing lifetime of any other document served
-// from its last good cache entry: short enough that readers pick the real feed
-// up soon after the upstream recovers, even though the content may be hours old.
+// degradedRSSMaxAge is the reader-facing lifetime of any document served from
+// its last good cache entry: short enough that readers pick the real feed up
+// soon after the upstream recovers, even though the content may be hours old.
 const degradedRSSMaxAge = 60
 
 // Config wires the HTTP layer.
@@ -174,6 +174,15 @@ func (s *Server) setRSSCacheFor(w http.ResponseWriter, f *feed.Feed, maxAge int)
 	s.setRSSCache(w, maxAge)
 }
 
+// setSource publishes where a list came from: atom (the official document) or
+// stale (the last good cached list). It is the only signal an operator gets
+// that an outage window or a rate-limit window is in progress.
+func setSource(w http.ResponseWriter, source string) {
+	if source != "" {
+		w.Header().Set("X-Feedmesh-Source", source)
+	}
+}
+
 // getOnly rejects non-GET verbs with a 405 and the standard error envelope.
 func (s *Server) getOnly(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -247,6 +256,8 @@ func (s *Server) probe(ctx context.Context) ([]weibo.Step, bool) {
 	return steps, ok
 }
 
+// ----------------------------------------------------------------------- Weibo
+
 func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
 	uid := strings.TrimSuffix(r.PathValue("uid"), ".xml")
 	s.serveRSS(w, r, uid)
@@ -271,16 +282,6 @@ func (s *Server) serveRSS(w http.ResponseWriter, r *http.Request, uid string) {
 	s.serveFeed(w, r, f, err, 300)
 }
 
-type feedResponse struct {
-	UID         string      `json:"uid"`
-	ScreenName  string      `json:"screen_name"`
-	Description string      `json:"description"`
-	FetchedAt   time.Time   `json:"fetched_at"`
-	Cached      bool        `json:"cached"`
-	Degraded    bool        `json:"degraded"`
-	Items       []feed.Item `json:"items"`
-}
-
 func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 	uid := strings.TrimSpace(r.URL.Query().Get("uid"))
 	if uid == "" {
@@ -291,38 +292,11 @@ func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetFeed(r.Context(), uid, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"uid": f.UID, "screen_name": f.ScreenName}
 	}
-	writeJSON(w, http.StatusOK, feedResponse{
-		UID:         f.UID,
-		ScreenName:  f.ScreenName,
-		Description: f.Description,
-		FetchedAt:   f.FetchedAt,
-		Cached:      f.Cached,
-		Degraded:    f.Degraded,
-		Items:       f.Items,
-	})
-}
-
-type hotItemResponse struct {
-	Rank      int       `json:"rank"`
-	Heat      int64     `json:"heat"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type hotResponse struct {
-	Title       string            `json:"title"`
-	Description string            `json:"description"`
-	FetchedAt   time.Time         `json:"fetched_at"`
-	Cached      bool              `json:"cached"`
-	Degraded    bool              `json:"degraded"`
-	Items       []hotItemResponse `json:"items"`
+	s.serveJSON(w, "weibo", f, err, meta)
 }
 
 func (s *Server) handleHot(w http.ResponseWriter, r *http.Request) {
@@ -338,49 +312,10 @@ func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetHot(r.Context(), limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	items := make([]hotItemResponse, 0, len(f.Items))
-	for i, it := range f.Items {
-		rank := it.Rank
-		if rank == 0 {
-			rank = i + 1
-		}
-		items = append(items, hotItemResponse{
-			Rank: rank, Heat: it.Heat, Title: it.Title, Text: it.Text,
-			URL: it.URL, HTML: it.HTML, CreatedAt: it.CreatedAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, hotResponse{
-		Title:       f.Title(),
-		Description: f.Description,
-		FetchedAt:   f.FetchedAt,
-		Cached:      f.Cached,
-		Degraded:    f.Degraded,
-		Items:       items,
-	})
+	s.serveJSON(w, "hot", f, err, nil)
 }
 
-type sspaiItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type sspaiResponse struct {
-	Title       string              `json:"title"`
-	Description string              `json:"description"`
-	FetchedAt   time.Time           `json:"fetched_at"`
-	Cached      bool                `json:"cached"`
-	Degraded    bool                `json:"degraded"`
-	Items       []sspaiItemResponse `json:"items"`
-}
+// ----------------------------------------------------------------------- sspai
 
 func (s *Server) handleSspai(w http.ResponseWriter, r *http.Request) {
 	limit := limitParam(r, feed.DefaultSspaiLimit, feed.MaxSspaiLimit)
@@ -397,41 +332,10 @@ func (s *Server) handleAPISspai(w http.ResponseWriter, r *http.Request) {
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetSspai(r.Context(), limit, full, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	items := make([]sspaiItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		items = append(items, sspaiItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, sspaiResponse{
-		Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
-	})
+	s.serveJSON(w, "sspai", f, err, nil)
 }
 
-type v2exItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type v2exResponse struct {
-	Title       string             `json:"title"`
-	Description string             `json:"description"`
-	FetchedAt   time.Time          `json:"fetched_at"`
-	Cached      bool               `json:"cached"`
-	Degraded    bool               `json:"degraded"`
-	Items       []v2exItemResponse `json:"items"`
-}
+// ------------------------------------------------------------------------ V2EX
 
 func (s *Server) serveV2ex(w http.ResponseWriter, r *http.Request, section string) {
 	limit := limitParam(r, feed.DefaultV2exLimit, feed.MaxV2exLimit)
@@ -453,66 +357,10 @@ func (s *Server) handleAPIV2ex(w http.ResponseWriter, r *http.Request) {
 	limit := limitParam(r, feed.DefaultV2exLimit, feed.MaxV2exLimit)
 	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetV2ex(r.Context(), section, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	items := make([]v2exItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		items = append(items, v2exItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, v2exResponse{
-		Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
-	})
+	s.serveJSON(w, "v2ex", f, err, map[string]any{"section": section})
 }
 
-type smzdmItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Author    string    `json:"author"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	CreatedAt time.Time `json:"created_at"`
-	// Price is the listed amount of a good-price card. Category pages publish
-	// one; the RSS channels do not, so the field is null there.
-	Price *float64 `json:"price"`
-	// Slug names the category a card came from (category channel only).
-	Slug string `json:"slug,omitempty"`
-	// DateSource says how created_at was derived (category channel only):
-	// "fetched" when the page read time stands in for a missing publish
-	// timestamp, "card" when the card carried its own.
-	DateSource string `json:"date_source,omitempty"`
-}
-
-type smzdmResponse struct {
-	Channel     string              `json:"channel"`
-	Slug        string              `json:"slug,omitempty"`
-	Title       string              `json:"title"`
-	Description string              `json:"description"`
-	FetchedAt   time.Time           `json:"fetched_at"`
-	Cached      bool                `json:"cached"`
-	Degraded    bool                `json:"degraded"`
-	Items       []smzdmItemResponse `json:"items"`
-}
-
-// smzdmItems maps the feed model onto the SMZDM JSON view.
-func smzdmItems(items []feed.Item) []smzdmItemResponse {
-	out := make([]smzdmItemResponse, 0, len(items))
-	for _, it := range items {
-		out = append(out, smzdmItemResponse{
-			ID: it.ID, Title: it.Title, Author: it.Author, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
-			Price: it.Price, Slug: it.Slug, DateSource: it.DateSource,
-		})
-	}
-	return out
-}
+// ----------------------------------------------------------------------- SMZDM
 
 // serveSmzdm renders one channel as RSS.
 func (s *Server) serveSmzdm(w http.ResponseWriter, r *http.Request, ch smzdm.Channel) {
@@ -571,72 +419,15 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f, err := s.cfg.Service.GetSmzdmFenlei(r.Context(), slug, limit, refresh)
-		if err != nil {
-			s.writeError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, smzdmResponse{
-			Channel: string(ch), Slug: strings.ToLower(slug), Title: f.Title(),
-			Description: f.Description, FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
-			Items: smzdmItems(f.Items),
-		})
+		s.serveJSON(w, "smzdm", f, err, map[string]any{"channel": string(ch), "slug": strings.ToLower(slug)})
 		return
 	}
 
 	f, err := s.cfg.Service.GetSmzdm(r.Context(), ch, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, smzdmResponse{
-		Channel: string(ch), Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: smzdmItems(f.Items),
-	})
+	s.serveJSON(w, "smzdm", f, err, map[string]any{"channel": string(ch)})
 }
 
-type xVideoResponse struct {
-	URL        string `json:"url,omitempty"`
-	Thumbnail  string `json:"thumbnail,omitempty"`
-	DurationMS int    `json:"duration_ms,omitempty"`
-	Views      int64  `json:"views,omitempty"`
-}
-
-type xQuotedResponse struct {
-	ID         string          `json:"id,omitempty"`
-	URL        string          `json:"url,omitempty"`
-	Author     string          `json:"author,omitempty"`
-	AuthorName string          `json:"author_name,omitempty"`
-	Text       string          `json:"text,omitempty"`
-	Images     []string        `json:"images,omitempty"`
-	Video      *xVideoResponse `json:"video,omitempty"`
-}
-
-type xItemResponse struct {
-	ID        string           `json:"id"`
-	Title     string           `json:"title"`
-	Text      string           `json:"text"`
-	URL       string           `json:"url"`
-	HTML      string           `json:"html"`
-	Author    string           `json:"author,omitempty"`
-	AuthorID  string           `json:"author_id,omitempty"`
-	Images    []string         `json:"images"`
-	CardImage string           `json:"card_image,omitempty"`
-	Video     *xVideoResponse  `json:"video,omitempty"`
-	Quoted    *xQuotedResponse `json:"quoted,omitempty"`
-	Likes     int              `json:"likes"`
-	Replies   int              `json:"replies"`
-	CreatedAt time.Time        `json:"created_at"`
-}
-
-type xResponse struct {
-	Handle      string          `json:"handle"`
-	Title       string          `json:"title"`
-	Description string          `json:"description"`
-	FetchedAt   time.Time       `json:"fetched_at"`
-	Cached      bool            `json:"cached"`
-	Degraded    bool            `json:"degraded"`
-	Items       []xItemResponse `json:"items"`
-}
+// --------------------------------------------------------------------------- X
 
 func (s *Server) handleX(w http.ResponseWriter, r *http.Request) {
 	limit := limitParam(r, feed.DefaultXLimit, feed.MaxXLimit)
@@ -653,78 +444,14 @@ func (s *Server) handleAPIX(w http.ResponseWriter, r *http.Request) {
 	limit := limitParam(r, feed.DefaultXLimit, feed.MaxXLimit)
 	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetX(r.Context(), handle, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"handle": f.UID}
 	}
-	items := make([]xItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		item := xItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, Author: it.Author,
-			AuthorID: it.AuthorID, CardImage: it.CardImage,
-			Likes: it.Likes, Replies: it.Replies, CreatedAt: it.CreatedAt,
-		}
-		if it.VideoURL != "" || it.PosterURL != "" {
-			item.Video = &xVideoResponse{
-				URL:        it.VideoURL,
-				Thumbnail:  it.PosterURL,
-				DurationMS: it.VideoDurationMS,
-				Views:      it.VideoViews,
-			}
-		}
-		if q := it.Quoted; q != nil {
-			quoted := &xQuotedResponse{
-				ID: q.ID, URL: q.URL, Author: q.Author, AuthorName: q.AuthorName,
-				Text: q.Text, Images: q.Images,
-			}
-			if q.VideoURL != "" || q.VideoPoster != "" {
-				quoted.Video = &xVideoResponse{
-					URL: q.VideoURL, Thumbnail: q.VideoPoster,
-					DurationMS: q.DurationMS, Views: q.Views,
-				}
-			}
-			item.Quoted = quoted
-		}
-		items = append(items, item)
-	}
-	writeJSON(w, http.StatusOK, xResponse{
-		Handle: f.UID, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
-	})
+	s.serveJSON(w, "x", f, err, meta)
 }
 
-type youtubeItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	Views     int64     `json:"views"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type youtubeResponse struct {
-	Ref         string                `json:"ref"`
-	ChannelID   string                `json:"channel_id"`
-	Title       string                `json:"title"`
-	Description string                `json:"description"`
-	FetchedAt   time.Time             `json:"fetched_at"`
-	Cached      bool                  `json:"cached"`
-	Degraded    bool                  `json:"degraded"`
-	Source      string                `json:"source"`
-	Items       []youtubeItemResponse `json:"items"`
-}
-
-// setSource publishes where a list came from: atom (the official document) or
-// stale (the last good cached list). It is the only signal an operator gets
-// that an outage window or a rate-limit window is in progress.
-func setSource(w http.ResponseWriter, source string) {
-	if source != "" {
-		w.Header().Set("X-Feedmesh-Source", source)
-	}
-}
+// --------------------------------------------------------------------- YouTube
 
 // handleYouTube renders one channel's upload feed as RSS.
 func (s *Server) handleYouTube(w http.ResponseWriter, r *http.Request) {
@@ -742,47 +469,14 @@ func (s *Server) handleAPIYouTube(w http.ResponseWriter, r *http.Request) {
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetYouTube(r.Context(), ref, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"ref": ref, "channel_id": f.UID}
 	}
-	items := make([]youtubeItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		items = append(items, youtubeItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, Views: it.Views, CreatedAt: it.CreatedAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, youtubeResponse{
-		Ref: ref, ChannelID: f.UID, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
-		Source: f.Source, Items: items,
-	})
+	s.serveJSON(w, "youtube", f, err, meta)
 }
 
-type redditItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Author    string    `json:"author"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type redditResponse struct {
-	Sub         string               `json:"sub"`
-	Sort        string               `json:"sort"`
-	Window      string               `json:"window"`
-	Title       string               `json:"title"`
-	Description string               `json:"description"`
-	FetchedAt   time.Time            `json:"fetched_at"`
-	Cached      bool                 `json:"cached"`
-	Degraded    bool                 `json:"degraded"`
-	Source      string               `json:"source"`
-	Items       []redditItemResponse `json:"items"`
-}
+// ---------------------------------------------------------------------- Reddit
 
 // redditListing reads the listing a request names. An unknown sort or window is
 // a client error, not an upstream failure.
@@ -838,75 +532,14 @@ func (s *Server) handleAPIReddit(w http.ResponseWriter, r *http.Request) {
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetReddit(r.Context(), sub, sort, window, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"sub": f.UID, "sort": string(sort), "window": string(window)}
 	}
-	items := make([]redditItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		items = append(items, redditItemResponse{
-			ID: it.ID, Title: it.Title, Author: it.Author, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
-		})
-	}
-	if f.Degraded {
-		w.Header().Set("X-Feedmesh-Degraded", "1")
-	}
-	setSource(w, f.Source)
-	writeJSON(w, http.StatusOK, redditResponse{
-		Sub: f.UID, Sort: string(sort), Window: string(window), Title: f.Title(),
-		Description: f.Description, FetchedAt: f.FetchedAt, Cached: f.Cached,
-		Degraded: f.Degraded, Source: f.Source, Items: items,
-	})
+	s.serveJSON(w, "reddit", f, err, meta)
 }
 
-// handleNotFound answers an unknown route with the service's BAD_REQUEST
-// contract rather than the mux's plain-text 404.
-func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
-	s.writeError(w, apperr.New(apperr.CodeBadRequest, 0,
-		"unknown endpoint %s %s", r.Method, r.URL.Path))
-}
-
-func atoiDefault(raw string, def int) int {
-	return atoiClamp(raw, def, feed.MaxLimit)
-}
-
-// atoiClamp parses a positive integer, falling back to def and capping at max.
-func atoiClamp(raw string, def, max int) int {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return def
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return def
-	}
-	if n > max {
-		return max
-	}
-	return n
-}
-
-// douyinItemResponse is one video in the JSON view.
-type douyinItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type douyinResponse struct {
-	User        string               `json:"user"`
-	Title       string               `json:"title"`
-	Description string               `json:"description"`
-	FetchedAt   time.Time            `json:"fetched_at"`
-	Cached      bool                 `json:"cached"`
-	Degraded    bool                 `json:"degraded"`
-	Items       []douyinItemResponse `json:"items"`
-}
+// ---------------------------------------------------------------------- Douyin
 
 // handleDouyin renders one creator's timeline as RSS.
 func (s *Server) handleDouyin(w http.ResponseWriter, r *http.Request) {
@@ -918,32 +551,22 @@ func (s *Server) handleDouyin(w http.ResponseWriter, r *http.Request) {
 	s.serveFeed(w, r, f, err, int(feed.DouyinTTL().Seconds()))
 }
 
-// handleAPIDouyin returns the same timeline as JSON.
+// handleAPIDouyin returns the same timeline in the unified JSON envelope.
 func (s *Server) handleAPIDouyin(w http.ResponseWriter, r *http.Request) {
 	sec := strings.TrimSpace(r.URL.Query().Get("user"))
 	limit := limitParam(r, feed.DefaultDouyinLimit, feed.MaxDouyinLimit)
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetDouyin(r.Context(), sec, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"user": f.UID}
 	}
-	items := make([]douyinItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		items = append(items, douyinItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, CreatedAt: it.CreatedAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, douyinResponse{
-		User: f.UID, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
-	})
+	s.serveJSON(w, "douyin", f, err, meta)
 }
 
 // douyinTimelineItem is the downloader-facing shape: it keeps the identifiers
-// and media addresses that the RSS view does not need.
+// and media addresses that the feed views do not need.
 type douyinTimelineItem struct {
 	AwemeID    string `json:"aweme_id"`
 	Desc       string `json:"desc"`
@@ -984,15 +607,19 @@ func (s *Server) handleAPIDouyinTimeline(w http.ResponseWriter, r *http.Request)
 		if len(it.Images) > 0 {
 			cover = it.Images[0]
 		}
+		var dl feed.DownloadMedia
+		if it.Download != nil {
+			dl = *it.Download
+		}
 		top := 0
-		if it.IsTop {
+		if dl.IsTop {
 			top = 1
 		}
 		items = append(items, douyinTimelineItem{
 			AwemeID: it.ID, Desc: it.Text, Author: it.Author, SecUID: f.UID,
-			CreateTime: it.CreatedAt.Unix(), DurationMS: it.DurationMS,
-			Width: it.Width, Height: it.Height, IsTop: top,
-			PlayURL: it.PlayURL, CoverURL: cover,
+			CreateTime: it.CreatedAt.Unix(), DurationMS: dl.DurationMS,
+			Width: dl.Width, Height: dl.Height, IsTop: top,
+			PlayURL: dl.PlayURL, CoverURL: cover,
 		})
 	}
 	writeJSON(w, http.StatusOK, douyinTimelineResponse{
@@ -1000,27 +627,7 @@ func (s *Server) handleAPIDouyinTimeline(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// tiktokItemResponse is one video in the JSON view.
-type tiktokItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	Author    string    `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type tiktokResponse struct {
-	User        string               `json:"user"`
-	Title       string               `json:"title"`
-	Description string               `json:"description"`
-	FetchedAt   time.Time            `json:"fetched_at"`
-	Cached      bool                 `json:"cached"`
-	Degraded    bool                 `json:"degraded"`
-	Items       []tiktokItemResponse `json:"items"`
-}
+// ---------------------------------------------------------------------- TikTok
 
 // handleTikTok renders one creator's timeline as RSS.
 func (s *Server) handleTikTok(w http.ResponseWriter, r *http.Request) {
@@ -1032,32 +639,22 @@ func (s *Server) handleTikTok(w http.ResponseWriter, r *http.Request) {
 	s.serveFeed(w, r, f, err, int(feed.TikTokTTL().Seconds()))
 }
 
-// handleAPITikTok returns the same timeline as JSON.
+// handleAPITikTok returns the same timeline in the unified JSON envelope.
 func (s *Server) handleAPITikTok(w http.ResponseWriter, r *http.Request) {
 	user := strings.TrimSpace(r.URL.Query().Get("user"))
 	limit := limitParam(r, feed.DefaultTikTokLimit, feed.MaxTikTokLimit)
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetTikTok(r.Context(), user, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"user": f.UID}
 	}
-	items := make([]tiktokItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		items = append(items, tiktokItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, Author: it.Author, CreatedAt: it.CreatedAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, tiktokResponse{
-		User: f.UID, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
-	})
+	s.serveJSON(w, "tiktok", f, err, meta)
 }
 
 // tiktokTimelineItem is the downloader-facing shape: it keeps the identifiers
-// and media addresses that the RSS view does not need. Play addresses are
+// and media addresses that the feed views do not need. Play addresses are
 // signed and expire within hours, so a consumer must re-read the endpoint.
 type tiktokTimelineItem struct {
 	AwemeID    string `json:"aweme_id"`
@@ -1098,15 +695,19 @@ func (s *Server) handleAPITikTokTimeline(w http.ResponseWriter, r *http.Request)
 		if len(it.Images) > 0 {
 			cover = it.Images[0]
 		}
+		var dl feed.DownloadMedia
+		if it.Download != nil {
+			dl = *it.Download
+		}
 		top := 0
-		if it.IsTop {
+		if dl.IsTop {
 			top = 1
 		}
 		items = append(items, tiktokTimelineItem{
 			AwemeID: it.ID, Desc: it.Text, Author: it.Author,
-			CreateTime: it.CreatedAt.Unix(), DurationMS: it.DurationMS,
-			Width: it.Width, Height: it.Height, IsTop: top,
-			PlayURL: it.PlayURL, CoverURL: cover,
+			CreateTime: it.CreatedAt.Unix(), DurationMS: dl.DurationMS,
+			Width: dl.Width, Height: dl.Height, IsTop: top,
+			PlayURL: dl.PlayURL, CoverURL: cover,
 		})
 	}
 	writeJSON(w, http.StatusOK, tiktokTimelineResponse{
@@ -1114,28 +715,7 @@ func (s *Server) handleAPITikTokTimeline(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// bilibiliItemResponse is one upload in the JSON view.
-type bilibiliItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	Author    string    `json:"author"`
-	Views     int64     `json:"views"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type bilibiliResponse struct {
-	User        string                 `json:"user"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	FetchedAt   time.Time              `json:"fetched_at"`
-	Cached      bool                   `json:"cached"`
-	Degraded    bool                   `json:"degraded"`
-	Items       []bilibiliItemResponse `json:"items"`
-}
+// -------------------------------------------------------------------- Bilibili
 
 // handleBilibili renders one creator's video timeline as RSS.
 func (s *Server) handleBilibili(w http.ResponseWriter, r *http.Request) {
@@ -1147,56 +727,21 @@ func (s *Server) handleBilibili(w http.ResponseWriter, r *http.Request) {
 	s.serveFeed(w, r, f, err, int(feed.BilibiliTTL().Seconds()))
 }
 
-// handleAPIBilibili returns the same timeline as JSON.
+// handleAPIBilibili returns the same timeline in the unified JSON envelope.
 func (s *Server) handleAPIBilibili(w http.ResponseWriter, r *http.Request) {
 	mid := strings.TrimSpace(r.URL.Query().Get("user"))
 	limit := limitParam(r, feed.DefaultBilibiliLimit, feed.MaxBilibiliLimit)
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetBilibili(r.Context(), mid, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"user": f.UID}
 	}
-	items := make([]bilibiliItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		items = append(items, bilibiliItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: it.Images, Author: it.Author,
-			Views: it.Views, CreatedAt: it.CreatedAt,
-		})
-	}
-	if f.Degraded {
-		w.Header().Set("X-Feedmesh-Degraded", "1")
-	}
-	writeJSON(w, http.StatusOK, bilibiliResponse{
-		User: f.UID, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
-	})
+	s.serveJSON(w, "bilibili", f, err, meta)
 }
 
-// telegramItemResponse is one post in the JSON view.
-type telegramItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	Author    string    `json:"author"`
-	Views     int64     `json:"views"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type telegramResponse struct {
-	Channel     string                 `json:"channel"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	FetchedAt   time.Time              `json:"fetched_at"`
-	Cached      bool                   `json:"cached"`
-	Degraded    bool                   `json:"degraded"`
-	Items       []telegramItemResponse `json:"items"`
-}
+// -------------------------------------------------------------------- Telegram
 
 // handleTelegram renders one public channel preview as RSS.
 func (s *Server) handleTelegram(w http.ResponseWriter, r *http.Request) {
@@ -1208,74 +753,21 @@ func (s *Server) handleTelegram(w http.ResponseWriter, r *http.Request) {
 	s.serveFeed(w, r, f, err, int(feed.TelegramTTL().Seconds()))
 }
 
-// handleAPITelegram returns the same channel preview as JSON.
+// handleAPITelegram returns the same channel preview in the unified JSON envelope.
 func (s *Server) handleAPITelegram(w http.ResponseWriter, r *http.Request) {
 	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
 	limit := limitParam(r, feed.DefaultTelegramLimit, feed.MaxTelegramLimit)
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetTelegram(r.Context(), channel, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"channel": f.UID}
 	}
-	items := make([]telegramItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		images := it.Images
-		if images == nil {
-			images = []string{}
-		}
-		items = append(items, telegramItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: images, Author: it.Author,
-			Views: it.Views, CreatedAt: it.CreatedAt,
-		})
-	}
-	if f.Degraded {
-		w.Header().Set("X-Feedmesh-Degraded", "1")
-	}
-	writeJSON(w, http.StatusOK, telegramResponse{
-		Channel: f.UID, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
-	})
+	s.serveJSON(w, "telegram", f, err, meta)
 }
 
-// pinterestItemResponse is one pin in the JSON view.
-type pinterestItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type pinterestResponse struct {
-	User        string                  `json:"user"`
-	Board       string                  `json:"board,omitempty"`
-	Title       string                  `json:"title"`
-	Description string                  `json:"description"`
-	FetchedAt   time.Time               `json:"fetched_at"`
-	Cached      bool                    `json:"cached"`
-	Degraded    bool                    `json:"degraded"`
-	Items       []pinterestItemResponse `json:"items"`
-}
-
-func pinterestItems(items []feed.Item) []pinterestItemResponse {
-	out := make([]pinterestItemResponse, 0, len(items))
-	for _, it := range items {
-		images := it.Images
-		if images == nil {
-			images = []string{}
-		}
-		out = append(out, pinterestItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: images, CreatedAt: it.CreatedAt,
-		})
-	}
-	return out
-}
+// ------------------------------------------------------------------- Pinterest
 
 // handlePinterest serves a profile feed or, with a second path segment, one
 // board feed.
@@ -1297,69 +789,24 @@ func (s *Server) handleAPIPinterest(w http.ResponseWriter, r *http.Request) {
 	refresh := refreshParam(r)
 
 	f, err := s.cfg.Service.GetPinterest(r.Context(), user, board, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	if f.Degraded {
-		w.Header().Set("X-Feedmesh-Degraded", "1")
-	}
-	respUser, respBoard := f.UID, ""
-	if i := strings.Index(f.UID, "/"); i >= 0 {
-		respUser, respBoard = f.UID[:i], f.UID[i+1:]
-	}
-	writeJSON(w, http.StatusOK, pinterestResponse{
-		User: respUser, Board: respBoard, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
-		Items: pinterestItems(f.Items),
-	})
-}
-
-// polymarketItemResponse is one event, market or wallet action in the JSON view.
-type polymarketItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	CreatedAt time.Time `json:"created_at"`
-	Volume24H float64   `json:"volume_24h,omitempty"`
-	Liquidity float64   `json:"liquidity,omitempty"`
-	EndsAt    time.Time `json:"ends_at,omitzero"`
-}
-
-type polymarketResponse struct {
-	Feed        string                   `json:"feed"`
-	Tag         string                   `json:"tag,omitempty"`
-	Slug        string                   `json:"slug,omitempty"`
-	Address     string                   `json:"address,omitempty"`
-	Title       string                   `json:"title"`
-	Description string                   `json:"description"`
-	FetchedAt   time.Time                `json:"fetched_at"`
-	Cached      bool                     `json:"cached"`
-	Degraded    bool                     `json:"degraded"`
-	Items       []polymarketItemResponse `json:"items"`
-}
-
-func polymarketItems(items []feed.Item) []polymarketItemResponse {
-	out := make([]polymarketItemResponse, 0, len(items))
-	for _, it := range items {
-		images := it.Images
-		if images == nil {
-			images = []string{}
+	var meta map[string]any
+	if f != nil {
+		respUser, respBoard := f.UID, ""
+		if i := strings.Index(f.UID, "/"); i >= 0 {
+			respUser, respBoard = f.UID[:i], f.UID[i+1:]
 		}
-		out = append(out, polymarketItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL,
-			HTML: it.HTML, Images: images, CreatedAt: it.CreatedAt,
-			Volume24H: it.Volume24H, Liquidity: it.Liquidity, EndsAt: it.EndsAt,
-		})
+		meta = map[string]any{"user": respUser}
+		if respBoard != "" {
+			meta["board"] = respBoard
+		}
 	}
-	return out
+	s.serveJSON(w, "pinterest", f, err, meta)
 }
 
-func (s *Server) servePolymarketRSS(w http.ResponseWriter, r *http.Request, f *feed.Feed, kind string) {
-	s.serveFeed(w, r, f, nil, int(feed.PolymarketTTL(kind).Seconds()))
+// ------------------------------------------------------------------ Polymarket
+
+func (s *Server) servePolymarketRSS(w http.ResponseWriter, r *http.Request, f *feed.Feed, err error, kind string) {
+	s.serveFeed(w, r, f, err, int(feed.PolymarketTTL(kind).Seconds()))
 }
 
 // handlePolymarketNew serves the newest markets.
@@ -1368,11 +815,7 @@ func (s *Server) handlePolymarketNew(w http.ResponseWriter, r *http.Request) {
 	limit := limitParam(r, feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
 	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetPolymarketEvents(r.Context(), "createdAt", tag, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	s.servePolymarketRSS(w, r, f, "events")
+	s.servePolymarketRSS(w, r, f, err, "events")
 }
 
 // handlePolymarketHot serves events ranked by 24-hour volume.
@@ -1381,11 +824,7 @@ func (s *Server) handlePolymarketHot(w http.ResponseWriter, r *http.Request) {
 	limit := limitParam(r, feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
 	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetPolymarketEvents(r.Context(), "volume24hr", tag, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	s.servePolymarketRSS(w, r, f, "events")
+	s.servePolymarketRSS(w, r, f, err, "events")
 }
 
 // handlePolymarketEvent serves one event's markets.
@@ -1394,11 +833,7 @@ func (s *Server) handlePolymarketEvent(w http.ResponseWriter, r *http.Request) {
 	limit := limitParam(r, feed.DefaultPolymarketLimit, feed.MaxPolymarketLimit)
 	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetPolymarketEvent(r.Context(), slug, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	s.servePolymarketRSS(w, r, f, "event")
+	s.servePolymarketRSS(w, r, f, err, "event")
 }
 
 // handlePolymarketUser serves one wallet's activity.
@@ -1407,14 +842,10 @@ func (s *Server) handlePolymarketUser(w http.ResponseWriter, r *http.Request) {
 	limit := limitParam(r, feed.DefaultPolymarketActivityLimit, feed.MaxPolymarketActivityLimit)
 	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetPolymarketActivity(r.Context(), address, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
-	}
-	s.servePolymarketRSS(w, r, f, "activity")
+	s.servePolymarketRSS(w, r, f, err, "activity")
 }
 
-// handleAPIPolymarket returns any Polymarket feed as JSON.
+// handleAPIPolymarket returns any Polymarket feed in the unified JSON envelope.
 func (s *Server) handleAPIPolymarket(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("feed")))
 	if kind == "" {
@@ -1450,46 +881,20 @@ func (s *Server) handleAPIPolymarket(w http.ResponseWriter, r *http.Request) {
 			apperr.New(apperr.CodeBadRequest, 0, "unknown polymarket feed %q", kind))
 		return
 	}
-	if err != nil {
-		s.writeError(w, err)
-		return
+	meta := map[string]any{"feed": kind}
+	if tag != "" {
+		meta["tag"] = tag
 	}
-	if f.Degraded {
-		w.Header().Set("X-Feedmesh-Degraded", "1")
+	if slug != "" {
+		meta["slug"] = slug
 	}
-	writeJSON(w, http.StatusOK, polymarketResponse{
-		Feed: kind, Tag: tag, Slug: slug, Address: address,
-		Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded,
-		Items: polymarketItems(f.Items),
-	})
+	if address != "" {
+		meta["address"] = address
+	}
+	s.serveJSON(w, "polymarket", f, err, meta)
 }
 
-// linuxdoItemResponse is one forum topic in the JSON view.
-type linuxdoItemResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Text      string    `json:"text"`
-	URL       string    `json:"url"`
-	HTML      string    `json:"html"`
-	Images    []string  `json:"images"`
-	Author    string    `json:"author"`
-	Category  string    `json:"category"`
-	Pinned    bool      `json:"pinned"`
-	Closed    bool      `json:"closed"`
-	Archived  bool      `json:"archived"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-type linuxdoResponse struct {
-	Feed        string                `json:"feed"`
-	Title       string                `json:"title"`
-	Description string                `json:"description"`
-	FetchedAt   time.Time             `json:"fetched_at"`
-	Cached      bool                  `json:"cached"`
-	Degraded    bool                  `json:"degraded"`
-	Items       []linuxdoItemResponse `json:"items"`
-}
+// -------------------------------------------------------------------- LINUX DO
 
 // serveLinuxDoRSS renders one forum feed as RSS.
 func (s *Server) serveLinuxDoRSS(w http.ResponseWriter, r *http.Request, ref linuxdo.Ref) {
@@ -1531,7 +936,7 @@ func (s *Server) handleLinuxDoTag(w http.ResponseWriter, r *http.Request) {
 	s.serveLinuxDoRSS(w, r, linuxdo.Ref{Kind: linuxdo.KindTag, Tag: tag})
 }
 
-// handleAPILinuxDo returns the same feed as JSON.
+// handleAPILinuxDo returns the same feed in the unified JSON envelope.
 func (s *Server) handleAPILinuxDo(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	kind := strings.ToLower(strings.TrimSpace(q.Get("feed")))
@@ -1563,31 +968,41 @@ func (s *Server) handleAPILinuxDo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := atoiClamp(q.Get("limit"), feed.DefaultLinuxDoLimit, feed.MaxLinuxDoLimit)
-	refresh := q.Get("refresh") == "1"
+	limit := limitParam(r, feed.DefaultLinuxDoLimit, feed.MaxLinuxDoLimit)
+	refresh := refreshParam(r)
 	f, err := s.cfg.Service.GetLinuxDo(r.Context(), ref, limit, refresh)
-	if err != nil {
-		s.writeError(w, err)
-		return
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"feed": f.UID}
 	}
-	items := make([]linuxdoItemResponse, 0, len(f.Items))
-	for _, it := range f.Items {
-		images := it.Images
-		if images == nil {
-			images = []string{}
-		}
-		items = append(items, linuxdoItemResponse{
-			ID: it.ID, Title: it.Title, Text: it.Text, URL: it.URL, HTML: it.HTML,
-			Images: images, Author: it.Author, Category: it.Category,
-			Pinned: it.Pinned, Closed: it.Closed, Archived: it.Archived,
-			CreatedAt: it.CreatedAt,
-		})
+	s.serveJSON(w, "linuxdo", f, err, meta)
+}
+
+// --------------------------------------------------------------------- helpers
+
+// handleNotFound answers an unknown route with the service's BAD_REQUEST
+// contract rather than the mux's plain-text 404.
+func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
+	s.writeError(w, apperr.New(apperr.CodeBadRequest, 0,
+		"unknown endpoint %s %s", r.Method, r.URL.Path))
+}
+
+func atoiDefault(raw string, def int) int {
+	return atoiClamp(raw, def, feed.MaxLimit)
+}
+
+// atoiClamp parses a positive integer, falling back to def and capping at max.
+func atoiClamp(raw string, def, max int) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def
 	}
-	if f.Degraded {
-		w.Header().Set("X-Feedmesh-Degraded", "1")
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return def
 	}
-	writeJSON(w, http.StatusOK, linuxdoResponse{
-		Feed: f.UID, Title: f.Title(), Description: f.Description,
-		FetchedAt: f.FetchedAt, Cached: f.Cached, Degraded: f.Degraded, Items: items,
-	})
+	if n > max {
+		return max
+	}
+	return n
 }

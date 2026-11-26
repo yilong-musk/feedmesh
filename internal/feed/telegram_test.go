@@ -134,8 +134,8 @@ func TestGetTelegramBuildsFeed(t *testing.T) {
 	if third.Title != "Video post" {
 		t.Fatalf("media-only title = %q", third.Title)
 	}
-	if third.PosterURL != "https://cdn4.telesco.pe/file/video.jpg" {
-		t.Fatalf("poster = %q", third.PosterURL)
+	if third.Video == nil || third.Video.Thumbnail != "https://cdn4.telesco.pe/file/video.jpg" {
+		t.Fatalf("video = %#v", third.Video)
 	}
 }
 

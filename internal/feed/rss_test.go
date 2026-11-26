@@ -55,7 +55,7 @@ func TestRenderRSSWellFormed(t *testing.T) {
 		FetchedAt:   time.Date(2026, 10, 23, 6, 30, 0, 0, time.UTC),
 		Items: []feed.Item{{
 			ID:        "5357189637868854",
-			BID:       "RnZLlx130",
+			Extra:     &feed.WeiboExtra{BID: "RnZLlx130"},
 			Title:     `标题 & <tag> "x" 'y'`,
 			CreatedAt: time.Date(2026, 10, 23, 6, 30, 4, 0, time.UTC),
 			Text:      "正文",
@@ -287,7 +287,7 @@ func TestRenderRSSEmitsMediaAndEnclosure(t *testing.T) {
 			Title: "t", HTML: "<p>body</p>", URL: "https://weibo.com/1/a",
 			CreatedAt: time.Now(),
 			Images:    []string{"https://wx1.sinaimg.cn/a.jpg"},
-			VideoURL:  "https://f.video.weibocdn.com/o0/hd.mp4",
+			Video:     &feed.Video{URL: "https://f.video.weibocdn.com/o0/hd.mp4"},
 		}},
 	}
 	raw := string(feed.RenderRSS(f))
@@ -329,10 +329,12 @@ func TestRenderRSSVideoOnlyItemUsesPosterAndDuration(t *testing.T) {
 		UID: "1", ScreenName: "x", FetchedAt: time.Now(),
 		Items: []feed.Item{{
 			Title: "video", HTML: "<p>clip</p>", URL: "https://x.com/a/status/1",
-			CreatedAt:       time.Now(),
-			PosterURL:       "https://pbs.twimg.com/amplify_video_thumb/1/img/p.jpg",
-			VideoURL:        "https://video.twimg.com/vid/720x1558/b.mp4",
-			VideoDurationMS: 4308,
+			CreatedAt: time.Now(),
+			Video: &feed.Video{
+				Thumbnail:  "https://pbs.twimg.com/amplify_video_thumb/1/img/p.jpg",
+				URL:        "https://video.twimg.com/vid/720x1558/b.mp4",
+				DurationMS: 4308,
+			},
 		}},
 	}
 	raw := string(feed.RenderRSS(f))

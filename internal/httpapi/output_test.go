@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"compress/gzip"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -112,5 +113,61 @@ func TestJSONErrorsAreGzippedToo(t *testing.T) {
 	plain, _ := io.ReadAll(zr)
 	if !strings.Contains(string(plain), `"code"`) {
 		t.Fatalf("error body = %s", plain)
+	}
+}
+
+func TestUnifiedJSONEnvelopeAcrossProviders(t *testing.T) {
+	h := newTestServer(t)
+	cases := []struct {
+		path      string
+		provider  string
+		wantExtra bool
+	}{
+		{"/api/v1/feed?uid=2803301701&limit=1", "weibo", true},
+		{"/api/v1/hot?limit=1", "hot", true},
+		{"/api/v1/sspai?limit=1", "sspai", false},
+		{"/api/v1/v2ex?section=latest&limit=1", "v2ex", false},
+		{"/api/v1/smzdm?channel=deals&limit=1", "smzdm", false},
+		{"/api/v1/smzdm?channel=fenlei&slug=tixuhuli&limit=1", "smzdm", true},
+		{"/api/v1/x?handle=elonmusk&limit=1", "x", true},
+		{"/api/v1/youtube?ref=@testchannel&limit=1", "youtube", true},
+		{"/api/v1/douyin?user=" + douyinSecUID + "&limit=1", "douyin", false},
+		{"/api/v1/tiktok?user=nasa&limit=1", "tiktok", false},
+		{"/api/v1/bilibili?user=946974&limit=1", "bilibili", true},
+		{"/api/v1/telegram?channel=sspai&limit=1", "telegram", true},
+		{"/api/v1/pinterest?user=nasa&limit=1", "pinterest", false},
+		{"/api/v1/polymarket?feed=event&slug=event-one&limit=1", "polymarket", true},
+		{"/api/v1/polymarket?feed=user&address=0x7c3db723f1d4d8cb9c550095203b686cb11e5c6b&limit=1", "polymarket", false},
+		{"/api/v1/linuxdo?feed=latest&limit=1", "linuxdo", true},
+	}
+	for _, tc := range cases {
+		rec := get(t, h, tc.path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d body=%s", tc.path, rec.Code, rec.Body.String())
+		}
+		var env map[string]json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("%s decode: %v", tc.path, err)
+		}
+		for _, k := range []string{"provider", "title", "description", "fetched_at", "cached", "degraded", "items"} {
+			if _, ok := env[k]; !ok {
+				t.Errorf("%s missing envelope key %q", tc.path, k)
+			}
+		}
+		if got := strings.Trim(string(env["provider"]), `"`); got != tc.provider {
+			t.Errorf("%s provider = %q, want %q", tc.path, got, tc.provider)
+		}
+		var items []map[string]json.RawMessage
+		if err := json.Unmarshal(env["items"], &items); err != nil || len(items) == 0 {
+			t.Fatalf("%s items = %s (err %v)", tc.path, env["items"], err)
+		}
+		it := items[0]
+		if got := string(it["images"]); got == "" || got == "null" {
+			t.Errorf("%s item.images = %q, want a JSON array", tc.path, got)
+		}
+		_, hasExtra := it["extra"]
+		if hasExtra != tc.wantExtra {
+			t.Errorf("%s item has extra = %v, want %v (item = %s)", tc.path, hasExtra, tc.wantExtra, env["items"])
+		}
 	}
 }

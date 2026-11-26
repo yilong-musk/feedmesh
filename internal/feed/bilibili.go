@@ -84,7 +84,8 @@ func bilibiliFeed(mid string, c cachedList[bilibili.Video], limit int, cached, d
 			URL:       "https://www.bilibili.com/video/" + v.BVID,
 			Title:     v.Title,
 			Author:    v.Author,
-			Views:     v.Play,
+			Images:    []string{},
+			Extra:     &ViewsExtra{Views: v.Play},
 		}
 		if cover := safeURLString(v.Cover); cover != "" {
 			it.Images = []string{cover}

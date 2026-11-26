@@ -367,25 +367,34 @@ func TestAPIFeedShape(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var body struct {
-		UID         string    `json:"uid"`
-		ScreenName  string    `json:"screen_name"`
+		Provider    string    `json:"provider"`
+		Title       string    `json:"title"`
 		Description string    `json:"description"`
 		FetchedAt   time.Time `json:"fetched_at"`
 		Cached      bool      `json:"cached"`
-		Items       []struct {
+		Degraded    bool      `json:"degraded"`
+		Meta        struct {
+			UID        string `json:"uid"`
+			ScreenName string `json:"screen_name"`
+		} `json:"meta"`
+		Items []struct {
 			ID        string    `json:"id"`
-			BID       string    `json:"bid"`
+			Title     string    `json:"title"`
 			CreatedAt time.Time `json:"created_at"`
 			Text      string    `json:"text"`
 			HTML      string    `json:"html"`
 			URL       string    `json:"url"`
 			Images    []string  `json:"images"`
+			Extra     struct {
+				BID     string `json:"bid"`
+				PageURL string `json:"page_url"`
+			} `json:"extra"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, rec.Body.String())
 	}
-	if body.UID != "2803301701" || body.ScreenName != "人民日报" {
+	if body.Provider != "weibo" || body.Meta.UID != "2803301701" || body.Meta.ScreenName != "人民日报" {
 		t.Fatalf("body = %+v", body)
 	}
 	if body.FetchedAt.IsZero() {
@@ -395,7 +404,7 @@ func TestAPIFeedShape(t *testing.T) {
 		t.Fatalf("items = %d, want 2 (limit honoured)", len(body.Items))
 	}
 	first := body.Items[0]
-	if first.ID != "1001" || first.BID != "Abc1" || first.URL != "https://weibo.com/2803301701/Abc1" {
+	if first.ID != "1001" || first.Extra.BID != "Abc1" || first.URL != "https://weibo.com/2803301701/Abc1" {
 		t.Fatalf("first item = %+v", first)
 	}
 	if !strings.HasPrefix(first.CreatedAt.Format(time.RFC3339), "2026-10-23T06:30:04") {
@@ -489,21 +498,24 @@ func TestHotRoutes(t *testing.T) {
 		t.Fatalf("/api/v1/hot status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		Title string `json:"title"`
-		Items []struct {
-			Rank  int    `json:"rank"`
-			Heat  int64  `json:"heat"`
+		Provider string `json:"provider"`
+		Title    string `json:"title"`
+		Items    []struct {
 			Title string `json:"title"`
 			URL   string `json:"url"`
+			Extra struct {
+				Rank int   `json:"rank"`
+				Heat int64 `json:"heat"`
+			} `json:"extra"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode /api/v1/hot: %v", err)
 	}
-	if out.Title != "Weibo Hot Search" || len(out.Items) != 2 {
+	if out.Provider != "hot" || out.Title != "Weibo Hot Search" || len(out.Items) != 2 {
 		t.Fatalf("/api/v1/hot = %+v", out)
 	}
-	if out.Items[0].Rank != 1 || out.Items[0].Heat != 1488601 || out.Items[0].Title != "1. 小城良方 剧情硬伤" {
+	if out.Items[0].Extra.Rank != 1 || out.Items[0].Extra.Heat != 1488601 || out.Items[0].Title != "1. 小城良方 剧情硬伤" {
 		t.Fatalf("/api/v1/hot first item = %+v", out.Items[0])
 	}
 

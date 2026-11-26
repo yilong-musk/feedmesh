@@ -91,19 +91,26 @@ func (s *Service) GetX(ctx context.Context, handle string, limit int, refresh bo
 			URL:       safeURLString(t.URL),
 			Images:    images,
 			Author:    t.Author,
-			AuthorID:  t.AuthorID,
-			Likes:     t.Likes,
-			Replies:   t.Replies,
 			CreatedAt: created.UTC(),
 		}
+		extra := &XExtra{
+			AuthorID: t.AuthorID,
+			Likes:    t.Likes,
+			Replies:  t.Replies,
+		}
 		if t.CardImage != "" {
-			item.CardImage = resolveSafeURL(t.CardImage, "https://x.com")
+			extra.CardImage = resolveSafeURL(t.CardImage, "https://x.com")
 		}
 		if t.Video != nil {
-			item.VideoURL = resolveSafeURL(t.Video.URL, "https://video.twimg.com")
-			item.PosterURL = resolveSafeURL(t.Video.Thumbnail, "https://x.com")
-			item.VideoDurationMS = t.Video.DurationMS
-			item.VideoViews = t.Video.Views
+			v := &Video{
+				URL:        resolveSafeURL(t.Video.URL, "https://video.twimg.com"),
+				Thumbnail:  resolveSafeURL(t.Video.Thumbnail, "https://x.com"),
+				DurationMS: t.Video.DurationMS,
+				Views:      t.Video.Views,
+			}
+			if v.URL != "" || v.Thumbnail != "" || v.DurationMS > 0 || v.Views > 0 {
+				item.Video = v
+			}
 		}
 		if t.Quoted != nil {
 			q := &QuotedItem{
@@ -119,16 +126,42 @@ func (s *Service) GetX(ctx context.Context, handle string, limit int, refresh bo
 				}
 			}
 			if t.Quoted.Video != nil {
-				q.VideoURL = resolveSafeURL(t.Quoted.Video.URL, "https://video.twimg.com")
-				q.VideoPoster = resolveSafeURL(t.Quoted.Video.Thumbnail, "https://x.com")
-				q.DurationMS = t.Quoted.Video.DurationMS
-				q.Views = t.Quoted.Video.Views
+				v := &Video{
+					URL:        resolveSafeURL(t.Quoted.Video.URL, "https://video.twimg.com"),
+					Thumbnail:  resolveSafeURL(t.Quoted.Video.Thumbnail, "https://x.com"),
+					DurationMS: t.Quoted.Video.DurationMS,
+					Views:      t.Quoted.Video.Views,
+				}
+				if v.URL != "" || v.Thumbnail != "" || v.DurationMS > 0 || v.Views > 0 {
+					q.Video = v
+				}
 			}
-			item.Quoted = q
+			extra.Quoted = q
 		}
+		item.Extra = extra
 		f.Items = append(f.Items, item)
 	}
 	return f, nil
+}
+
+// QuotedItem is a quoted post carried inside an X item.
+type QuotedItem struct {
+	ID         string   `json:"id,omitempty"`
+	URL        string   `json:"url,omitempty"`
+	Author     string   `json:"author,omitempty"`
+	AuthorName string   `json:"author_name,omitempty"`
+	Text       string   `json:"text,omitempty"`
+	Images     []string `json:"images,omitempty"`
+	Video      *Video   `json:"video,omitempty"`
+}
+
+// XExtra carries X-specific engagement, card and quoted-post metadata.
+type XExtra struct {
+	AuthorID  string      `json:"author_id,omitempty"`
+	CardImage string      `json:"card_image,omitempty"`
+	Likes     int         `json:"likes"`
+	Replies   int         `json:"replies"`
+	Quoted    *QuotedItem `json:"quoted,omitempty"`
 }
 
 func truncateRunes(s string, n int) string {

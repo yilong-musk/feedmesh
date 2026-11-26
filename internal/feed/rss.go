@@ -317,8 +317,12 @@ func RenderRSS(f *Feed) []byte {
 		b.WriteString("      <content:encoded>")
 		b.WriteString(body)
 		b.WriteString("</content:encoded>\n")
-		if len(it.Images) > 0 || it.PosterURL != "" {
-			thumb := it.PosterURL
+		poster := ""
+		if it.Video != nil {
+			poster = it.Video.Thumbnail
+		}
+		if len(it.Images) > 0 || poster != "" {
+			thumb := poster
 			if len(it.Images) > 0 {
 				thumb = it.Images[0]
 				for _, img := range it.Images {
@@ -339,22 +343,22 @@ func RenderRSS(f *Feed) []byte {
 				b.WriteString("\" />\n")
 			}
 		}
-		if it.VideoURL != "" {
-			video := EscapeXML(it.VideoURL)
+		if it.Video != nil && it.Video.URL != "" {
+			video := EscapeXML(it.Video.URL)
 			b.WriteString(`      <enclosure url="`)
 			b.WriteString(video)
 			b.WriteString(`" type="video/mp4" length="0" />` + "\n")
 			b.WriteString(`      <media:content url="`)
 			b.WriteString(video)
 			b.WriteString(`" medium="video" type="video/mp4"`)
-			if it.VideoDurationMS > 0 {
+			if it.Video.DurationMS > 0 {
 				b.WriteString(` duration="`)
-				b.WriteString(strconv.Itoa(it.VideoDurationMS / 1000))
+				b.WriteString(strconv.Itoa(it.Video.DurationMS / 1000))
 				b.WriteString(`"`)
 			}
-			if it.PosterURL != "" {
+			if poster != "" {
 				b.WriteString(` thumbnail="`)
-				b.WriteString(EscapeXML(it.PosterURL))
+				b.WriteString(EscapeXML(poster))
 				b.WriteString(`"`)
 			}
 			b.WriteString(" />\n")

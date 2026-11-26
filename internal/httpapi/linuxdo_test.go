@@ -88,11 +88,14 @@ func TestLinuxDoAPIRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Feed        string `json:"feed"`
+		Provider    string `json:"provider"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Cached      bool   `json:"cached"`
-		Items       []struct {
+		Meta        struct {
+			Feed string `json:"feed"`
+		} `json:"meta"`
+		Items []struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
 			Text      string    `json:"text"`
@@ -100,16 +103,18 @@ func TestLinuxDoAPIRoute(t *testing.T) {
 			HTML      string    `json:"html"`
 			Images    []string  `json:"images"`
 			Author    string    `json:"author"`
-			Category  string    `json:"category"`
-			Pinned    bool      `json:"pinned"`
-			Closed    bool      `json:"closed"`
 			CreatedAt time.Time `json:"created_at"`
+			Extra     struct {
+				Category string `json:"category"`
+				Pinned   bool   `json:"pinned"`
+				Closed   bool   `json:"closed"`
+			} `json:"extra"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Feed != "latest:created" || resp.Title != "LINUX DO · Latest topics" {
+	if resp.Provider != "linuxdo" || resp.Meta.Feed != "latest:created" || resp.Title != "LINUX DO · Latest topics" {
 		t.Fatalf("envelope = %+v", resp)
 	}
 	if len(resp.Items) != 2 {
@@ -122,11 +127,11 @@ func TestLinuxDoAPIRoute(t *testing.T) {
 	if first.Text != "First paragraph\nSecond paragraph" {
 		t.Fatalf("text = %q", first.Text)
 	}
-	if first.Category != "Development" || first.Author != "alice" || len(first.Images) != 1 {
+	if first.Extra.Category != "Development" || first.Author != "alice" || len(first.Images) != 1 {
 		t.Fatalf("first metadata = %+v", first)
 	}
 	second := resp.Items[1]
-	if !second.Pinned || !second.Closed {
+	if !second.Extra.Pinned || !second.Extra.Closed {
 		t.Fatalf("state flags missing: %+v", second)
 	}
 }

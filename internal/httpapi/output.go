@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/feed"
 )
@@ -115,6 +116,52 @@ func limitParam(r *http.Request, def, max int) int {
 // refreshParam reports ?refresh=1.
 func refreshParam(r *http.Request) bool {
 	return r.URL.Query().Get("refresh") == "1"
+}
+
+// feedEnvelope is the unified JSON response for every /api/v1/* feed endpoint.
+type feedEnvelope struct {
+	Provider    string         `json:"provider"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	FetchedAt   time.Time      `json:"fetched_at"`
+	Cached      bool           `json:"cached"`
+	Degraded    bool           `json:"degraded"`
+	Source      string         `json:"source,omitempty"`
+	Meta        map[string]any `json:"meta,omitempty"`
+	Items       []feed.Item    `json:"items"`
+}
+
+// serveJSON finishes a JSON feed route with the unified envelope. It repeats
+// X-Feedmesh-Degraded and X-Feedmesh-Source headers when applicable, ensures
+// items and every item's images serialize as arrays (never null), and writes
+// the standard error envelope on failure.
+func (s *Server) serveJSON(w http.ResponseWriter, provider string, f *feed.Feed, err error, meta map[string]any) {
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	if f.Degraded {
+		w.Header().Set("X-Feedmesh-Degraded", "1")
+	}
+	setSource(w, f.Source)
+	items := make([]feed.Item, len(f.Items))
+	copy(items, f.Items)
+	for i := range items {
+		if items[i].Images == nil {
+			items[i].Images = []string{}
+		}
+	}
+	writeJSON(w, http.StatusOK, feedEnvelope{
+		Provider:    provider,
+		Title:       f.Title(),
+		Description: f.Description,
+		FetchedAt:   f.FetchedAt,
+		Cached:      f.Cached,
+		Degraded:    f.Degraded,
+		Source:      f.Source,
+		Meta:        meta,
+		Items:       items,
+	})
 }
 
 // serveFeed finishes an RSS route: the error envelope when the read failed,

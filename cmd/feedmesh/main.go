@@ -546,14 +546,16 @@ func cmdVersion(o *options, stdout io.Writer) int {
 }
 
 type fetchJSON struct {
-	OK          bool        `json:"ok"`
-	UID         string      `json:"uid"`
-	ScreenName  string      `json:"screen_name"`
-	Description string      `json:"description"`
-	FetchedAt   time.Time   `json:"fetched_at"`
-	Cached      bool        `json:"cached"`
-	Count       int         `json:"count"`
-	Items       []feed.Item `json:"items"`
+	OK          bool           `json:"ok"`
+	Provider    string         `json:"provider"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	FetchedAt   time.Time      `json:"fetched_at"`
+	Cached      bool           `json:"cached"`
+	Degraded    bool           `json:"degraded"`
+	Meta        map[string]any `json:"meta,omitempty"`
+	Count       int            `json:"count"`
+	Items       []feed.Item    `json:"items"`
 }
 
 func cmdFetch(pos []string, o *options, stdout io.Writer, logger *logx.Logger) int {
@@ -589,16 +591,25 @@ func cmdFetch(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 
 	var payload []byte
 	if o.json {
+		items := make([]feed.Item, len(f.Items))
+		copy(items, f.Items)
+		for i := range items {
+			if items[i].Images == nil {
+				items[i].Images = []string{}
+			}
+		}
 		buf := &strings.Builder{}
 		if err := writeJSONLine(buf, fetchJSON{
 			OK:          true,
-			UID:         f.UID,
-			ScreenName:  f.ScreenName,
+			Provider:    "weibo",
+			Title:       f.Title(),
 			Description: f.Description,
 			FetchedAt:   f.FetchedAt,
 			Cached:      f.Cached,
-			Count:       len(f.Items),
-			Items:       f.Items,
+			Degraded:    f.Degraded,
+			Meta:        map[string]any{"uid": f.UID, "screen_name": f.ScreenName},
+			Count:       len(items),
+			Items:       items,
 		}); err != nil {
 			return fail(o, logger, stdout, err)
 		}
