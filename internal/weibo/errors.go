@@ -6,76 +6,40 @@ package weibo
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
+
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 )
 
-// Error codes surfaced to the CLI, the JSON envelope, and the HTTP API.
+// The error envelope lives in internal/apperr; these aliases keep the
+// package's own code unqualified.
 const (
-	CodeBadRequest          = "BAD_REQUEST"
-	CodeNetwork             = "NETWORK"
-	CodeTimeout             = "TIMEOUT"
-	CodeUpstreamBlocked     = "UPSTREAM_BLOCKED"
-	CodeUpstreamUnavailable = "UPSTREAM_UNAVAILABLE"
-	CodeUserNotFound        = "USER_NOT_FOUND"
-	CodeLoginRequired       = "LOGIN_REQUIRED"
-	CodeBreakerOpen         = "BREAKER_OPEN"
-	CodeUnauthorized        = "UNAUTHORIZED"
-	CodeRateLimited         = "RATE_LIMITED"
-	CodeInternal            = "INTERNAL"
+	CodeBadRequest          = apperr.CodeBadRequest
+	CodeNetwork             = apperr.CodeNetwork
+	CodeTimeout             = apperr.CodeTimeout
+	CodeUpstreamBlocked     = apperr.CodeUpstreamBlocked
+	CodeUpstreamUnavailable = apperr.CodeUpstreamUnavailable
+	CodeUserNotFound        = apperr.CodeUserNotFound
+	CodeLoginRequired       = apperr.CodeLoginRequired
+	CodeBreakerOpen         = apperr.CodeBreakerOpen
+	CodeUnauthorized        = apperr.CodeUnauthorized
+	CodeRateLimited         = apperr.CodeRateLimited
+	CodeInternal            = apperr.CodeInternal
 )
 
-// Error is a classified upstream failure.
-type Error struct {
-	Code    string
-	Message string
-	Status  int // upstream HTTP status when one was observed
-	Err     error
-}
-
-func (e *Error) Error() string {
-	if e == nil {
-		return ""
-	}
-	if e.Message != "" {
-		return e.Message
-	}
-	if e.Err != nil {
-		return e.Err.Error()
-	}
-	return e.Code
-}
-
-// Unwrap exposes the wrapped cause.
-func (e *Error) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
-}
+// Error is the shared classified failure.
+type Error = apperr.Error
 
 // NewError builds an Error with a formatted message.
 func NewError(code string, status int, format string, args ...any) *Error {
-	return &Error{Code: code, Status: status, Message: fmt.Sprintf(format, args...)}
+	return apperr.New(code, status, format, args...)
 }
 
 // CodeOf extracts the classification from any error, defaulting to INTERNAL.
-func CodeOf(err error) string {
-	var we *Error
-	if errors.As(err, &we) {
-		return we.Code
-	}
-	return CodeInternal
-}
+func CodeOf(err error) string { return apperr.CodeOf(err) }
 
 // StatusOf extracts the observed upstream status, or 0.
-func StatusOf(err error) int {
-	var we *Error
-	if errors.As(err, &we) {
-		return we.Status
-	}
-	return 0
-}
+func StatusOf(err error) int { return apperr.StatusOf(err) }
 
 // IsBlocked reports whether err came from a 418/403 upstream block.
 func IsBlocked(err error) bool {

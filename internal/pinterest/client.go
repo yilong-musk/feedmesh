@@ -17,12 +17,13 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 // DefaultBaseURL is the public site. Tests point BaseURL at an httptest
@@ -261,7 +262,7 @@ func (c *Client) get(ctx context.Context, user, board string) ([]byte, error) {
 		return nil, fmt.Errorf("pinterest request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	body, err := upstream.ReadBody(resp.Body, 4<<20)
 	if err != nil {
 		return nil, fmt.Errorf("pinterest read failed: %w", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
@@ -425,11 +426,11 @@ func TestErrorsCarryCodeAndStatus(t *testing.T) {
 		status int
 		code   string
 	}{
-		{"/rss/user/999", http.StatusNotFound, weibo.CodeUserNotFound},
-		{"/rss/user/not-a-uid", http.StatusBadRequest, weibo.CodeBadRequest},
-		{"/api/v1/feed", http.StatusBadRequest, weibo.CodeBadRequest},
-		{"/api/v1/feed?uid=abc", http.StatusBadRequest, weibo.CodeBadRequest},
-		{"/nope", http.StatusBadRequest, weibo.CodeBadRequest},
+		{"/rss/user/999", http.StatusNotFound, apperr.CodeUserNotFound},
+		{"/rss/user/not-a-uid", http.StatusBadRequest, apperr.CodeBadRequest},
+		{"/api/v1/feed", http.StatusBadRequest, apperr.CodeBadRequest},
+		{"/api/v1/feed?uid=abc", http.StatusBadRequest, apperr.CodeBadRequest},
+		{"/nope", http.StatusBadRequest, apperr.CodeBadRequest},
 	}
 	for _, tc := range cases {
 		rec := get(t, h, tc.path)

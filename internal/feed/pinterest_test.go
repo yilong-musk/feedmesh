@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/pinterest"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // pinterestFeedXML is a two-pin profile feed: one titled pin, one pin with no
@@ -142,8 +142,8 @@ func TestGetPinterestNotFound(t *testing.T) {
 		_, _ = w.Write([]byte("User not found"))
 	})
 	_, err := s.GetPinterest(context.Background(), "ghost", "", 5, false)
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeUserNotFound {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeUserNotFound {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -153,8 +153,8 @@ func TestGetPinterestRateLimited(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
 	_, err := s.GetPinterest(context.Background(), "nasa", "", 5, false)
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeRateLimited {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeRateLimited {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -164,8 +164,8 @@ func TestGetPinterestInvalidTarget(t *testing.T) {
 		t.Fatal("invalid input must not reach the upstream")
 	})
 	_, err := s.GetPinterest(context.Background(), "nasa/earth", "", 5, false)
-	var we *weibo.Error
-	if !errors.As(err, &we) || we.Code != weibo.CodeBadRequest {
+	var we *apperr.Error
+	if !errors.As(err, &we) || we.Code != apperr.CodeBadRequest {
 		t.Fatalf("err = %v", err)
 	}
 }

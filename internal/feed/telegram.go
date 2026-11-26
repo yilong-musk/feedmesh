@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/telegram"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // Telegram feed bounds and cache lifetimes. One preview page carries the
@@ -31,11 +31,11 @@ func TelegramTTL() time.Duration { return telegramTTL }
 // GetTelegram builds a channel feed from the public t.me web preview.
 func (s *Service) GetTelegram(ctx context.Context, channel string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.Telegram == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "telegram provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "telegram provider is not configured"}
 	}
 	name, err := telegram.NormalizeChannel(channel)
 	if err != nil {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid telegram channel " + channel, Err: err}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid telegram channel " + channel, Err: err}
 	}
 	if limit <= 0 {
 		limit = DefaultTelegramLimit
@@ -261,26 +261,26 @@ func telegramError(err error, channel string) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
 	switch {
 	case errors.Is(err, telegram.ErrInvalidChannel):
-		return &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid telegram channel " + channel, Err: err}
+		return &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid telegram channel " + channel, Err: err}
 	case errors.Is(err, telegram.ErrNotFound):
-		return &weibo.Error{Code: weibo.CodeUserNotFound, Message: "telegram channel " + channel + " not found", Err: err}
+		return &apperr.Error{Code: apperr.CodeUserNotFound, Message: "telegram channel " + channel + " not found", Err: err}
 	case errors.Is(err, telegram.ErrNoPreview):
-		return &weibo.Error{Code: weibo.CodeUserNotFound, Message: "telegram channel " + channel + " is not available (not found or web preview disabled)", Err: err}
+		return &apperr.Error{Code: apperr.CodeUserNotFound, Message: "telegram channel " + channel + " is not available (not found or web preview disabled)", Err: err}
 	case errors.Is(err, telegram.ErrRateLimited):
-		return &weibo.Error{Code: weibo.CodeRateLimited, Message: "telegram rate limited", Err: err}
+		return &apperr.Error{Code: apperr.CodeRateLimited, Message: "telegram rate limited", Err: err}
 	case errors.Is(err, telegram.ErrNoPosts):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "telegram channel " + channel + " has no visible posts", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "telegram channel " + channel + " has no visible posts", Err: err}
 	case errors.Is(err, context.DeadlineExceeded):
-		return &weibo.Error{Code: weibo.CodeTimeout, Message: "telegram preview timed out", Err: err}
+		return &apperr.Error{Code: apperr.CodeTimeout, Message: "telegram preview timed out", Err: err}
 	case errors.Is(err, telegram.ErrUnexpectedPage):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "telegram preview page could not be parsed", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "telegram preview page could not be parsed", Err: err}
 	default:
-		return &weibo.Error{Code: weibo.CodeInternal, Message: err.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeInternal, Message: err.Error(), Err: err}
 	}
 }

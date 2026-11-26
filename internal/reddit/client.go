@@ -28,7 +28,6 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -38,6 +37,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 const (
@@ -391,7 +391,7 @@ func (c *Client) List(ctx context.Context, sub string, sort Sort, window Window,
 	defer func() { _ = resp.Body.Close() }()
 	c.noteResponse(resp.Header, resp.StatusCode)
 
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	body, readErr := upstream.ReadBody(resp.Body, maxBody)
 	c.log.Info("reddit upstream read",
 		"sub", name, "sort", string(sort), "window", string(window),
 		"status", resp.StatusCode, "bytes", len(body),

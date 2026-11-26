@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yilong-musk/feedmesh/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
 )
 
@@ -23,11 +23,11 @@ var retweetPrefix = regexp.MustCompile(`^RT by @\S+:\s*`)
 // GetX builds a timeline for one X account through the Nitter pool.
 func (s *Service) GetX(ctx context.Context, handle string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.X == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "x provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "x provider is not configured"}
 	}
 	handle, err := xnitter.NormalizeHandle(handle)
 	if err != nil {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: err.Error()}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: err.Error()}
 	}
 	if limit <= 0 {
 		limit = DefaultXLimit

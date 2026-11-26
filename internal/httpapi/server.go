@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/guard"
@@ -184,7 +185,7 @@ func (s *Server) getOnly(h http.HandlerFunc) http.HandlerFunc {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
 			s.writeErrorStatus(w, http.StatusMethodNotAllowed,
-				weibo.NewError(weibo.CodeBadRequest, 0, "method %s is not allowed on %s", r.Method, r.URL.Path))
+				apperr.New(apperr.CodeBadRequest, 0, "method %s is not allowed on %s", r.Method, r.URL.Path))
 			return
 		}
 		h(w, r)
@@ -294,7 +295,7 @@ type feedResponse struct {
 func (s *Server) handleAPIFeed(w http.ResponseWriter, r *http.Request) {
 	uid := strings.TrimSpace(r.URL.Query().Get("uid"))
 	if uid == "" {
-		s.writeError(w, weibo.NewError(weibo.CodeBadRequest, 0, "query parameter uid is required"))
+		s.writeError(w, apperr.New(apperr.CodeBadRequest, 0, "query parameter uid is required"))
 		return
 	}
 	limit := atoiDefault(r.URL.Query().Get("limit"), feed.DefaultLimit)
@@ -591,8 +592,8 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("channel")
 	ch, ok := smzdm.ParseChannel(raw)
 	if !ok {
-		s.writeError(w, &weibo.Error{
-			Code:    weibo.CodeBadRequest,
+		s.writeError(w, &apperr.Error{
+			Code:    apperr.CodeBadRequest,
 			Message: "unknown smzdm channel " + strconv.Quote(raw),
 		})
 		return
@@ -604,8 +605,8 @@ func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
 	if ch == smzdm.ChannelFenlei {
 		slug := strings.TrimSpace(r.URL.Query().Get("slug"))
 		if slug == "" {
-			s.writeError(w, &weibo.Error{
-				Code:    weibo.CodeBadRequest,
+			s.writeError(w, &apperr.Error{
+				Code:    apperr.CodeBadRequest,
 				Message: "query parameter slug is required for channel fenlei",
 			})
 			return
@@ -856,16 +857,16 @@ func redditListing(r *http.Request) (reddit.Sort, reddit.Window, error) {
 	rawSort := r.URL.Query().Get("sort")
 	sort, ok := reddit.ParseSort(rawSort)
 	if !ok {
-		return "", "", &weibo.Error{
-			Code:    weibo.CodeBadRequest,
+		return "", "", &apperr.Error{
+			Code:    apperr.CodeBadRequest,
 			Message: "unknown sort " + strconv.Quote(rawSort) + ": use hot, new or top",
 		}
 	}
 	rawWindow := r.URL.Query().Get("window")
 	window, ok := reddit.ParseWindow(rawWindow)
 	if !ok {
-		return "", "", &weibo.Error{
-			Code:    weibo.CodeBadRequest,
+		return "", "", &apperr.Error{
+			Code:    apperr.CodeBadRequest,
 			Message: "unknown window " + strconv.Quote(rawWindow) + ": use day, week, month, year or all",
 		}
 	}
@@ -907,7 +908,7 @@ func (s *Server) handleReddit(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIReddit(w http.ResponseWriter, r *http.Request) {
 	sub := strings.TrimSpace(r.URL.Query().Get("sub"))
 	if sub == "" {
-		s.writeError(w, weibo.NewError(weibo.CodeBadRequest, 0, "query parameter sub is required"))
+		s.writeError(w, apperr.New(apperr.CodeBadRequest, 0, "query parameter sub is required"))
 		return
 	}
 	sort, window, err := redditListing(r)
@@ -944,7 +945,7 @@ func (s *Server) handleAPIReddit(w http.ResponseWriter, r *http.Request) {
 // handleNotFound answers an unknown route with the service's BAD_REQUEST
 // contract rather than the mux's plain-text 404.
 func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
-	s.writeError(w, weibo.NewError(weibo.CodeBadRequest, 0,
+	s.writeError(w, apperr.New(apperr.CodeBadRequest, 0,
 		"unknown endpoint %s %s", r.Method, r.URL.Path))
 }
 
@@ -1560,7 +1561,7 @@ func (s *Server) handleAPIPolymarket(w http.ResponseWriter, r *http.Request) {
 		f, err = s.cfg.Service.GetPolymarketActivity(r.Context(), address, limit, refresh)
 	default:
 		s.writeErrorStatus(w, http.StatusBadRequest,
-			weibo.NewError(weibo.CodeBadRequest, 0, "unknown polymarket feed %q", kind))
+			apperr.New(apperr.CodeBadRequest, 0, "unknown polymarket feed %q", kind))
 		return
 	}
 	if err != nil {
@@ -1667,7 +1668,7 @@ func (s *Server) handleAPILinuxDo(w http.ResponseWriter, r *http.Request) {
 	case linuxdo.KindCategory:
 		raw := strings.TrimSpace(q.Get("category"))
 		if raw == "" {
-			s.writeError(w, weibo.NewError(weibo.CodeBadRequest, 0, "missing category"))
+			s.writeError(w, apperr.New(apperr.CodeBadRequest, 0, "missing category"))
 			return
 		}
 		if i := strings.LastIndex(raw, "/"); i >= 0 {
@@ -1678,7 +1679,7 @@ func (s *Server) handleAPILinuxDo(w http.ResponseWriter, r *http.Request) {
 	case linuxdo.KindTag:
 		ref.Tag = q.Get("tag")
 	default:
-		s.writeError(w, weibo.NewError(weibo.CodeBadRequest, 0, "unknown linux.do feed %q", kind))
+		s.writeError(w, apperr.New(apperr.CodeBadRequest, 0, "unknown linux.do feed %q", kind))
 		return
 	}
 

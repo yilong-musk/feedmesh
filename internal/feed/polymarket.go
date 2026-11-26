@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/polymarket"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // Polymarket bounds and cache lifetimes. Event lists move with new markets and
@@ -44,7 +44,7 @@ func PolymarketTTL(kind string) time.Duration {
 // GetPolymarketEvents builds the newest-events or trending-events feed.
 func (s *Service) GetPolymarketEvents(ctx context.Context, order, tag string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.Polymarket == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "polymarket provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "polymarket provider is not configured"}
 	}
 	rawTag := tag
 	tag, err := polymarket.NormalizeTag(tag)
@@ -58,7 +58,7 @@ func (s *Service) GetPolymarketEvents(ctx context.Context, order, tag string, li
 		limit = MaxPolymarketLimit
 	}
 	if order != polymarket.OrderNew && order != polymarket.OrderHot {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "unknown polymarket order " + order}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "unknown polymarket order " + order}
 	}
 
 	key := "polymarket:events:" + order + ":" + firstNonEmpty(tag, "all")
@@ -75,7 +75,7 @@ func (s *Service) GetPolymarketEvents(ctx context.Context, order, tag string, li
 // GetPolymarketEvent builds one event's market list, newest odds first.
 func (s *Service) GetPolymarketEvent(ctx context.Context, slug string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.Polymarket == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "polymarket provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "polymarket provider is not configured"}
 	}
 	rawSlug := slug
 	slug, err := polymarket.NormalizeSlug(slug)
@@ -101,7 +101,7 @@ func (s *Service) GetPolymarketEvent(ctx context.Context, slug string, limit int
 		return nil, polymarketError(err, "event", slug)
 	}
 	if ev == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "polymarket provider returned no event"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "polymarket provider returned no event"}
 	}
 	return polymarketEventFeed(ev, limit, cached, degraded), nil
 }
@@ -109,7 +109,7 @@ func (s *Service) GetPolymarketEvent(ctx context.Context, slug string, limit int
 // GetPolymarketActivity builds a wallet activity feed.
 func (s *Service) GetPolymarketActivity(ctx context.Context, address string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.Polymarket == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "polymarket provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "polymarket provider is not configured"}
 	}
 	rawAddress := address
 	address, err := polymarket.NormalizeAddress(address)
@@ -482,7 +482,7 @@ func polymarketError(err error, kind, ref string) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
@@ -491,20 +491,20 @@ func polymarketError(err error, kind, ref string) error {
 		errors.Is(err, polymarket.ErrInvalidSlug),
 		errors.Is(err, polymarket.ErrInvalidAddress),
 		errors.Is(err, polymarket.ErrBadRequest):
-		return &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid polymarket " + kind + " " + ref, Err: err}
+		return &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid polymarket " + kind + " " + ref, Err: err}
 	case errors.Is(err, polymarket.ErrNotFound):
-		return &weibo.Error{Code: weibo.CodeUserNotFound, Message: "polymarket " + kind + " " + ref + " not found", Err: err}
+		return &apperr.Error{Code: apperr.CodeUserNotFound, Message: "polymarket " + kind + " " + ref + " not found", Err: err}
 	case errors.Is(err, polymarket.ErrRateLimited):
-		return &weibo.Error{Code: weibo.CodeRateLimited, Message: "polymarket rate limited", Err: err}
+		return &apperr.Error{Code: apperr.CodeRateLimited, Message: "polymarket rate limited", Err: err}
 	case errors.Is(err, polymarket.ErrBlocked):
-		return &weibo.Error{Code: weibo.CodeUpstreamBlocked, Message: "polymarket blocked the request", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamBlocked, Message: "polymarket blocked the request", Err: err}
 	case errors.Is(err, polymarket.ErrBadPayload):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "polymarket response could not be parsed", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "polymarket response could not be parsed", Err: err}
 	case errors.Is(err, context.DeadlineExceeded):
-		return &weibo.Error{Code: weibo.CodeTimeout, Message: "polymarket request timed out", Err: err}
+		return &apperr.Error{Code: apperr.CodeTimeout, Message: "polymarket request timed out", Err: err}
 	case errors.Is(err, polymarket.ErrUpstream):
-		return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: "polymarket upstream unavailable", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: "polymarket upstream unavailable", Err: err}
 	default:
-		return &weibo.Error{Code: weibo.CodeNetwork, Message: err.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeNetwork, Message: err.Error(), Err: err}
 	}
 }

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/telegram"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 const testTelegramChannel = "sspai"
@@ -210,12 +210,12 @@ func TestGetTelegramErrors(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"invalid name", "not a channel", nil, weibo.CodeBadRequest},
-		{"missing", testTelegramChannel, telegram.ErrNotFound, weibo.CodeUserNotFound},
-		{"no preview", testTelegramChannel, telegram.ErrNoPreview, weibo.CodeUserNotFound},
-		{"rate limited", testTelegramChannel, telegram.ErrRateLimited, weibo.CodeRateLimited},
-		{"no posts", testTelegramChannel, telegram.ErrNoPosts, weibo.CodeUpstreamUnavailable},
-		{"garbage", testTelegramChannel, telegram.ErrUnexpectedPage, weibo.CodeUpstreamUnavailable},
+		{"invalid name", "not a channel", nil, apperr.CodeBadRequest},
+		{"missing", testTelegramChannel, telegram.ErrNotFound, apperr.CodeUserNotFound},
+		{"no preview", testTelegramChannel, telegram.ErrNoPreview, apperr.CodeUserNotFound},
+		{"rate limited", testTelegramChannel, telegram.ErrRateLimited, apperr.CodeRateLimited},
+		{"no posts", testTelegramChannel, telegram.ErrNoPosts, apperr.CodeUpstreamUnavailable},
+		{"garbage", testTelegramChannel, telegram.ErrUnexpectedPage, apperr.CodeUpstreamUnavailable},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -224,7 +224,7 @@ func TestGetTelegramErrors(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error")
 			}
-			if code := weibo.CodeOf(err); code != tc.want {
+			if code := apperr.CodeOf(err); code != tc.want {
 				t.Fatalf("code = %s, want %s (err %v)", code, tc.want, err)
 			}
 		})

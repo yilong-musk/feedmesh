@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // Bilibili feed bounds and cache lifetimes. One page carries up to 50 videos,
@@ -30,11 +30,11 @@ func BilibiliTTL() time.Duration { return bilibiliTTL }
 // GetBilibili builds a creator feed from the public space endpoint.
 func (s *Service) GetBilibili(ctx context.Context, mid string, limit int, refresh bool) (*Feed, error) {
 	if s.clients.Bilibili == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "bilibili provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "bilibili provider is not configured"}
 	}
 	mid = strings.TrimSpace(mid)
 	if mid == "" {
-		return nil, &weibo.Error{Code: weibo.CodeBadRequest, Message: "missing bilibili user"}
+		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "missing bilibili user"}
 	}
 	if limit <= 0 {
 		limit = DefaultBilibiliLimit
@@ -154,20 +154,20 @@ func bilibiliError(err error, mid string) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
 	switch {
 	case errors.Is(err, bilibili.ErrInvalidUser):
-		return &weibo.Error{Code: weibo.CodeBadRequest, Message: "invalid bilibili user " + mid, Err: err}
+		return &apperr.Error{Code: apperr.CodeBadRequest, Message: "invalid bilibili user " + mid, Err: err}
 	case errors.Is(err, bilibili.ErrNotFound):
-		return &weibo.Error{Code: weibo.CodeUserNotFound, Message: "bilibili user " + mid + " not found", Err: err}
+		return &apperr.Error{Code: apperr.CodeUserNotFound, Message: "bilibili user " + mid + " not found", Err: err}
 	case errors.Is(err, context.DeadlineExceeded):
-		return &weibo.Error{Code: weibo.CodeTimeout, Message: "bilibili timeline timed out", Err: err}
+		return &apperr.Error{Code: apperr.CodeTimeout, Message: "bilibili timeline timed out", Err: err}
 	case errors.Is(err, bilibili.ErrRateLimited):
-		return &weibo.Error{Code: weibo.CodeUpstreamBlocked, Message: "bilibili rate limited the request", Err: err}
+		return &apperr.Error{Code: apperr.CodeUpstreamBlocked, Message: "bilibili rate limited the request", Err: err}
 	default:
-		return &weibo.Error{Code: weibo.CodeInternal, Message: err.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeInternal, Message: err.Error(), Err: err}
 	}
 }

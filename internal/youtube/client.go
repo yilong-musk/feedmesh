@@ -37,6 +37,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 const (
@@ -572,10 +574,10 @@ func (c *Client) doOnce(ctx context.Context, method, path string, body []byte) (
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+		upstream.Drain(resp.Body)
 		return nil, &HTTPError{StatusCode: resp.StatusCode, URL: req.URL.String()}
 	}
-	out, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	out, err := upstream.ReadBody(resp.Body, 8<<20)
 	if err != nil {
 		return nil, err
 	}

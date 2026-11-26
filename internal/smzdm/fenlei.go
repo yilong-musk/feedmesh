@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"sort"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/guard"
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 // Category pages (https://www.smzdm.com/fenlei/<slug>/) are the only public
@@ -246,7 +246,7 @@ func (c *Client) getCategory(ctx context.Context, slug string) ([]byte, int, err
 		return nil, 0, fmt.Errorf("smzdm: category %q request failed: %w", slug, err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, categoryBodyLimit))
+	body, err := upstream.ReadBody(resp.Body, categoryBodyLimit)
 	if err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("smzdm: category %q read failed: %w", slug, err)
 	}

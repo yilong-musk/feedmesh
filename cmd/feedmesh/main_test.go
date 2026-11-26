@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
@@ -63,7 +64,7 @@ func TestParseArgsRejectsBadInput(t *testing.T) {
 	for _, args := range cases {
 		if _, _, _, err := parseArgs(args); err == nil {
 			t.Errorf("parseArgs(%v) = nil error, want a usage error", args)
-		} else if code := weibo.CodeOf(err); code != weibo.CodeBadRequest {
+		} else if code := apperr.CodeOf(err); code != apperr.CodeBadRequest {
 			t.Errorf("parseArgs(%v) code = %q, want BAD_REQUEST", args, code)
 		}
 	}
@@ -93,15 +94,15 @@ func TestParseDuration(t *testing.T) {
 
 func TestExitCodeMapping(t *testing.T) {
 	cases := map[string]int{
-		weibo.CodeBadRequest:          exitUsage,
-		weibo.CodeNetwork:             exitNetwork,
-		weibo.CodeTimeout:             exitNetwork,
-		weibo.CodeUpstreamUnavailable: exitNetwork,
-		weibo.CodeUpstreamBlocked:     exitBlocked,
-		weibo.CodeUserNotFound:        exitNotFound,
-		weibo.CodeLoginRequired:       exitNotFound,
-		weibo.CodeBreakerOpen:         exitBreakerOpen,
-		"WHATEVER":                    exitOther,
+		apperr.CodeBadRequest:          exitUsage,
+		apperr.CodeNetwork:             exitNetwork,
+		apperr.CodeTimeout:             exitNetwork,
+		apperr.CodeUpstreamUnavailable: exitNetwork,
+		apperr.CodeUpstreamBlocked:     exitBlocked,
+		apperr.CodeUserNotFound:        exitNotFound,
+		apperr.CodeLoginRequired:       exitNotFound,
+		apperr.CodeBreakerOpen:         exitBreakerOpen,
+		"WHATEVER":                     exitOther,
 	}
 	for code, want := range cases {
 		if got := exitCodeFor(code); got != want {
@@ -152,7 +153,7 @@ func TestUsageErrorGoesToStdoutAsJSONAndStderrAsLog(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 		t.Fatalf("stdout is not JSON: %v (%q)", err, out.String())
 	}
-	if env.OK || env.Error.Code != weibo.CodeBadRequest || env.Error.Message == "" {
+	if env.OK || env.Error.Code != apperr.CodeBadRequest || env.Error.Message == "" {
 		t.Fatalf("envelope = %+v", env)
 	}
 	if !strings.Contains(errBuf.String(), `"level":"error"`) {
@@ -196,7 +197,7 @@ func TestQuietSurvivesFlagParseError(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &env); err != nil {
 			t.Fatalf("%s: stdout is not JSON: %v", quietFlag, err)
 		}
-		if env.OK || env.Error.Code != weibo.CodeBadRequest {
+		if env.OK || env.Error.Code != apperr.CodeBadRequest {
 			t.Fatalf("%s: envelope = %+v", quietFlag, env)
 		}
 	}
@@ -359,7 +360,7 @@ func TestCachePurgeRequiresScope(t *testing.T) {
 	if code != exitUsage {
 		t.Fatalf("exit = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(out.String(), weibo.CodeBadRequest) {
+	if !strings.Contains(out.String(), apperr.CodeBadRequest) {
 		t.Fatalf("stdout = %q", out.String())
 	}
 }

@@ -10,13 +10,14 @@ import (
 	"encoding/xml"
 	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 const (
@@ -252,7 +253,7 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 		return nil, fmt.Errorf("v2ex request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := upstream.ReadBody(resp.Body, 8<<20)
 	if err != nil {
 		return nil, fmt.Errorf("v2ex read failed: %w", err)
 	}

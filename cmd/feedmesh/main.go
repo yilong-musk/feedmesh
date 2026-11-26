@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
@@ -502,15 +503,15 @@ func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTim
 
 func exitCodeFor(code string) int {
 	switch code {
-	case weibo.CodeBadRequest:
+	case apperr.CodeBadRequest:
 		return exitUsage
-	case weibo.CodeNetwork, weibo.CodeTimeout, weibo.CodeUpstreamUnavailable, weibo.CodeRateLimited:
+	case apperr.CodeNetwork, apperr.CodeTimeout, apperr.CodeUpstreamUnavailable, apperr.CodeRateLimited:
 		return exitNetwork
-	case weibo.CodeUpstreamBlocked:
+	case apperr.CodeUpstreamBlocked:
 		return exitBlocked
-	case weibo.CodeUserNotFound, weibo.CodeLoginRequired:
+	case apperr.CodeUserNotFound, apperr.CodeLoginRequired:
 		return exitNotFound
-	case weibo.CodeBreakerOpen:
+	case apperr.CodeBreakerOpen:
 		return exitBreakerOpen
 	default:
 		return exitOther
@@ -528,12 +529,12 @@ type errorEnvelope struct {
 }
 
 func usageError(format string, args ...any) error {
-	return weibo.NewError(weibo.CodeBadRequest, 0, format, args...)
+	return apperr.New(apperr.CodeBadRequest, 0, format, args...)
 }
 
 // fail reports an error on both channels and returns the mapped exit code.
 func fail(o *options, logger *logx.Logger, stdout io.Writer, err error) int {
-	code := weibo.CodeOf(err)
+	code := apperr.CodeOf(err)
 	logger.Error(err.Error(), "code", code)
 	if o != nil && o.json {
 		_ = writeJSONLine(stdout, errorEnvelope{
@@ -738,7 +739,7 @@ func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
 		return exitOK
 	}
 	if failed == "" {
-		failed = weibo.CodeInternal
+		failed = apperr.CodeInternal
 	}
 	return exitCodeFor(failed)
 }

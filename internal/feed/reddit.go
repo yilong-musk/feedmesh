@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/reddit"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // Reddit listing bounds and cache lifetimes. One Atom page carries at most 25
@@ -57,7 +57,7 @@ func RedditTTL() time.Duration { return redditTTL }
 // Degraded set. Only a listing that has no usable entry fails.
 func (s *Service) GetReddit(ctx context.Context, sub string, sort reddit.Sort, window reddit.Window, limit int, refresh bool) (*Feed, error) {
 	if s.clients.Reddit == nil {
-		return nil, &weibo.Error{Code: weibo.CodeInternal, Message: "reddit provider is not configured"}
+		return nil, &apperr.Error{Code: apperr.CodeInternal, Message: "reddit provider is not configured"}
 	}
 	name, err := reddit.NormalizeSub(sub)
 	if err != nil {
@@ -291,21 +291,21 @@ func redditError(err error, sub string) error {
 	if err == nil {
 		return nil
 	}
-	var we *weibo.Error
+	var we *apperr.Error
 	if errors.As(err, &we) {
 		return err
 	}
 	switch {
 	case errors.Is(err, reddit.ErrBadRequest):
-		return &weibo.Error{Code: weibo.CodeBadRequest, Message: err.Error(), Err: err}
+		return &apperr.Error{Code: apperr.CodeBadRequest, Message: err.Error(), Err: err}
 	case errors.Is(err, reddit.ErrSubredditNotFound):
-		return &weibo.Error{
-			Code:    weibo.CodeUserNotFound,
+		return &apperr.Error{
+			Code:    apperr.CodeUserNotFound,
 			Message: fmt.Sprintf("reddit subreddit %q not found", sub),
 			Err:     err,
 		}
 	}
 	// Everything else is "not now": the site failed, the limiter refused the
 	// read, or the site's quota window is open. The reader retries later.
-	return &weibo.Error{Code: weibo.CodeUpstreamUnavailable, Message: err.Error(), Err: err}
+	return &apperr.Error{Code: apperr.CodeUpstreamUnavailable, Message: err.Error(), Err: err}
 }

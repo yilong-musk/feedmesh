@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/linuxdo"
 	"github.com/yilong-musk/feedmesh/internal/logx"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 func linuxdoTestFeed() *linuxdo.Feed {
@@ -164,12 +164,12 @@ func TestGetLinuxDoErrors(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"invalid", linuxdo.Ref{Kind: "nope"}, nil, weibo.CodeBadRequest},
-		{"missing", linuxdo.Ref{Kind: linuxdo.KindLatest}, linuxdo.ErrNotFound, weibo.CodeUserNotFound},
-		{"challenge", linuxdo.Ref{Kind: linuxdo.KindLatest}, linuxdo.ErrChallenge, weibo.CodeUpstreamBlocked},
-		{"empty", linuxdo.Ref{Kind: linuxdo.KindLatest}, linuxdo.ErrNoItems, weibo.CodeUpstreamUnavailable},
-		{"garbage", linuxdo.Ref{Kind: linuxdo.KindLatest}, linuxdo.ErrUnexpectedPage, weibo.CodeUpstreamUnavailable},
-		{"timeout", linuxdo.Ref{Kind: linuxdo.KindLatest}, context.DeadlineExceeded, weibo.CodeTimeout},
+		{"invalid", linuxdo.Ref{Kind: "nope"}, nil, apperr.CodeBadRequest},
+		{"missing", linuxdo.Ref{Kind: linuxdo.KindLatest}, linuxdo.ErrNotFound, apperr.CodeUserNotFound},
+		{"challenge", linuxdo.Ref{Kind: linuxdo.KindLatest}, linuxdo.ErrChallenge, apperr.CodeUpstreamBlocked},
+		{"empty", linuxdo.Ref{Kind: linuxdo.KindLatest}, linuxdo.ErrNoItems, apperr.CodeUpstreamUnavailable},
+		{"garbage", linuxdo.Ref{Kind: linuxdo.KindLatest}, linuxdo.ErrUnexpectedPage, apperr.CodeUpstreamUnavailable},
+		{"timeout", linuxdo.Ref{Kind: linuxdo.KindLatest}, context.DeadlineExceeded, apperr.CodeTimeout},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -178,7 +178,7 @@ func TestGetLinuxDoErrors(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error")
 			}
-			if code := weibo.CodeOf(err); code != tc.want {
+			if code := apperr.CodeOf(err); code != tc.want {
 				t.Fatalf("code = %s, want %s (err %v)", code, tc.want, err)
 			}
 		})

@@ -97,6 +97,8 @@ internal/feed/      unified model, RSS rendering, cache orchestration
 internal/cache/     key-per-file cache, TTL, atomic writes
 internal/httpapi/   HTTP routing and error envelope
 internal/guard/     breaker + single-flight
+internal/apperr/    shared error envelope: classified errors with stable codes
+internal/upstream/  bounded body reads and context-aware request slots for providers
 internal/logx/      stderr JSON line logging
 deploy/             systemd user unit
 tools/              repository gates: Go-only language check and RSS validator

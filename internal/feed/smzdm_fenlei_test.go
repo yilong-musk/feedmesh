@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/logx"
 	"github.com/yilong-musk/feedmesh/internal/smzdm"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 // fenleiCard describes one card for the page builder below.
@@ -328,8 +328,8 @@ func TestGetSmzdmFenleiFailureSpendsTheHourlyBudget(t *testing.T) {
 	s := fenleiService(t, srv.URL, func() time.Time { return clock })
 
 	_, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
-	if got := weibo.CodeOf(err); got != weibo.CodeUpstreamUnavailable {
-		t.Fatalf("first read code = %q (%v), want %q", got, err, weibo.CodeUpstreamUnavailable)
+	if got := apperr.CodeOf(err); got != apperr.CodeUpstreamUnavailable {
+		t.Fatalf("first read code = %q (%v), want %q", got, err, apperr.CodeUpstreamUnavailable)
 	}
 	if hits.Load() != 1 {
 		t.Fatalf("upstream reads = %d, want 1", hits.Load())
@@ -337,8 +337,8 @@ func TestGetSmzdmFenleiFailureSpendsTheHourlyBudget(t *testing.T) {
 
 	clock = clock.Add(2 * time.Minute)
 	_, err = s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
-	if got := weibo.CodeOf(err); got != weibo.CodeUpstreamUnavailable {
-		t.Fatalf("suppressed read code = %q (%v), want %q", got, err, weibo.CodeUpstreamUnavailable)
+	if got := apperr.CodeOf(err); got != apperr.CodeUpstreamUnavailable {
+		t.Fatalf("suppressed read code = %q (%v), want %q", got, err, apperr.CodeUpstreamUnavailable)
 	}
 	if !strings.Contains(err.Error(), "is not re-read until") {
 		t.Fatalf("suppressed read error = %q, want the retry time", err)
@@ -365,12 +365,12 @@ func TestGetSmzdmFenleiChallengeIsAnErrorAndCoolsTheSlugDown(t *testing.T) {
 	s := fenleiService(t, srv.URL, nil)
 
 	_, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
-	if got := weibo.CodeOf(err); got != weibo.CodeUpstreamBlocked {
-		t.Fatalf("first call code = %q (%v), want %q", got, err, weibo.CodeUpstreamBlocked)
+	if got := apperr.CodeOf(err); got != apperr.CodeUpstreamBlocked {
+		t.Fatalf("first call code = %q (%v), want %q", got, err, apperr.CodeUpstreamBlocked)
 	}
 	_, err = s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
-	if got := weibo.CodeOf(err); got != weibo.CodeBreakerOpen {
-		t.Fatalf("second call code = %q (%v), want %q", got, err, weibo.CodeBreakerOpen)
+	if got := apperr.CodeOf(err); got != apperr.CodeBreakerOpen {
+		t.Fatalf("second call code = %q (%v), want %q", got, err, apperr.CodeBreakerOpen)
 	}
 	if hits.Load() != 1 {
 		t.Fatalf("upstream reads = %d, want 1: a blocked slug is not retried", hits.Load())
@@ -381,8 +381,8 @@ func TestGetSmzdmFenleiRejectsBadSlug(t *testing.T) {
 	s := NewService(Clients{Smzdm: smzdm.New(smzdm.Config{})}, nil, logx.Discard(), DefaultTTLs())
 	for _, slug := range []string{"", "a", "../etc/passwd", "jujiashenghuo"} {
 		_, err := s.GetSmzdmFenlei(context.Background(), slug, 20, false)
-		if got := weibo.CodeOf(err); got != weibo.CodeBadRequest {
-			t.Errorf("slug %q code = %q (%v), want %q", slug, got, err, weibo.CodeBadRequest)
+		if got := apperr.CodeOf(err); got != apperr.CodeBadRequest {
+			t.Errorf("slug %q code = %q (%v), want %q", slug, got, err, apperr.CodeBadRequest)
 		}
 	}
 }
@@ -390,7 +390,7 @@ func TestGetSmzdmFenleiRejectsBadSlug(t *testing.T) {
 func TestGetSmzdmFenleiWithoutProvider(t *testing.T) {
 	s := NewService(Clients{}, nil, logx.Discard(), DefaultTTLs())
 	_, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
-	if err == nil || weibo.CodeOf(err) != weibo.CodeInternal {
+	if err == nil || apperr.CodeOf(err) != apperr.CodeInternal {
 		t.Fatalf("error = %v, want an internal error", err)
 	}
 }
@@ -446,8 +446,8 @@ func TestGetSmzdmFenleiNoCardsIsUnavailable(t *testing.T) {
 	s := fenleiService(t, srv.URL, nil)
 
 	_, err := s.GetSmzdmFenlei(context.Background(), "tixuhuli", 20, false)
-	if got := weibo.CodeOf(err); got != weibo.CodeUpstreamUnavailable {
-		t.Fatalf("code = %q (%v), want %q", got, err, weibo.CodeUpstreamUnavailable)
+	if got := apperr.CodeOf(err); got != apperr.CodeUpstreamUnavailable {
+		t.Fatalf("code = %q (%v), want %q", got, err, apperr.CodeUpstreamUnavailable)
 	}
 	var blocked *smzdm.BlockedError
 	if errors.As(err, &blocked) {

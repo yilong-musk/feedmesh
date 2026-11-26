@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
@@ -215,7 +216,7 @@ func NewService(clients Clients, c *cache.Cache, log *logx.Logger, ttls TTLs) *S
 func (s *Service) ResolveUID(ctx context.Context, target string, refresh bool) (string, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
-		return "", &weibo.Error{Code: weibo.CodeBadRequest, Message: "uid or domain is required"}
+		return "", &apperr.Error{Code: apperr.CodeBadRequest, Message: "uid or domain is required"}
 	}
 	if err := weibo.ValidateUID(target); err == nil {
 		return target, nil

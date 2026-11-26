@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/logx"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 func TestRateLimiterUsesRollingWindow(t *testing.T) {
@@ -79,7 +79,7 @@ func TestErrorLogRecordsServerFailuresOnly(t *testing.T) {
 
 	fail := s.withErrorLog(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.writeErrorStatus(w, http.StatusGatewayTimeout,
-			weibo.NewError(weibo.CodeUpstreamUnavailable, 0, "xnitter: all instances failed (5 tried)"))
+			apperr.New(apperr.CodeUpstreamUnavailable, 0, "xnitter: all instances failed (5 tried)"))
 	}))
 	rec := httptest.NewRecorder()
 	fail.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/rss/x/elonmusk", nil))

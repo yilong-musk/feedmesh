@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
 	"github.com/yilong-musk/feedmesh/internal/logx"
-	"github.com/yilong-musk/feedmesh/internal/weibo"
 )
 
 type stubDouyin struct {
@@ -193,13 +193,13 @@ func TestGetDouyinErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	if code := weibo.CodeOf(err); code != weibo.CodeBadRequest {
+	if code := apperr.CodeOf(err); code != apperr.CodeBadRequest {
 		t.Fatalf("code = %s", code)
 	}
 
 	svc = NewService(Clients{Douyin: stubDouyin{err: douyin.ErrNotReady}}, nil, logx.Discard(), DefaultTTLs())
 	_, err = svc.GetDouyin(context.Background(), "MS4wLjABAAAAtestsecuid0000000000", 10, false)
-	if code := weibo.CodeOf(err); code != weibo.CodeUpstreamUnavailable {
+	if code := apperr.CodeOf(err); code != apperr.CodeUpstreamUnavailable {
 		t.Fatalf("code = %s", code)
 	}
 }

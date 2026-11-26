@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
@@ -28,10 +27,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/logx"
+	"github.com/yilong-musk/feedmesh/internal/upstream"
 )
 
 // DefaultBaseURL is the public site. Tests point BaseURL at an httptest server.
@@ -97,7 +96,9 @@ type Client struct {
 	cfg  Config
 	http *http.Client
 
-	mu   sync.Mutex
+	// slot serialises calls (shared cookie jar, one request at a time
+	// upstream); a queued caller leaves when its own deadline passes.
+	slot upstream.Slot
 	warm bool
 }
 
@@ -108,7 +109,8 @@ func New(cfg Config) *Client {
 	}
 	jar, _ := cookiejar.New(nil)
 	return &Client{
-		cfg: cfg,
+		slot: upstream.NewSlot(1),
+		cfg:  cfg,
 		http: &http.Client{
 			Jar:     jar,
 			Timeout: cfg.Timeout,
@@ -182,8 +184,10 @@ func (c *Client) Timeline(ctx context.Context, user string, limit int) (*Timelin
 		return nil, ErrInvalidUser
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.slot.Acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer c.slot.Release()
 
 	profile, err := c.profile(ctx, user)
 	if err != nil {
@@ -210,8 +214,10 @@ func (c *Client) Timeline(ctx context.Context, user string, limit int) (*Timelin
 
 // timelineBySecUID serves the secUid form, which has no profile page to read.
 func (c *Client) timelineBySecUID(ctx context.Context, secUID string, limit int) (*Timeline, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.slot.Acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer c.slot.Release()
 
 	items, err := c.list(ctx, secUID, limit)
 	if err != nil {
@@ -502,7 +508,7 @@ func (c *Client) get(ctx context.Context, target string) (string, int, error) {
 		return "", 0, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := upstream.ReadBody(resp.Body, 8<<20)
 	if err != nil {
 		return "", resp.StatusCode, err
 	}

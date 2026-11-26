@@ -173,3 +173,11 @@ func TestProxyLeavesDirectDialsToTheDialer(t *testing.T) {
 		t.Fatalf("proxy() without a proxy = %v, %v; want nil, nil (the dialer checks)", got, err)
 	}
 }
+
+func TestRewriteLinksUpgradesUppercaseSrc(t *testing.T) {
+	in := `<img SRC="https://pbs.twimg.com/media/abc.jpg"/>`
+	out := rewriteLinks(in, "https://n.example.test")
+	if !strings.Contains(out, "name=orig") {
+		t.Fatalf("an upper-case SRC was not upgraded: %s", out)
+	}
+}
