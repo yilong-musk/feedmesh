@@ -240,6 +240,7 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 	posts = cloneTimeline(posts)
 
 	f := &Feed{
+		Language:    langZhCN,
 		UID:         uid,
 		ScreenName:  profile.ScreenName,
 		Description: profile.Description,

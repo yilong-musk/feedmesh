@@ -69,6 +69,7 @@ func (s *Service) GetSmzdm(ctx context.Context, ch smzdm.Channel, limit int, ref
 
 	now := s.now().UTC()
 	f := &Feed{
+		Language:    langZhCN,
 		TitleText:   info.title,
 		LinkText:    info.link,
 		Description: info.description,

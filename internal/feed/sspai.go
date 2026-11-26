@@ -48,6 +48,7 @@ func (s *Service) GetSspai(ctx context.Context, limit int, full, refresh bool) (
 
 	now := s.now().UTC()
 	f := &Feed{
+		Language:    langZhCN,
 		TitleText:   "sspai",
 		LinkText:    "https://sspai.com",
 		Description: "Latest sspai articles",

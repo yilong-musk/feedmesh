@@ -139,6 +139,7 @@ func (s *Service) fenleiFeed(slug, key string, cards []smzdm.Category, limit int
 
 	readAt := s.fenleiReadTime(key, fetchedAt, now)
 	f := &Feed{
+		Language:    langZhCN,
 		TitleText:   "SMZDM Deals: " + slug,
 		LinkText:    "https://www.smzdm.com/fenlei/" + slug + "/",
 		Description: "Good-price cards from the SMZDM category " + slug,

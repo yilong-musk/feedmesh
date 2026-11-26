@@ -101,6 +101,7 @@ func douyinFeed(secUID string, c cachedList[douyin.Item], limit int, cached, deg
 		items = append(items, it)
 	}
 	return &Feed{
+		Language:    langZhCN,
 		UID:         secUID,
 		ScreenName:  author,
 		FetchedAt:   c.FetchedAt,
