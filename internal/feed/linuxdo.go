@@ -104,6 +104,7 @@ func linuxdoFeed(ref linuxdo.Ref, c cachedList[linuxdo.Topic], limit int, cached
 		display = "LINUX DO"
 	}
 	return &Feed{
+		Language:    langZhCN,
 		UID:         ref.Key(),
 		ScreenName:  display,
 		FetchedAt:   c.FetchedAt,

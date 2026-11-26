@@ -62,6 +62,7 @@ func (s *Service) GetV2ex(ctx context.Context, section string, limit int, refres
 
 	now := s.now().UTC()
 	f := &Feed{
+		Language:  langZhCN,
 		FetchedAt: now,
 		Cached:    hit,
 		Degraded:  degraded,

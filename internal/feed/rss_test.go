@@ -369,3 +369,14 @@ func TestBuildDescriptionLinkCardSwapsShortPublisher(t *testing.T) {
 		t.Fatalf("publisher should still appear as the secondary line:\n%s", html)
 	}
 }
+
+func TestRenderRSSLanguageFollowsTheProvider(t *testing.T) {
+	tagged := string(feed.RenderRSS(&feed.Feed{UID: "1", Language: "zh-cn"}))
+	if !strings.Contains(tagged, "<language>zh-cn</language>") {
+		t.Fatalf("tagged feed lost its language:\n%s", tagged)
+	}
+	untagged := string(feed.RenderRSS(&feed.Feed{UID: "1"}))
+	if strings.Contains(untagged, "<language>") {
+		t.Fatalf("a feed of unknown language claimed one:\n%s", untagged)
+	}
+}

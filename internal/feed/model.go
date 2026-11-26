@@ -119,7 +119,15 @@ type Feed struct {
 	LinkText  string `json:"-"`
 	// TTL overrides the channel <ttl> in minutes; zero means the default 15.
 	TTL int `json:"-"`
+	// Language is the BCP 47 tag of the upstream content, published as the
+	// channel <language>. Providers whose content language is not known up
+	// front leave it empty and the element is omitted.
+	Language string `json:"-"`
 }
+
+// langZhCN tags providers whose upstream content is Simplified Chinese. It
+// describes the data, not the service's own output language.
+const langZhCN = "zh-cn"
 
 // Title returns the human-facing feed title.
 func (f *Feed) Title() string {

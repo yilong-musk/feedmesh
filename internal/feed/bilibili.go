@@ -91,6 +91,7 @@ func bilibiliFeed(mid string, c cachedList[bilibili.Video], limit int, cached, d
 		items = append(items, it)
 	}
 	return &Feed{
+		Language:    langZhCN,
 		UID:         mid,
 		ScreenName:  author,
 		FetchedAt:   c.FetchedAt,

@@ -46,6 +46,7 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 
 	now := s.now().UTC()
 	f := &Feed{
+		Language:    langZhCN,
 		TitleText:   "Weibo Hot Search",
 		LinkText:    "https://s.weibo.com/top/summary",
 		Description: "Realtime Weibo hot search ranking",

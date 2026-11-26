@@ -142,6 +142,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", s.handleNotFound)
 
 	var h http.Handler = mux
+	h = s.withGzip(h)
 	h = s.withTimeout(h)
 	if s.cfg.Token != "" {
 		h = s.withAuth(h)
@@ -277,8 +278,7 @@ func (s *Server) serveRSS(w http.ResponseWriter, r *http.Request, uid string) {
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, 300)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 type feedResponse struct {
@@ -346,8 +346,7 @@ func (s *Server) handleHot(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, 60)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 func (s *Server) handleAPIHot(w http.ResponseWriter, r *http.Request) {
@@ -411,8 +410,7 @@ func (s *Server) handleSspai(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, 600)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 func (s *Server) handleAPISspai(w http.ResponseWriter, r *http.Request) {
@@ -467,8 +465,7 @@ func (s *Server) serveV2ex(w http.ResponseWriter, r *http.Request, section strin
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, 600)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 func (s *Server) handleV2exLatest(w http.ResponseWriter, r *http.Request) {
@@ -557,8 +554,7 @@ func (s *Server) serveSmzdm(w http.ResponseWriter, r *http.Request, ch smzdm.Cha
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, int(feed.SmzdmTTL(ch).Seconds()))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 func (s *Server) handleSmzdm(w http.ResponseWriter, r *http.Request) {
@@ -588,8 +584,7 @@ func (s *Server) handleSmzdmFenlei(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, int(feed.SmzdmFenleiTTL().Seconds()))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 func (s *Server) handleAPISmzdm(w http.ResponseWriter, r *http.Request) {
@@ -696,8 +691,7 @@ func (s *Server) handleX(w http.ResponseWriter, r *http.Request) {
 	// Nitter's own <ttl> is 40 minutes; match the cache rather than inviting
 	// readers to hammer volunteer instances.
 	s.setRSSCacheFor(w, f, 2400)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 func (s *Server) handleAPIX(w http.ResponseWriter, r *http.Request) {
@@ -800,8 +794,7 @@ func (s *Server) handleYouTube(w http.ResponseWriter, r *http.Request) {
 		maxAge = degradedYouTubeMaxAge
 	}
 	s.setRSSCache(w, maxAge)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 func (s *Server) handleAPIYouTube(w http.ResponseWriter, r *http.Request) {
@@ -908,8 +901,7 @@ func (s *Server) handleReddit(w http.ResponseWriter, r *http.Request) {
 		maxAge = degradedRedditMaxAge
 	}
 	s.setRSSCache(w, maxAge)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 func (s *Server) handleAPIReddit(w http.ResponseWriter, r *http.Request) {
@@ -1010,8 +1002,7 @@ func (s *Server) handleDouyin(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, int(feed.DouyinTTL().Seconds()))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 // handleAPIDouyin returns the same timeline as JSON.
@@ -1131,8 +1122,7 @@ func (s *Server) handleTikTok(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, int(feed.TikTokTTL().Seconds()))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 // handleAPITikTok returns the same timeline as JSON.
@@ -1253,8 +1243,7 @@ func (s *Server) handleBilibili(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, int(feed.BilibiliTTL().Seconds()))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 // handleAPIBilibili returns the same timeline as JSON.
@@ -1321,8 +1310,7 @@ func (s *Server) handleTelegram(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, int(feed.TelegramTTL().Seconds()))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 // handleAPITelegram returns the same channel preview as JSON.
@@ -1409,8 +1397,7 @@ func (s *Server) handlePinterest(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, int(feed.PinterestTTL().Seconds()))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 // handleAPIPinterest returns the same profile or board feed as JSON.
@@ -1482,11 +1469,10 @@ func polymarketItems(items []feed.Item) []polymarketItemResponse {
 	return out
 }
 
-func (s *Server) servePolymarketRSS(w http.ResponseWriter, f *feed.Feed, kind string) {
+func (s *Server) servePolymarketRSS(w http.ResponseWriter, r *http.Request, f *feed.Feed, kind string) {
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, int(feed.PolymarketTTL(kind).Seconds()))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 // handlePolymarketNew serves the newest markets.
@@ -1499,7 +1485,7 @@ func (s *Server) handlePolymarketNew(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	s.servePolymarketRSS(w, f, "events")
+	s.servePolymarketRSS(w, r, f, "events")
 }
 
 // handlePolymarketHot serves events ranked by 24-hour volume.
@@ -1512,7 +1498,7 @@ func (s *Server) handlePolymarketHot(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	s.servePolymarketRSS(w, f, "events")
+	s.servePolymarketRSS(w, r, f, "events")
 }
 
 // handlePolymarketEvent serves one event's markets.
@@ -1525,7 +1511,7 @@ func (s *Server) handlePolymarketEvent(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	s.servePolymarketRSS(w, f, "event")
+	s.servePolymarketRSS(w, r, f, "event")
 }
 
 // handlePolymarketUser serves one wallet's activity.
@@ -1538,7 +1524,7 @@ func (s *Server) handlePolymarketUser(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, err)
 		return
 	}
-	s.servePolymarketRSS(w, f, "activity")
+	s.servePolymarketRSS(w, r, f, "activity")
 }
 
 // handleAPIPolymarket returns any Polymarket feed as JSON.
@@ -1630,8 +1616,7 @@ func (s *Server) serveLinuxDoRSS(w http.ResponseWriter, r *http.Request, ref lin
 	}
 	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
 	s.setRSSCacheFor(w, f, int(feed.LinuxDoTTL().Seconds()))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(feed.RenderRSS(f))
+	s.writeRSS(w, r, f)
 }
 
 // handleLinuxDoLatest serves the latest-topics feed.

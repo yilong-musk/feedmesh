@@ -4,6 +4,8 @@ All endpoints are `GET`, and by default the service listens only on `127.0.0.1:3
 
 With `--token <token>` or `FEEDMESH_TOKEN` set, every request must carry `Authorization: Bearer <token>`, otherwise it returns 401. With `--rate-limit <n>` or `FEEDMESH_RATE_LIMIT` set, each remote IP may make at most n requests within any rolling minute, and anything above that returns 429. If the listener is bound to a non-loopback address and no limit is configured, the service applies 120 requests/minute/IP by default. Behind a reverse proxy `RemoteAddr` is usually the proxy IP, so rate limiting at the proxy layer as well is recommended.
 
+Responses are gzip-compressed when the request sends `Accept-Encoding: gzip` (every response carries `Vary: Accept-Encoding`). RSS responses carry a weak `ETag`; a request whose `If-None-Match` matches it is answered with `304 Not Modified` and no body, so a reader whose copy is current downloads nothing. The validator ignores `<lastBuildDate>`, which records the read time. The channel `<language>` element is only present when the provider's content language is known (`zh-cn` for the Chinese platforms).
+
 The mapping between platforms and routes is in [PLATFORMS.md](PLATFORMS.md).
 
 ---

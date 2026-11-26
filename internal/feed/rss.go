@@ -1,9 +1,11 @@
 package feed
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -242,7 +244,7 @@ func renderPost(m *weibo.MBlog, depth int) string {
 		}
 		b.WriteString("<p>@")
 		b.WriteString(EscapeXML(author))
-		b.WriteString("：</p>")
+		b.WriteString(":</p>")
 		b.WriteString(renderPost(r, depth+1))
 		b.WriteString("</blockquote>")
 	}
@@ -259,10 +261,21 @@ func BuildDescription(m *weibo.MBlog) string {
 	return renderPost(m, 0)
 }
 
+// rssItemOverhead approximates the markup around one item, for sizing the
+// output buffer up front.
+const rssItemOverhead = 512
+
 // RenderRSS renders the feed as RSS 2.0 with Media RSS and content:encoded so
 // readers can show images, covers and playable video instead of bare text.
 func RenderRSS(f *Feed) []byte {
-	var b strings.Builder
+	var b bytes.Buffer
+	size := 1024
+	for i := range f.Items {
+		// The body is written twice (description and content:encoded).
+		size += rssItemOverhead + 2*len(f.Items[i].HTML) + len(f.Items[i].Title) + len(f.Items[i].URL)
+	}
+	b.Grow(size)
+
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">` + "\n")
 	b.WriteString("  <channel>\n")
@@ -273,12 +286,15 @@ func RenderRSS(f *Feed) []byte {
 	b.WriteString("    <description>")
 	b.WriteString(EscapeXML(f.Description))
 	b.WriteString("</description>\n")
-	b.WriteString("    <language>zh-cn</language>\n")
+	// language is optional; it is only claimed when the provider knows it.
+	writeElem(&b, "    ", "language", f.Language)
 	ttl := f.TTL
 	if ttl <= 0 {
 		ttl = 15
 	}
-	fmt.Fprintf(&b, "    <ttl>%d</ttl>\n", ttl)
+	b.WriteString("    <ttl>")
+	b.WriteString(strconv.Itoa(ttl))
+	b.WriteString("</ttl>\n")
 	b.WriteString("    <generator>feedmesh</generator>\n")
 	last := f.FetchedAt
 	if last.IsZero() {
@@ -294,11 +310,12 @@ func RenderRSS(f *Feed) []byte {
 		b.WriteString(`      <guid isPermaLink="true">`)
 		b.WriteString(EscapeXML(it.URL))
 		b.WriteString("</guid>\n")
+		body := cdata(it.HTML)
 		b.WriteString("      <description>")
-		b.WriteString(cdata(it.HTML))
+		b.WriteString(body)
 		b.WriteString("</description>\n")
 		b.WriteString("      <content:encoded>")
-		b.WriteString(cdata(it.HTML))
+		b.WriteString(body)
 		b.WriteString("</content:encoded>\n")
 		if len(it.Images) > 0 || it.PosterURL != "" {
 			thumb := it.PosterURL
@@ -309,7 +326,9 @@ func RenderRSS(f *Feed) []byte {
 					b.WriteString(EscapeXML(img))
 					b.WriteString(`" medium="image"`)
 					if mime := imageMIME(img); mime != "" {
-						b.WriteString(` type="` + mime + `"`)
+						b.WriteString(` type="`)
+						b.WriteString(mime)
+						b.WriteString(`"`)
 					}
 					b.WriteString(" />\n")
 				}
@@ -321,17 +340,22 @@ func RenderRSS(f *Feed) []byte {
 			}
 		}
 		if it.VideoURL != "" {
+			video := EscapeXML(it.VideoURL)
 			b.WriteString(`      <enclosure url="`)
-			b.WriteString(EscapeXML(it.VideoURL))
+			b.WriteString(video)
 			b.WriteString(`" type="video/mp4" length="0" />` + "\n")
 			b.WriteString(`      <media:content url="`)
-			b.WriteString(EscapeXML(it.VideoURL))
+			b.WriteString(video)
 			b.WriteString(`" medium="video" type="video/mp4"`)
 			if it.VideoDurationMS > 0 {
-				fmt.Fprintf(&b, ` duration="%d"`, it.VideoDurationMS/1000)
+				b.WriteString(` duration="`)
+				b.WriteString(strconv.Itoa(it.VideoDurationMS / 1000))
+				b.WriteString(`"`)
 			}
 			if it.PosterURL != "" {
-				b.WriteString(` thumbnail="` + EscapeXML(it.PosterURL) + `"`)
+				b.WriteString(` thumbnail="`)
+				b.WriteString(EscapeXML(it.PosterURL))
+				b.WriteString(`"`)
 			}
 			b.WriteString(" />\n")
 		}
@@ -341,12 +365,19 @@ func RenderRSS(f *Feed) []byte {
 
 	b.WriteString("  </channel>\n")
 	b.WriteString("</rss>\n")
-	return []byte(b.String())
+	return b.Bytes()
 }
 
-func writeElem(b *strings.Builder, indent, name, value string) {
+func writeElem(b *bytes.Buffer, indent, name, value string) {
 	if value == "" {
 		return
 	}
-	fmt.Fprintf(b, "%s<%s>%s</%s>\n", indent, name, EscapeXML(value), name)
+	b.WriteString(indent)
+	b.WriteByte('<')
+	b.WriteString(name)
+	b.WriteByte('>')
+	b.WriteString(EscapeXML(value))
+	b.WriteString("</")
+	b.WriteString(name)
+	b.WriteString(">\n")
 }
