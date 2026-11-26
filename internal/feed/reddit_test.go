@@ -452,3 +452,29 @@ func TestGetRedditServesLastGoodInsideTheStaleWindow(t *testing.T) {
 		t.Fatalf("degraded/source/items = %v/%q/%d", f.Degraded, f.Source, len(f.Items))
 	}
 }
+
+func TestGetRedditCoolsDownAfterAFailure(t *testing.T) {
+	up := &rdUpstream{body: redditCaptured(t)}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	svc := newRedditService(t, srv.URL)
+	ctx := context.Background()
+
+	if _, err := svc.GetReddit(ctx, "programming", reddit.SortHot, reddit.WindowDay, 10, false); err != nil {
+		t.Fatalf("warm read: %v", err)
+	}
+	up.down.Store(true)
+	if f, err := svc.GetReddit(ctx, "programming", reddit.SortHot, reddit.WindowDay, 10, true); err != nil || !f.Degraded {
+		t.Fatalf("failed read = %v, %v", f, err)
+	}
+	before := len(up.requests())
+	// A wider request misses the fresh entry, so only the cool-off keeps it
+	// from asking upstream again.
+	f, err := svc.GetReddit(ctx, "programming", reddit.SortHot, reddit.WindowDay, 20, false)
+	if err != nil || !f.Degraded {
+		t.Fatalf("read during the cool-off = %v, %v", f, err)
+	}
+	if got := len(up.requests()); got != before {
+		t.Fatalf("upstream requests during the cool-off = %d, want none", got-before)
+	}
+}

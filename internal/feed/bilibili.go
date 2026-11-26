@@ -10,6 +10,7 @@ import (
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 )
 
 // Bilibili feed bounds and cache lifetimes. One page carries up to 50 videos,
@@ -43,7 +44,7 @@ func (s *Service) GetBilibili(ctx context.Context, mid string, limit int, refres
 		limit = MaxBilibiliLimit
 	}
 
-	key := "bilibili:user:" + mid
+	key := cachekey.Bilibili.Key("user", mid)
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, bilibiliTTL, refresh, limit,
 		func(ctx context.Context, n int) ([]bilibili.Video, error) {
 			tl, terr := s.clients.Bilibili.Timeline(ctx, mid, n)

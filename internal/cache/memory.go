@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"os"
 	"sync"
+	"time"
 )
 
 // defaultMemoryBudget bounds the in-process copy of recently read entries.
@@ -13,6 +14,15 @@ const defaultMemoryBudget = 32 << 20
 
 // memEntryOverhead approximates the bookkeeping cost of one entry.
 const memEntryOverhead = 256
+
+// mtimeSafetyWindow guards against coarse filesystem modification times (Linux
+// ext4 and tmpfs update mtime on ~4 ms ticks; some virtualised kernels use
+// 10 ms). If an entry is cached while its mtime is still within this window of
+// the current wall clock, a same-size in-place rewrite or delete+create reusing
+// the same inode during the same tick can leave inode, size and mtime
+// identical. Skipping the memory layer until the mtime has aged past the window
+// (the racy-index rule) ensures every cached stat identity is unambiguous.
+const mtimeSafetyWindow = 100 * time.Millisecond
 
 // memEntry is a parsed cache file together with the identity of the file it
 // was read from. The identity is what lets a hit be trusted: every write
@@ -100,4 +110,10 @@ func (m *memory) len() int {
 // modification time.
 func sameFile(a, b os.FileInfo) bool {
 	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
+}
+
+// mtimeSettled reports whether info's modification time is old enough relative
+// to readAt that no subsequent write can land on the same filesystem clock tick.
+func mtimeSettled(readAt time.Time, info os.FileInfo) bool {
+	return info != nil && readAt.Sub(info.ModTime()) >= mtimeSafetyWindow
 }

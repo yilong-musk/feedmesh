@@ -52,13 +52,11 @@ func TestProviderTimeoutsClampX(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout, linuxdoTimeout, pinterestTimeout, polymarketTimeout := providerTimeouts(tc.opts)
-			if sspaiTimeout != tc.wantSspai || v2exTimeout != tc.wantV2ex || xTimeout != tc.wantX ||
-				smzdmTimeout != tc.wantSmzdm || youtubeTimeout != tc.wantYouTube || redditTimeout != tc.wantReddit ||
-				douyinTimeout != tc.wantDouyin || tiktokTimeout != tc.wantTikTok || bilibiliTimeout != tc.wantBilibili || telegramTimeout != tc.wantTelegram || linuxdoTimeout != tc.wantLinuxDo || pinterestTimeout != tc.wantPinterest || polymarketTimeout != tc.wantPolymarket {
-				t.Fatalf("timeouts = %v/%v/%v/%v/%v/%v/%v/%v/%v/%v/%v/%v/%v, want %v/%v/%v/%v/%v/%v/%v/%v/%v/%v/%v/%v/%v",
-					sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout, linuxdoTimeout, pinterestTimeout, polymarketTimeout,
-					tc.wantSspai, tc.wantV2ex, tc.wantX, tc.wantSmzdm, tc.wantYouTube, tc.wantReddit, tc.wantDouyin, tc.wantTikTok, tc.wantBilibili, tc.wantTelegram, tc.wantLinuxDo, tc.wantPinterest, tc.wantPolymarket)
+			got := providerTimeouts(tc.opts)
+			want := providerTimeoutSet{tc.wantSspai, tc.wantV2ex, tc.wantX, tc.wantSmzdm, tc.wantYouTube, tc.wantReddit,
+				tc.wantDouyin, tc.wantTikTok, tc.wantBilibili, tc.wantTelegram, tc.wantLinuxDo, tc.wantPinterest, tc.wantPolymarket}
+			if got != want {
+				t.Fatalf("timeouts = %+v, want %+v", got, want)
 			}
 		})
 	}

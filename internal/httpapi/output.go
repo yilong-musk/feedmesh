@@ -104,6 +104,35 @@ func (s *Server) withGzip(next http.Handler) http.Handler {
 	})
 }
 
+// rssContentType is the media type of every RSS response.
+const rssContentType = "application/rss+xml; charset=utf-8"
+
+// limitParam reads ?limit=, falling back to def and capping at max.
+func limitParam(r *http.Request, def, max int) int {
+	return atoiClamp(r.URL.Query().Get("limit"), def, max)
+}
+
+// refreshParam reports ?refresh=1.
+func refreshParam(r *http.Request) bool {
+	return r.URL.Query().Get("refresh") == "1"
+}
+
+// serveFeed finishes an RSS route: the error envelope when the read failed,
+// otherwise the document with its headers. maxAge is the provider's freshness
+// window in seconds; a degraded document gets the short degraded max-age and
+// X-Feedmesh-Degraded instead, and a feed that names its source (YouTube's
+// atom/browse/stale, Reddit's atom/stale) publishes it as X-Feedmesh-Source.
+func (s *Server) serveFeed(w http.ResponseWriter, r *http.Request, f *feed.Feed, err error, maxAge int) {
+	if err != nil {
+		s.writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", rssContentType)
+	setSource(w, f.Source)
+	s.setRSSCacheFor(w, f, maxAge)
+	s.writeRSS(w, r, f)
+}
+
 // writeRSS renders f with a validator and answers a matching conditional
 // request with 304 Not Modified, so a polling reader whose copy is current
 // downloads nothing. Callers set Content-Type and the cache headers first; a

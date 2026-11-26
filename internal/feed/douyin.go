@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
 )
 
@@ -49,7 +50,7 @@ func (s *Service) GetDouyin(ctx context.Context, secUID string, limit int, refre
 	// on the item, so the cache stores items and can widen a narrow entry in
 	// place. A plain read-through entry would let one ?limit=1 request narrow
 	// every later read for the whole TTL, which is exactly what used to happen.
-	key := "douyin:user:" + secUID
+	key := cachekey.Douyin.Key("user", secUID)
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, douyinTTL, refresh, limit,
 		func(ctx context.Context, n int) ([]douyin.Item, error) {
 			tl, terr := s.clients.Douyin.Timeline(ctx, secUID, n)

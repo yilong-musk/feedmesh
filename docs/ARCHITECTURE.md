@@ -25,10 +25,10 @@ Each provider knows only its own upstream; `feed` knows nothing about URLs, requ
 ## Cache
 
 - Location: `--cache-dir` / `FEEDMESH_CACHE`, defaulting to `~/.cache/feedmesh` (`~/Library/Caches/feedmesh` on macOS). When `os.UserCacheDir()` is unavailable, a random private temporary directory is used instead of falling back to the shared `/tmp/feedmesh`; that fallback directory is deleted when the process exits.
-- Layout: one JSON file per key, filename derived by sanitizing the key (`profile:2803301701` → `profile_2803301701.json`).
+- Layout: one JSON file per key, filename derived by sanitizing the key (`profile:2803301701` → `profile_2803301701.json`). Every key is built through `internal/cachekey`, and the cache derives the stems it manages (stats, GC, purge) from that list; a test rejects raw key literals in `internal/feed` and `cmd`.
 - Permissions: directory 0700, files 0600; a cache directory that is a symlink is refused.
 - Atomic writes: temporary file → `fsync` → `rename`, so readers never see a half-written file. Only the rename (and GC's compare-and-remove) takes the in-process lock; encoding, writing and `fsync` run concurrently for different keys, and `GC()` scans without blocking writers.
-- Memory layer: recently read entries stay parsed in memory (LRU, 32 MB). A hit costs one `stat` and is used only while the file keeps the same inode, size and modification time, so a write or purge by another process (the CLI next to the server) is seen on the next read. The disk remains the source of truth.
+- Memory layer: recently read entries stay parsed in memory (LRU, 32 MB). An entry is promoted once its file modification time has aged past a short safety window (100 ms, guarding against coarse filesystem timestamp ticks). A hit costs one `stat` and is used only while the file keeps the same inode, size and modification time, so a write or purge by another process (the CLI next to the server) is seen on the next read. The disk remains the source of truth.
 - Expired entries are cleaned up by `GC()` at startup and hourly while the service runs; on read they are also treated as a miss and deleted. Corrupt entries (not JSON), or files whose ownership cannot be verified through `Entry.Key`, are treated as a miss on read and are not deleted; `GC()` likewise will not delete unverifiable files on the strength of a filename prefix alone, and it cleans up `.json.tmp*` temporary files older than 1 hour. Before deleting, `GC()` re-reads the file and compares its contents, so it does not remove a new entry that another process has just written.
 - Purge scope: `cache purge --all` deletes only feedmesh entries whose `Entry.Key` matches the filename, so other `.json` files in the same directory are left untouched; `--uid` deletes `longtext_<uid>_*`, additionally reads the legacy timeline to collect longtext ids and scans domain entries (the discovery phase ignores expiry, so expired domain/timeline entries get cleaned too); `--handle` deletes the matching X timeline.
 - **limit awareness**: list caches record `{items, want}`; when a request asks for more items than the cached width, it goes upstream and widens the cache, so a small `limit` cannot truncate a cache built with a large `limit`; `refresh=1` also preserves the existing width while writing the new data. Reads / widening / write-backs are serialized per key, so concurrent requests with different limits cannot narrow the cache again.
@@ -99,6 +99,7 @@ internal/cache/     key-per-file cache, TTL, atomic writes
 internal/httpapi/   HTTP routing and error envelope
 internal/guard/     breaker + single-flight
 internal/apperr/    shared error envelope: classified errors with stable codes
+internal/cachekey/  the one list of cache key namespaces; the cache manages exactly these
 internal/upstream/  bounded body reads and context-aware request slots for providers
 internal/logx/      stderr JSON line logging
 deploy/             systemd user unit

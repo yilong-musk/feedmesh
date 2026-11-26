@@ -1,8 +1,9 @@
 package feed
 
 import (
-	"strings"
 	"time"
+
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 )
 
 // staleWindow is how old a stored value may be when it is served because the
@@ -33,10 +34,10 @@ const failureBackoff = time.Minute
 // than the window keeps its entry, and is served from it, for that TTL instead.
 func staleWindowFor(key string, ttl time.Duration) time.Duration {
 	window := staleWindow
-	if strings.HasPrefix(key, "hot:") {
+	if cachekey.Hot.Owns(key) {
 		window = hotStaleWindow
 	}
-	if strings.HasPrefix(key, "linuxdo:") {
+	if cachekey.LinuxDo.Owns(key) {
 		window = linuxdoStaleWindow
 	}
 	if ttl > window {

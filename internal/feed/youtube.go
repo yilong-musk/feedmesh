@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/youtube"
 )
 
@@ -69,7 +70,10 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 	}
 
 	// One deadline for the whole lookup: the channel page and the feed each
-	// have their own budget, and without this the two would add up.
+	// have their own budget, and without this the two would add up. The
+	// caller's own context is kept to tell its cancellation apart from an
+	// upstream that ran out of budget.
+	caller := ctx
 	ctx, cancel := context.WithTimeout(ctx, s.clients.Youtube.Budget())
 	defer cancel()
 
@@ -78,7 +82,7 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 		return nil, youtubeError(err, ref)
 	}
 
-	key := "youtube:feed:" + channelID
+	key := cachekey.Youtube.Key("feed", channelID)
 	unlock, err := s.lockListKey(ctx, key)
 	if err != nil {
 		return nil, err
@@ -89,10 +93,19 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 		if e, ok := s.readYouTube(key, false); ok {
 			return s.youtubeFeed(e, limit, true, false), nil
 		}
+		// Same cool-off as fetchCached: a channel that just failed is
+		// answered from its last good list instead of another retry chain.
+		if s.coolingDown(key) {
+			if e, ok := s.readYouTube(key, true); ok {
+				s.log.Warn("youtube feed is cooling down after a failure, serving the last good list", "channel", channelID)
+				return s.youtubeFeed(e, limit, true, true), nil
+			}
+		}
 	}
 
 	upstream, err := s.clients.Youtube.Videos(ctx, channelID)
 	if err == nil {
+		s.noteSuccess(key)
 		if len(upstream.Videos) == 0 {
 			// A successful read with no entries is either a channel without
 			// uploads or a partial answer from the endpoint. Keeping the list
@@ -133,6 +146,9 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 		// key is visible instead of surfacing as a feed 404 forever.
 		s.log.Warn("youtube web client fallback failed", "channel", channelID, "error", fb.Browse.Error())
 	}
+	if !callerGone(caller, err) {
+		s.noteFailure(key)
+	}
 	if e, ok := s.readYouTube(key, true); ok {
 		s.log.Warn("youtube feed degraded to the last good list", "channel", channelID, "error", err.Error())
 		return s.youtubeFeed(e, limit, true, true), nil
@@ -153,7 +169,7 @@ func (s *Service) GetYouTube(ctx context.Context, ref string, limit int, refresh
 // instead: it still names the right channel, and the list it points at is
 // what the caller came for.
 func (s *Service) youtubeChannelID(ctx context.Context, ref string) (string, error) {
-	key := "youtube:channel:" + youtube.MappingKey(ref)
+	key := cachekey.Youtube.Key("channel", youtube.MappingKey(ref))
 	if s.cache != nil {
 		var id string
 		// Peek, not Get: Get deletes an expired entry, and an expired mapping

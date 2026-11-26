@@ -25,6 +25,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/apperr"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
 	"github.com/yilong-musk/feedmesh/internal/cache"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/douyin"
 	"github.com/yilong-musk/feedmesh/internal/feed"
 	"github.com/yilong-musk/feedmesh/internal/guard"
@@ -393,25 +394,25 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 		Retries: 3,
 		Backoff: 300 * time.Millisecond,
 	})
-	sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout, linuxdoTimeout, pinterestTimeout, polymarketTimeout := providerTimeouts(o)
-	sp := sspai.New(sspai.Config{Timeout: sspaiTimeout})
-	vx := v2ex.New(v2ex.Config{Timeout: v2exTimeout})
-	xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: o.noXEnrich})
-	sz := smzdm.New(smzdm.Config{Timeout: smzdmTimeout})
-	yt := youtube.New(youtube.Config{Timeout: youtubeTimeout})
-	rd := reddit.New(reddit.Config{Timeout: redditTimeout, Log: logger})
+	to := providerTimeouts(o)
+	sp := sspai.New(sspai.Config{Timeout: to.Sspai})
+	vx := v2ex.New(v2ex.Config{Timeout: to.V2ex})
+	xn := xnitter.New(xnitter.Config{Timeout: to.X, Log: logger, DisableEnrichment: o.noXEnrich})
+	sz := smzdm.New(smzdm.Config{Timeout: to.Smzdm})
+	yt := youtube.New(youtube.Config{Timeout: to.YouTube})
+	rd := reddit.New(reddit.Config{Timeout: to.Reddit, Log: logger})
 	dy := douyin.New(douyin.Config{
 		ChromePath: os.Getenv("FEEDMESH_CHROME"),
 		ProfileDir: filepath.Join(c.Dir(), "douyin-profile"),
-		Timeout:    douyinTimeout,
+		Timeout:    to.Douyin,
 		Log:        logger,
 	})
-	tk := tiktok.New(tiktok.Config{Timeout: tiktokTimeout, Log: logger})
-	bl := bilibili.New(bilibili.Config{Timeout: bilibiliTimeout, Log: logger})
-	tg := telegram.New(telegram.Config{Timeout: telegramTimeout, Log: logger})
-	ld := linuxdo.New(linuxdo.Config{Timeout: linuxdoTimeout, Log: logger})
-	pt := pinterest.New(pinterest.Config{Timeout: pinterestTimeout})
-	pm := polymarket.New(polymarket.Config{Timeout: polymarketTimeout})
+	tk := tiktok.New(tiktok.Config{Timeout: to.TikTok, Log: logger})
+	bl := bilibili.New(bilibili.Config{Timeout: to.Bilibili, Log: logger})
+	tg := telegram.New(telegram.Config{Timeout: to.Telegram, Log: logger})
+	ld := linuxdo.New(linuxdo.Config{Timeout: to.LinuxDo, Log: logger})
+	pt := pinterest.New(pinterest.Config{Timeout: to.Pinterest})
+	pm := polymarket.New(polymarket.Config{Timeout: to.Polymarket})
 	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk, Bilibili: bl, Telegram: tg, LinuxDo: ld, Pinterest: pt, Polymarket: pm}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
@@ -419,86 +420,52 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 // providerTimeouts resolves the per-provider request timeouts. X is capped even
 // when --timeout is larger, so a single X feed request cannot spend the whole
 // handler deadline on slow mirror attempts.
-func providerTimeouts(o *options) (sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout, linuxdoTimeout, pinterestTimeout, polymarketTimeout time.Duration) {
-	sspaiTimeout = defaultSspaiTimeout
-	v2exTimeout = defaultV2exTimeout
-	xTimeout = defaultXTimeout
-	smzdmTimeout = defaultSmzdmTimeout
-	youtubeTimeout = defaultYouTubeTimeout
-	redditTimeout = defaultRedditTimeout
-	douyinTimeout = defaultDouyinTimeout
-	tiktokTimeout = defaultTikTokTimeout
-	bilibiliTimeout = defaultBilibiliTimeout
-	telegramTimeout = defaultTelegramTimeout
-	linuxdoTimeout = defaultLinuxDoTimeout
-	pinterestTimeout = defaultPinterestTimeout
-	polymarketTimeout = defaultPolymarketTimeout
-	if o.timeoutSet {
-		sspaiTimeout = o.timeout
-		v2exTimeout = o.timeout
-		xTimeout = o.timeout
-		smzdmTimeout = o.timeout
-		youtubeTimeout = o.timeout
-		redditTimeout = o.timeout
-		douyinTimeout = o.timeout
-		tiktokTimeout = o.timeout
-		bilibiliTimeout = o.timeout
-		telegramTimeout = o.timeout
-		linuxdoTimeout = o.timeout
-		pinterestTimeout = o.timeout
-		polymarketTimeout = o.timeout
+func providerTimeouts(o *options) providerTimeoutSet {
+	// pick applies one provider's policy: its default, or the explicit
+	// --timeout; a non-positive value falls back to the Weibo default; floor
+	// and ceiling (zero for none) bound the result.
+	pick := func(def, floor, ceiling time.Duration) time.Duration {
+		d := def
+		if o.timeoutSet {
+			d = o.timeout
+		}
+		if d <= 0 {
+			d = defaultTimeout
+		}
+		if floor > 0 && d < floor {
+			d = floor
+		}
+		if ceiling > 0 && d > ceiling {
+			d = ceiling
+		}
+		return d
 	}
-	if sspaiTimeout <= 0 {
-		sspaiTimeout = defaultTimeout
+	return providerTimeoutSet{
+		Sspai:   pick(defaultSspaiTimeout, 0, 0),
+		V2ex:    pick(defaultV2exTimeout, 0, 0),
+		X:       pick(defaultXTimeout, 0, maxXTimeout),
+		Smzdm:   pick(defaultSmzdmTimeout, 0, 0),
+		YouTube: pick(defaultYouTubeTimeout, 0, 0),
+		Reddit:  pick(defaultRedditTimeout, 0, 0),
+		// The Douyin page needs about fifteen seconds to become ready, so a
+		// very small shared deadline would make every call fail.
+		Douyin: pick(defaultDouyinTimeout, 20*time.Second, 0),
+		// A TikTok call solves one WAF puzzle before the API request.
+		TikTok: pick(defaultTikTokTimeout, 10*time.Second, 0),
+		// Bilibili answers a rate limit with 412 and needs two backoff rounds.
+		Bilibili: pick(defaultBilibiliTimeout, 20*time.Second, 0),
+		Telegram: pick(defaultTelegramTimeout, 0, 0),
+		// A LINUX DO call may walk three RSS pages through a five-second
+		// global slot.
+		LinuxDo:    pick(defaultLinuxDoTimeout, 20*time.Second, 0),
+		Pinterest:  pick(defaultPinterestTimeout, 0, 0),
+		Polymarket: pick(defaultPolymarketTimeout, 0, 0),
 	}
-	if v2exTimeout <= 0 {
-		v2exTimeout = defaultTimeout
-	}
-	if xTimeout <= 0 {
-		xTimeout = defaultTimeout
-	}
-	if smzdmTimeout <= 0 {
-		smzdmTimeout = defaultTimeout
-	}
-	if xTimeout > maxXTimeout {
-		xTimeout = maxXTimeout
-	}
-	if youtubeTimeout <= 0 {
-		youtubeTimeout = defaultTimeout
-	}
-	if redditTimeout <= 0 {
-		redditTimeout = defaultTimeout
-	}
-	// The Douyin page needs about fifteen seconds to become ready, so a very
-	// small shared deadline would make every call fail; keep a floor.
-	if douyinTimeout < 20*time.Second {
-		douyinTimeout = 20 * time.Second
-	}
-	// A TikTok call solves one WAF puzzle before the API request; keep a small
-	// floor so a tiny shared --timeout does not make every call fail.
-	if tiktokTimeout < 10*time.Second {
-		tiktokTimeout = 10 * time.Second
-	}
-	// Bilibili answers a rate limit with 412 and needs two backoff rounds; a
-	// tiny shared --timeout would make every call fail before the retry.
-	if bilibiliTimeout < 20*time.Second {
-		bilibiliTimeout = 20 * time.Second
-	}
-	if telegramTimeout <= 0 {
-		telegramTimeout = defaultTimeout
-	}
-	// A LINUX DO call may walk three RSS pages through a five-second global
-	// slot; a tiny shared --timeout would make every paged read fail.
-	if linuxdoTimeout < 20*time.Second {
-		linuxdoTimeout = 20 * time.Second
-	}
-	if pinterestTimeout <= 0 {
-		pinterestTimeout = defaultTimeout
-	}
-	if polymarketTimeout <= 0 {
-		polymarketTimeout = defaultTimeout
-	}
-	return sspaiTimeout, v2exTimeout, xTimeout, smzdmTimeout, youtubeTimeout, redditTimeout, douyinTimeout, tiktokTimeout, bilibiliTimeout, telegramTimeout, linuxdoTimeout, pinterestTimeout, polymarketTimeout
+}
+
+// providerTimeoutSet is the resolved request timeout of every provider.
+type providerTimeoutSet struct {
+	Sspai, V2ex, X, Smzdm, YouTube, Reddit, Douyin, TikTok, Bilibili, Telegram, LinuxDo, Pinterest, Polymarket time.Duration
 }
 
 func exitCodeFor(code string) int {
@@ -679,8 +646,7 @@ func cmdDoctor(o *options, stdout io.Writer, logger *logx.Logger) int {
 	var steps []doctorStep
 	if o.xHandle != "" {
 		mode = "x"
-		_, _, xTimeout, _, _, _, _, _, _, _, _, _, _ := providerTimeouts(o)
-		xn := xnitter.New(xnitter.Config{Timeout: xTimeout, Log: logger, DisableEnrichment: true})
+		xn := xnitter.New(xnitter.Config{Timeout: providerTimeouts(o).X, Log: logger, DisableEnrichment: true})
 		for _, st := range xn.Probe(ctx, strings.TrimSpace(o.xHandle)) {
 			steps = append(steps, doctorStep{
 				Step: st.Step, OK: st.OK, MS: st.MS, HTTPStatus: st.HTTPStatus,
@@ -843,14 +809,14 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 				add(ki.Key)
 			}
 		case uid != "":
-			add("profile_" + uid)
-			add("timeline_" + uid)
+			add(cache.SafeKey(cachekey.Profile.Key(uid)))
+			add(cache.SafeKey(cachekey.Timeline.Key(uid)))
 			for _, ki := range list {
-				if strings.HasPrefix(ki.Key, "feed_"+uid+"_") ||
-					strings.HasPrefix(ki.Key, "longtext_"+uid+"_") {
+				if strings.HasPrefix(ki.Key, cachekey.Feed.StemPrefix()+uid+"_") ||
+					strings.HasPrefix(ki.Key, cachekey.LongText.StemPrefix()+uid+"_") {
 					add(ki.Key)
 				}
-				if strings.HasPrefix(ki.Key, "domain_") {
+				if strings.HasPrefix(ki.Key, cachekey.Domain.StemPrefix()) {
 					var cachedUID string
 					if hit, err := c.PeekStored(ki.Key, &cachedUID); err == nil && hit && cachedUID == uid {
 						add(ki.Key)
@@ -862,13 +828,13 @@ func cmdCache(pos []string, o *options, stdout io.Writer, logger *logx.Logger) i
 			// TTL: an expired timeline still names long-text entries that must
 			// be removed by this targeted purge.
 			var tl weibo.Timeline
-			if hit, err := c.PeekStored("timeline:"+uid, &tl); err == nil && hit {
+			if hit, err := c.PeekStored(cachekey.Timeline.Key(uid), &tl); err == nil && hit {
 				for _, id := range longTextIDs(tl.Items) {
-					add("longtext_" + id)
+					add(cachekey.LongText.StemPrefix() + id)
 				}
 			}
 		case handle != "":
-			add("x_" + strings.ToLower(handle))
+			add(cache.SafeKey(cachekey.X.Key(strings.ToLower(handle))))
 		}
 
 		var bytes int64

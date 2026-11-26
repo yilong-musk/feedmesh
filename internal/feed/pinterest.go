@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/pinterest"
 )
 
@@ -51,9 +52,9 @@ func (s *Service) GetPinterest(ctx context.Context, user, board string, limit in
 		limit = MaxPinterestLimit
 	}
 
-	key := "pinterest:user:" + strings.ToLower(user)
+	key := cachekey.Pinterest.Key("user", strings.ToLower(user))
 	if board != "" {
-		key = "pinterest:board:" + strings.ToLower(user) + "/" + strings.ToLower(board)
+		key = cachekey.Pinterest.Key("board", strings.ToLower(user)+"/"+strings.ToLower(board))
 	}
 	// The provider always reads the full 25-pin slice and the cache stores the
 	// whole result, so a narrow request warms the same entry a wide one uses

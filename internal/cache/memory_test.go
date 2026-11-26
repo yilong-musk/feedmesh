@@ -11,6 +11,17 @@ import (
 
 // Two Cache values on one directory stand in for the server and a CLI run.
 
+// settleFile moves key's modification time past mtimeSafetyWindow so the next
+// read promotes it into the memory layer without sleeping.
+func settleFile(t testing.TB, dir, key string) {
+	t.Helper()
+	p := filepath.Join(dir, SafeKey(key)+".json")
+	past := time.Now().Add(-time.Second)
+	if err := os.Chtimes(p, past, past); err != nil {
+		t.Fatalf("chtimes %s: %v", p, err)
+	}
+}
+
 func TestMemorySeesAWriteFromAnotherProcess(t *testing.T) {
 	dir := t.TempDir()
 	server, _ := New(dir)
@@ -19,6 +30,7 @@ func TestMemorySeesAWriteFromAnotherProcess(t *testing.T) {
 	if err := server.Set("timeline:1", "v1", time.Hour); err != nil {
 		t.Fatal(err)
 	}
+	settleFile(t, dir, "timeline:1")
 	var got string
 	if hit, _, _ := server.Get("timeline:1", &got); !hit || got != "v1" {
 		t.Fatalf("first read = %v %q", hit, got)
@@ -43,9 +55,13 @@ func TestMemorySeesAPurgeFromAnotherProcess(t *testing.T) {
 	if err := server.Set("timeline:1", "v1", time.Hour); err != nil {
 		t.Fatal(err)
 	}
+	settleFile(t, dir, "timeline:1")
 	var got string
 	if hit, _, _ := server.Get("timeline:1", &got); !hit {
 		t.Fatal("expected a hit before the purge")
+	}
+	if server.mem.len() != 1 {
+		t.Fatalf("memory entries = %d, want 1", server.mem.len())
 	}
 	if ok, err := cli.Delete("timeline:1"); err != nil || !ok {
 		t.Fatalf("Delete = %v, %v", ok, err)
@@ -63,16 +79,37 @@ func TestMemoryIgnoresAFileRewrittenInPlace(t *testing.T) {
 	var got string
 	_, _, _ = c.Get("timeline:1", &got)
 
-	// Not an atomic rename: same inode, new contents. The size differs, so
-	// the stat no longer matches and the file is read again.
+	// Same-size in-place rewrite immediately after write (within the coarse
+	// filesystem mtime tick): inode, size and mtime can all match, so the
+	// entry must not have been cached yet.
 	p := filepath.Join(c.Dir(), "timeline_1.json")
 	raw, _ := os.ReadFile(p)
-	rewritten := strings.Replace(string(raw), `"v1"`, `"v1-rewritten"`, 1)
-	if err := os.WriteFile(p, []byte(rewritten), 0o600); err != nil {
+	sameSize := strings.Replace(string(raw), `"v1"`, `"v2"`, 1)
+	if len(sameSize) != len(raw) {
+		t.Fatalf("expected same-size rewrite, got %d vs %d", len(sameSize), len(raw))
+	}
+	if err := os.WriteFile(p, []byte(sameSize), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if hit, _, _ := c.Get("timeline:1", &got); !hit || got != "v1-rewritten" {
-		t.Fatalf("read after an in-place rewrite = %v %q", hit, got)
+	if hit, _, _ := c.Get("timeline:1", &got); !hit || got != "v2" {
+		t.Fatalf("read after a same-tick same-size rewrite = %v %q, want v2", hit, got)
+	}
+
+	// Once mtime settles and the entry is promoted to memory, a later same-size
+	// in-place rewrite advances mtime and is still seen.
+	settleFile(t, c.Dir(), "timeline:1")
+	if hit, _, _ := c.Get("timeline:1", &got); !hit || got != "v2" {
+		t.Fatalf("settled read = %v %q", hit, got)
+	}
+	if c.mem.len() != 1 {
+		t.Fatalf("memory entries = %d, want 1", c.mem.len())
+	}
+	sameSize2 := strings.Replace(sameSize, `"v2"`, `"v3"`, 1)
+	if err := os.WriteFile(p, []byte(sameSize2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if hit, _, _ := c.Get("timeline:1", &got); !hit || got != "v3" {
+		t.Fatalf("read after a settled in-place rewrite = %v %q, want v3", hit, got)
 	}
 }
 
@@ -138,6 +175,11 @@ func BenchmarkGetHotKey(b *testing.B) {
 			}
 			if err := c.Set("timeline:1", payload, time.Hour); err != nil {
 				b.Fatal(err)
+			}
+			settleFile(b, c.Dir(), "timeline:1")
+			var warm []map[string]string
+			if hit, _, _ := c.Get("timeline:1", &warm); !hit {
+				b.Fatal("warm miss")
 			}
 			b.ReportAllocs()
 			b.ResetTimer()

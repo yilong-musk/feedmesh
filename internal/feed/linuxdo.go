@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/linuxdo"
 )
 
@@ -57,7 +58,7 @@ func (s *Service) GetLinuxDo(ctx context.Context, raw linuxdo.Ref, limit int, re
 		defer cancel()
 	}
 
-	key := "linuxdo:feed:" + ref.Key()
+	key := cachekey.LinuxDo.Key("feed", ref.Key())
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, linuxdoTTL, refresh, limit,
 		func(ctx context.Context, n int) ([]linuxdo.Topic, error) {
 			f, ferr := s.clients.LinuxDo.Fetch(ctx, ref, n)

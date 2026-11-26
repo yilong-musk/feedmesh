@@ -628,3 +628,32 @@ func TestGetYouTubeBoundsTheWholeLookup(t *testing.T) {
 		t.Fatalf("lookup took %v, want one 200ms budget for the page and the feed together", elapsed)
 	}
 }
+
+// After a failed read the channel is answered from its last good list for the
+// cool-off, without another trip through the retry chain and the fallback.
+func TestGetYouTubeCoolsDownAfterAFailure(t *testing.T) {
+	up := &ytUpstream{body: ytFeedXML}
+	srv := httptest.NewServer(up.handler())
+	defer srv.Close()
+	dir := t.TempDir()
+	svc := newYouTubeServiceAt(t, srv.URL, dir)
+	ctx := context.Background()
+
+	if _, err := svc.GetYouTube(ctx, "@testchannel", 15, false); err != nil {
+		t.Fatalf("warm read: %v", err)
+	}
+	ageYouTubeFeedEntry(t, dir)
+	up.down.Store(true)
+	if f, err := svc.GetYouTube(ctx, "@testchannel", 15, false); err != nil || !f.Degraded {
+		t.Fatalf("failed read = %v, %v; want the degraded last good list", f, err)
+	}
+	before := atomic.LoadInt32(&up.feedHits)
+
+	f, err := svc.GetYouTube(ctx, "@testchannel", 15, false)
+	if err != nil || !f.Degraded || len(f.Items) != 2 {
+		t.Fatalf("read during the cool-off = %v, %v", f, err)
+	}
+	if got := atomic.LoadInt32(&up.feedHits); got != before {
+		t.Fatalf("feed requests during the cool-off = %d, want none", got-before)
+	}
+}

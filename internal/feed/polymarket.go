@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/cachekey"
 	"github.com/yilong-musk/feedmesh/internal/polymarket"
 )
 
@@ -61,7 +62,7 @@ func (s *Service) GetPolymarketEvents(ctx context.Context, order, tag string, li
 		return nil, &apperr.Error{Code: apperr.CodeBadRequest, Message: "unknown polymarket order " + order}
 	}
 
-	key := "polymarket:events:" + order + ":" + firstNonEmpty(tag, "all")
+	key := cachekey.Polymarket.Key("events", order, firstNonEmpty(tag, "all"))
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, polymarketListTTL, refresh, limit,
 		func(ctx context.Context, n int) ([]polymarket.Event, error) {
 			return s.clients.Polymarket.ListEvents(ctx, order, tag, n)
@@ -89,7 +90,7 @@ func (s *Service) GetPolymarketEvent(ctx context.Context, slug string, limit int
 		limit = MaxPolymarketLimit
 	}
 
-	key := "polymarket:event:" + slug
+	key := cachekey.Polymarket.Key("event", slug)
 	// Always read the full slice: the cache stores it whole, then each caller
 	// gets its own limit. Fetching with the caller's limit would let a narrow
 	// first request truncate the cached event for everyone else.
@@ -123,7 +124,7 @@ func (s *Service) GetPolymarketActivity(ctx context.Context, address string, lim
 		limit = MaxPolymarketActivityLimit
 	}
 
-	key := "polymarket:activity:" + address
+	key := cachekey.Polymarket.Key("activity", address)
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, polymarketActivityTTL, refresh, limit,
 		func(ctx context.Context, n int) ([]polymarket.Activity, error) {
 			return s.clients.Polymarket.Activity(ctx, address, n)
