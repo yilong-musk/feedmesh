@@ -1,15 +1,15 @@
 package guard
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
 
 type call struct {
-	wg   sync.WaitGroup
+	done chan struct{}
 	val  any
 	err  error
-	done bool
 }
 
 // Group collapses concurrent calls sharing a key into a single execution.
@@ -27,7 +27,13 @@ func NewGroup() *Group {
 // Do runs fn once per key while a call for that key is in flight. Waiters
 // receive the same value and error. The reported shared flag is true when the
 // caller joined an existing call instead of doing the work itself.
-func Do[T any](g *Group, key string, fn func() (T, error)) (v T, err error, shared bool) {
+//
+// A waiter stops waiting when its own ctx ends and returns ctx.Err(); the
+// in-flight call keeps running for the caller that started it and for the
+// remaining waiters. fn is responsible for its own deadline: it must not
+// depend on the cancellation of whichever caller happened to start it,
+// otherwise one caller that goes away fails everybody who joined.
+func Do[T any](ctx context.Context, g *Group, key string, fn func() (T, error)) (v T, err error, shared bool) {
 	if g == nil {
 		v, err = fn()
 		return v, err, false
@@ -36,12 +42,16 @@ func Do[T any](g *Group, key string, fn func() (T, error)) (v T, err error, shar
 	g.mu.Lock()
 	if existing, ok := g.m[key]; ok {
 		g.mu.Unlock()
-		existing.wg.Wait()
+		select {
+		case <-existing.done:
+		case <-ctx.Done():
+			var zero T
+			return zero, ctx.Err(), true
+		}
 		v, _ := existing.val.(T)
 		return v, existing.err, true
 	}
-	c := &call{}
-	c.wg.Add(1)
+	c := &call{done: make(chan struct{})}
 	g.m[key] = c
 	g.mu.Unlock()
 
@@ -56,10 +66,9 @@ func Do[T any](g *Group, key string, fn func() (T, error)) (v T, err error, shar
 		g.mu.Lock()
 		c.val = v
 		c.err = err
-		c.done = true
 		delete(g.m, key)
 		g.mu.Unlock()
-		c.wg.Done()
+		close(c.done)
 	}()
 
 	v, err = fn()

@@ -2,6 +2,7 @@ package feed
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -128,29 +129,30 @@ type Service struct {
 
 // keyedMutex serialises cache reads and writes for one list key. Locks are
 // reference counted so the map does not grow with every account ever requested.
+// The lock is a one-slot channel rather than a sync.Mutex so a waiter can give
+// up when its own request ends: a cold read (a browser warm-up, a retry chain)
+// can hold the key for tens of seconds.
 type keyedMutex struct {
-	mu   sync.Mutex
+	slot chan struct{}
 	refs int
 }
 
-// lockListKey blocks until the caller owns the lock for key and returns the
-// matching unlock function.
-func (s *Service) lockListKey(key string) func() {
+// lockListKey blocks until the caller owns the lock for key, or ctx ends, and
+// returns the matching unlock function.
+func (s *Service) lockListKey(ctx context.Context, key string) (func(), error) {
 	s.listMu.Lock()
 	if s.listLocks == nil {
 		s.listLocks = make(map[string]*keyedMutex)
 	}
 	lock := s.listLocks[key]
 	if lock == nil {
-		lock = &keyedMutex{}
+		lock = &keyedMutex{slot: make(chan struct{}, 1)}
 		s.listLocks[key] = lock
 	}
 	lock.refs++
 	s.listMu.Unlock()
 
-	lock.mu.Lock()
-	return func() {
-		lock.mu.Unlock()
+	release := func() {
 		s.listMu.Lock()
 		lock.refs--
 		if lock.refs == 0 && s.listLocks[key] == lock {
@@ -158,6 +160,36 @@ func (s *Service) lockListKey(key string) func() {
 		}
 		s.listMu.Unlock()
 	}
+
+	select {
+	case lock.slot <- struct{}{}:
+	case <-ctx.Done():
+		release()
+		return nil, ctx.Err()
+	}
+	return func() {
+		<-lock.slot
+		release()
+	}, nil
+}
+
+// detach returns a context for an upstream read that is shared with other
+// callers (single-flight, or a list key they are queued on). It keeps ctx's
+// values and deadline but not its cancellation: the read must not fail for
+// everybody because the one reader that started it disconnected.
+func detach(ctx context.Context) (context.Context, context.CancelFunc) {
+	base := context.WithoutCancel(ctx)
+	if deadline, ok := ctx.Deadline(); ok {
+		return context.WithDeadline(base, deadline)
+	}
+	return context.WithCancel(base)
+}
+
+// callerGone reports whether err is only the caller's own context ending. That
+// is not an upstream failure: it must not start the failure cool-off.
+func callerGone(ctx context.Context, err error) bool {
+	cerr := ctx.Err()
+	return cerr != nil && errors.Is(err, cerr)
 }
 
 // NewService wires a Service.
@@ -200,7 +232,7 @@ func (s *Service) ResolveUID(ctx context.Context, target string, refresh bool) (
 
 func (s *Service) resolveDomain(ctx context.Context, domain string, refresh bool) (string, error) {
 	uid, _, _, err := fetchCached(ctx, s, "domain:"+strings.ToLower(domain), s.ttls.Domain, refresh,
-		func() (string, error) { return s.clients.Weibo.ResolveDomain(ctx, domain) })
+		func(ctx context.Context) (string, error) { return s.clients.Weibo.ResolveDomain(ctx, domain) })
 	return uid, err
 }
 
@@ -218,13 +250,13 @@ func (s *Service) GetFeed(ctx context.Context, uid string, limit int, refresh bo
 	}
 
 	profile, profileHit, profileDegraded, err := fetchCached(ctx, s, "profile:"+uid, s.ttls.Profile, refresh,
-		func() (*weibo.Profile, error) { return s.clients.Weibo.Profile(ctx, uid) })
+		func(ctx context.Context) (*weibo.Profile, error) { return s.clients.Weibo.Profile(ctx, uid) })
 	if err != nil {
 		return nil, err
 	}
 
 	timeline, timelineHit, timelineDegraded, err := fetchCached(ctx, s, "timeline:"+uid, s.ttls.Timeline, refresh,
-		func() (*weibo.Timeline, error) {
+		func(ctx context.Context) (*weibo.Timeline, error) {
 			return s.clients.Weibo.Timeline(ctx, uid, profile.ContainerID, 0)
 		})
 	if err != nil {
@@ -299,7 +331,7 @@ func (s *Service) hydrate(ctx context.Context, uid string, m *weibo.MBlog, refre
 			// long-text bodies even after the timeline entry has expired.
 			key := "longtext:" + uid + ":" + id
 			text, _, _, err := fetchCached(ctx, s, key, s.ttls.LongText, refresh,
-				func() (string, error) { return s.clients.Weibo.LongText(ctx, id) })
+				func(ctx context.Context) (string, error) { return s.clients.Weibo.LongText(ctx, id) })
 			switch {
 			case err == nil && strings.TrimSpace(text) != "":
 				m.Text = text
@@ -393,8 +425,11 @@ func errorString(err error) string {
 }
 
 // fetchCached reads through the cache, collapsing concurrent identical fetches.
+//
+// fn receives a context detached from the caller's cancellation (see detach),
+// because its result is shared with every caller that joined the flight.
 func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Duration, refresh bool,
-	fn func() (T, error)) (T, bool, bool, error) {
+	fn func(ctx context.Context) (T, error)) (T, bool, bool, error) {
 
 	if !refresh {
 		if v, ok := s.readFresh[T](key, ttl); ok {
@@ -412,13 +447,15 @@ func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Du
 	}
 
 	var zero T
-	value, err, _ := guard.Do(s.group, key, func() (T, error) {
+	value, err, _ := guard.Do(ctx, s.group, key, func() (T, error) {
 		if !refresh {
 			if v, ok := s.readFresh[T](key, ttl); ok {
 				return v, nil
 			}
 		}
-		val, ferr := fn()
+		fctx, cancel := detach(ctx)
+		defer cancel()
+		val, ferr := fn(fctx)
 		if ferr != nil {
 			return zero, ferr
 		}
@@ -432,6 +469,9 @@ func fetchCached[T any](ctx context.Context, s *Service, key string, ttl time.Du
 		return val, nil
 	})
 	if err != nil {
+		if callerGone(ctx, err) {
+			return zero, false, false, err
+		}
 		s.noteFailure(key)
 		// Upstream failed: a stale value beats an error, because a reader that
 		// gets 5xx treats the feed as broken and may stop polling.
@@ -530,7 +570,7 @@ func readCachedEntryAt[T any](s *Service, key string) (cachedList[T], time.Time,
 // The entry also carries FetchedAt, the instant the upstream read finished, so
 // a cache hit reports the read time instead of the request time.
 func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl time.Duration, refresh bool, want int,
-	fn func(n int) ([]T, error)) (cachedList[T], bool, bool, error) {
+	fn func(ctx context.Context, n int) ([]T, error)) (cachedList[T], bool, bool, error) {
 
 	if want < 1 {
 		want = 1
@@ -539,7 +579,10 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 	// keyed by width, a narrow and a wide request could both miss, then write
 	// in the wrong order and truncate the wider entry (refresh used to skip the
 	// wider-entry merge entirely).
-	unlock := s.lockListKey(key)
+	unlock, err := s.lockListKey(ctx, key)
+	if err != nil {
+		return cachedList[T]{}, false, false, err
+	}
 	defer unlock()
 
 	if refresh {
@@ -578,13 +621,15 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 	// Different widths get their own flight: a narrow request must never
 	// answer (and so silently truncate) a wide one that joins it.
 	flight := key + "#" + strconv.Itoa(want)
-	e, err, _ := guard.Do(s.group, flight, func() (cachedList[T], error) {
+	e, err, _ := guard.Do(ctx, s.group, flight, func() (cachedList[T], error) {
 		if !refresh {
 			if cached, ok := readCachedList[T](s, key, want, ttl); ok {
 				return cached, nil
 			}
 		}
-		items, ferr := fn(want)
+		fctx, cancel := detach(ctx)
+		defer cancel()
+		items, ferr := fn(fctx, want)
 		if ferr != nil {
 			return cachedList[T]{}, ferr
 		}
@@ -610,6 +655,9 @@ func fetchCachedList[T any](ctx context.Context, s *Service, key string, ttl tim
 		return cur, nil
 	})
 	if err != nil {
+		if callerGone(ctx, err) {
+			return cachedList[T]{}, false, false, err
+		}
 		s.noteFailure(key)
 		// Upstream refused or timed out: a list up to staleWindow old beats an
 		// error, because a reader that gets 5xx treats the feed as broken.

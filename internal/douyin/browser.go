@@ -35,14 +35,17 @@ type browser struct {
 	out    *bufio.Reader
 	mu     sync.Mutex
 	seq    int
-	dead   bool
 	closed bool
+	// dead marks a browser whose protocol stream can no longer be trusted (a
+	// read timed out mid-frame, or the pipe broke). It is atomic so the
+	// client can check it without waiting for a call that holds mu.
+	dead atomic.Bool
 
 	// session is the flattened target session used for page commands.
 	session string
 	// warm records that a page fetch already succeeded, so the next call can
 	// skip the visitor-cookie warm-up.
-	warm bool
+	warm atomic.Bool
 	// lastUsed is touched on every successful request; the idle reaper closes
 	// the process when it stays unused for a while.
 	lastUsed atomic.Int64
@@ -207,7 +210,7 @@ func (b *browser) open() error {
 func (b *browser) call(session, method string, params any) (json.RawMessage, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.dead {
+	if b.dead.Load() {
 		return nil, errors.New("browser is closed")
 	}
 	b.seq++
@@ -238,11 +241,15 @@ func (b *browser) call(session, method string, params any) (json.RawMessage, err
 		case <-time.After(time.Until(deadline)):
 			// A half-read frame would desynchronise every later call; the
 			// cheapest correct recovery is to drop this browser.
-			b.dead = true
+			b.dead.Store(true)
 			go b.Close()
 			return nil, fmt.Errorf("%s: devtools read timed out after %s", method, b.ioTimeout)
 		}
 		if res.err != nil {
+			// The pipe broke (Chromium exited or crashed): nothing more can
+			// be read from it, so let the client start a new browser.
+			b.dead.Store(true)
+			go b.Close()
 			return nil, res.err
 		}
 		var reply cdpMessage
@@ -301,6 +308,9 @@ func (b *browser) evaluate(expr string, await bool, timeoutMS int) (string, erro
 	return string(out.Result.Value), nil
 }
 
+// isDead reports whether the browser must be replaced.
+func (b *browser) isDead() bool { return b.dead.Load() }
+
 // navigate loads url in the attached page.
 func (b *browser) navigate(url string) error {
 	_, err := b.call(b.session, "Page.navigate", map[string]any{"url": url})
@@ -315,13 +325,15 @@ func (b *browser) Close() {
 		return
 	}
 	b.closed = true
-	b.dead = true
+	b.dead.Store(true)
 	b.mu.Unlock()
-	_ = b.in.Close()
-	if b.cmd.Process != nil {
-		_ = b.cmd.Process.Kill()
+	if b.in != nil {
+		_ = b.in.Close()
 	}
-	_, _ = b.cmd.Process.Wait()
+	if b.cmd != nil && b.cmd.Process != nil {
+		_ = b.cmd.Process.Kill()
+		_, _ = b.cmd.Process.Wait()
+	}
 }
 
 // tailBuffer keeps the last n bytes written to it, for error reporting.

@@ -83,7 +83,10 @@ func (s *Service) GetReddit(ctx context.Context, sub string, sort reddit.Sort, w
 	}
 
 	key := "reddit:list:" + name + ":" + string(sort) + ":" + string(window)
-	unlock := s.lockListKey(key)
+	unlock, err := s.lockListKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
 	defer unlock()
 
 	// A refresh bypasses the stored values but keeps the cache at least as

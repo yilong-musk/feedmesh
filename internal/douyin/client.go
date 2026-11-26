@@ -79,6 +79,12 @@ type Client struct {
 	br     *browser
 	closed bool
 	reap   bool
+
+	// slot serialises Timeline calls. Every call drives the same page, and a
+	// navigation started by one call destroys the execution context of
+	// another call's in-flight fetch. A channel instead of a mutex lets a
+	// queued caller leave when its own deadline passes.
+	slot chan struct{}
 }
 
 // New returns a client. The browser starts lazily on the first Timeline call.
@@ -86,7 +92,7 @@ func New(cfg Config) *Client {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = DefaultTimeout
 	}
-	return &Client{cfg: cfg}
+	return &Client{cfg: cfg, slot: make(chan struct{}, 1)}
 }
 
 // Budget is the maximum time one call may take.
@@ -112,7 +118,16 @@ func (c *Client) browser() (*browser, error) {
 		return nil, errors.New("douyin client is closed")
 	}
 	if c.br != nil {
-		return c.br, nil
+		if !c.br.isDead() {
+			return c.br, nil
+		}
+		// A browser whose protocol stream broke stays dead; without this the
+		// client would answer "browser is closed" until the process restarts
+		// (the idle reaper only exists after a first successful call).
+		dead := c.br
+		c.br = nil
+		go dead.Close()
+		c.logf("douyin browser stopped answering, starting a new one")
 	}
 	br, err := startBrowser(c.cfg.ChromePath, c.cfg.ProfileDir, c.logf)
 	if err != nil {
@@ -181,6 +196,13 @@ func (c *Client) Timeline(ctx context.Context, secUID string, limit int) (*Timel
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
 
+	select {
+	case c.slot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait for the douyin browser: %w", ctx.Err())
+	}
+	defer func() { <-c.slot }()
+
 	br, err := c.browser()
 	if err != nil {
 		return nil, err
@@ -188,7 +210,7 @@ func (c *Client) Timeline(ctx context.Context, secUID string, limit int) (*Timel
 
 	// A fresh page needs about fifteen seconds before its signer is ready;
 	// every attempt before that answers "Sign Invalid" or an empty body.
-	if !br.warm {
+	if !br.warm.Load() {
 		if err := br.navigate(homeURL); err != nil {
 			return nil, fmt.Errorf("open douyin: %w", err)
 		}
@@ -227,7 +249,7 @@ func (c *Client) Timeline(ctx context.Context, secUID string, limit int) (*Timel
 		return nil, err
 	}
 
-	br.warm = true
+	br.warm.Store(true)
 	br.lastUsed.Store(time.Now().UnixNano())
 	c.startReaper(br)
 	return out, nil
@@ -362,10 +384,13 @@ type apiAweme struct {
 }
 
 // fetchPosts asks the page to call the post list endpoint; the page signs it.
+// The fetch aborts itself after 15 seconds: Runtime.evaluate's own timeout does
+// not bound an awaited promise, and a reply that misses the 30-second protocol
+// read deadline would cost the whole browser instead of one attempt.
 func (b *browser) fetchPosts(secUID string, count int) (string, error) {
 	u := fmt.Sprintf("/aweme/v1/web/aweme/post/?device_platform=webapp&aid=6383&channel=channel_pc_web"+
 		"&publish_video_strategy_type=2&locate_query=false&show_live_replay_strategy=1"+
 		"&need_time_list=1&time_list_query=0&max_cursor=0&sec_user_id=%s&count=%d", secUID, count)
-	expr := fmt.Sprintf("fetch(%q, {credentials:'include'}).then(r => r.text())", u)
+	expr := fmt.Sprintf("fetch(%q, {credentials:'include', signal: AbortSignal.timeout(15000)}).then(r => r.text())", u)
 	return b.evaluate(expr, true, 20000)
 }

@@ -59,7 +59,7 @@ func (s *Service) GetPinterest(ctx context.Context, user, board string, limit in
 	// whole result, so a narrow request warms the same entry a wide one uses
 	// and the channel metadata survives a cache hit.
 	res, cached, degraded, err := fetchCached(ctx, s, key, pinterestTTL, refresh,
-		func() (*pinterest.Result, error) {
+		func(ctx context.Context) (*pinterest.Result, error) {
 			return s.clients.Pinterest.Fetch(ctx, user, board, pinterest.MaxLimit)
 		})
 	if err != nil {

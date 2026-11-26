@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -143,5 +144,32 @@ func TestFetchPoolRejectsPrivateHosts(t *testing.T) {
 	}
 	if len(pool) != 1 || pool[0] != "https://good.example" {
 		t.Fatalf("pool = %v", pool)
+	}
+}
+
+func TestProxyChecksDirectoryHostsBeforeHandingThemOver(t *testing.T) {
+	c := New(Config{Timeout: time.Second})
+	proxyURL, _ := url.Parse("http://proxy.example.test:3128")
+	c.proxyFromEnv = func(*http.Request) (*url.URL, error) { return proxyURL, nil }
+	delete(c.trusted, "127.0.0.1")
+	delete(c.trusted, "8.8.8.8")
+
+	private, _ := http.NewRequest(http.MethodGet, "https://127.0.0.1/user/rss", nil)
+	if got, err := c.proxy(private); err == nil || !strings.Contains(err.Error(), "non-public") {
+		t.Fatalf("proxy(private origin) = %v, %v; want a non-public rejection", got, err)
+	}
+
+	public, _ := http.NewRequest(http.MethodGet, "https://8.8.8.8/user/rss", nil)
+	if got, err := c.proxy(public); err != nil || got != proxyURL {
+		t.Fatalf("proxy(public origin) = %v, %v; want the configured proxy", got, err)
+	}
+}
+
+func TestProxyLeavesDirectDialsToTheDialer(t *testing.T) {
+	c := New(Config{Timeout: time.Second})
+	c.proxyFromEnv = func(*http.Request) (*url.URL, error) { return nil, nil }
+	req, _ := http.NewRequest(http.MethodGet, "https://127.0.0.1/user/rss", nil)
+	if got, err := c.proxy(req); err != nil || got != nil {
+		t.Fatalf("proxy() without a proxy = %v, %v; want nil, nil (the dialer checks)", got, err)
 	}
 }

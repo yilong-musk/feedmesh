@@ -45,7 +45,7 @@ func (s *Service) GetBilibili(ctx context.Context, mid string, limit int, refres
 
 	key := "bilibili:user:" + mid
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, bilibiliTTL, refresh, limit,
-		func(n int) ([]bilibili.Video, error) {
+		func(ctx context.Context, n int) ([]bilibili.Video, error) {
 			tl, terr := s.clients.Bilibili.Timeline(ctx, mid, n)
 			if terr != nil {
 				return nil, terr

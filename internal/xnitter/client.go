@@ -155,6 +155,10 @@ type Client struct {
 	poolFailedAt time.Time
 	health       map[string]instanceHealth
 	fetchMu      sync.Mutex
+
+	// proxyFromEnv picks the egress proxy for a request; tests replace it
+	// because http.ProxyFromEnvironment reads the environment only once.
+	proxyFromEnv func(*http.Request) (*url.URL, error)
 }
 
 // instanceHealth records how one mirror behaved on its last attempts. It only
@@ -207,9 +211,11 @@ func New(cfg Config) *Client {
 		syndicationURL: cfg.SyndicationURL,
 		disableEnrich:  cfg.DisableEnrichment,
 		health:         make(map[string]instanceHealth),
+		proxyFromEnv:   http.ProxyFromEnvironment,
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = c.dialContext
+	transport.Proxy = c.proxy
 	c.http = &http.Client{
 		Transport: transport,
 		Timeout:   cfg.Timeout,
@@ -266,7 +272,8 @@ func normalizeHost(host string) string {
 // private, link-local or other non-public addresses. Checking the resolved IP
 // at dial time also covers DNS names that point at internal services and DNS
 // rebinding between validation and use. When an egress proxy is configured,
-// the proxy resolves the origin, so the same policy must be enforced there.
+// this dialer only ever sees the proxy address; proxy checks the origin
+// before the request is handed over.
 func (c *Client) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -295,6 +302,38 @@ func (c *Client) dialContext(ctx context.Context, network, addr string) (net.Con
 		return nil, fmt.Errorf("connect to %s: %w", host, lastErr)
 	}
 	return nil, fmt.Errorf("refusing to connect to non-public host %q", host)
+}
+
+// proxy returns the egress proxy for req. A proxy resolves and dials the
+// origin itself, so with one configured the dial-time address check above only
+// sees the (trusted) proxy and a directory host pointing at a private address
+// would go through unchecked. The origin is therefore resolved and checked
+// here, before the request is handed to the proxy. Every resolved address has
+// to be public, because the proxy may pick any of them. The proxy resolves the
+// name again, so DNS rebinding stays possible; an egress firewall is still the
+// recommended backstop.
+func (c *Client) proxy(req *http.Request) (*url.URL, error) {
+	proxyURL, err := c.proxyFromEnv(req)
+	if err != nil || proxyURL == nil {
+		return proxyURL, err
+	}
+	host := normalizeHost(req.URL.Hostname())
+	if _, ok := c.trusted[host]; ok {
+		return proxyURL, nil
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(req.Context(), host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("resolve %s: no addresses", host)
+	}
+	for _, ip := range ips {
+		if !isPublicIP(ip.IP) {
+			return nil, fmt.Errorf("refusing to connect to non-public host %q", host)
+		}
+	}
+	return proxyURL, nil
 }
 
 // nonPublicIPv6Prefixes are IPv6 transition and reserved ranges that

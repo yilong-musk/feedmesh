@@ -51,7 +51,7 @@ func (s *Service) GetDouyin(ctx context.Context, secUID string, limit int, refre
 	// every later read for the whole TTL, which is exactly what used to happen.
 	key := "douyin:user:" + secUID
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, douyinTTL, refresh, limit,
-		func(n int) ([]douyin.Item, error) {
+		func(ctx context.Context, n int) ([]douyin.Item, error) {
 			tl, terr := s.clients.Douyin.Timeline(ctx, secUID, n)
 			if terr != nil {
 				return nil, terr

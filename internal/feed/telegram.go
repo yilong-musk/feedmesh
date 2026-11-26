@@ -46,7 +46,7 @@ func (s *Service) GetTelegram(ctx context.Context, channel string, limit int, re
 
 	key := "telegram:channel:" + name
 	entry, cached, degraded, err := fetchCachedList(ctx, s, key, telegramTTL, refresh, limit,
-		func(n int) ([]telegram.Post, error) {
+		func(ctx context.Context, n int) ([]telegram.Post, error) {
 			ch, cerr := s.clients.Telegram.Fetch(ctx, name, n)
 			if cerr != nil {
 				return nil, cerr
