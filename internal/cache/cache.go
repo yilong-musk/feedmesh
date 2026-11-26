@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -41,7 +42,13 @@ type Stats struct {
 // Cache stores JSON values under a directory.
 type Cache struct {
 	dir string
-	mu  sync.Mutex // serialises writes so temp-file naming cannot collide
+	// mu orders this process's renames against GC and expiry deletions, so a
+	// removal that compared the old bytes cannot delete a fresh entry renamed
+	// into place in between. It is held only around the rename or the
+	// compare-and-remove, never across encoding, writing or fsync.
+	mu sync.Mutex
+	// mem keeps recently read entries parsed in memory; nil disables it.
+	mem *memory
 	// now is the clock used for expiry decisions. It is test-only: New wires
 	// time.Now and a zero Cache falls back to it. GC's stale-temp sweep stays
 	// on the real clock on purpose, because it compares file mtimes rather
@@ -77,7 +84,7 @@ func New(dir string) (*Cache, error) {
 	// Tighten a pre-existing directory too; the cache contains subscription
 	// identifiers even though all content is public.
 	_ = os.Chmod(abs, 0o700)
-	c := &Cache{dir: abs, now: time.Now}
+	c := &Cache{dir: abs, now: time.Now, mem: newMemory(defaultMemoryBudget)}
 	return c, nil
 }
 
@@ -124,22 +131,55 @@ func (c *Cache) readEntry(key string) (Entry, bool) {
 // file contents, so a caller can remove the file only when it still matches.
 // Corrupt JSON is reported as a miss with ok=false; raw is still returned so
 // callers can distinguish it from a missing file without deleting it.
+//
+// A parsed copy is kept in memory. A hit costs one stat: the copy is used only
+// while the file still has the same inode, size and modification time, so a
+// write or purge from another process (the CLI next to the server) is seen on
+// the next read.
 func (c *Cache) readStored(key string) (e Entry, raw []byte, p string, ok bool, err error) {
 	p, err = c.path(key)
 	if err != nil {
 		return Entry{}, nil, "", false, err
 	}
-	raw, err = os.ReadFile(p)
+	if c.mem != nil {
+		if me, hit := c.mem.get(p); hit {
+			if info, serr := os.Stat(p); serr == nil && sameFile(me.info, info) {
+				return me.entry, me.raw, p, true, nil
+			}
+			c.mem.drop(p)
+		}
+	}
+	e, raw, info, ok, err := readFile(p)
+	if ok && c.mem != nil {
+		c.mem.put(p, info, raw, e)
+	}
+	return e, raw, p, ok, err
+}
+
+// readFile reads and parses one cache file from disk. info describes the
+// opened file itself, so it always matches raw even if another process
+// renames a new entry into place meanwhile.
+func readFile(p string) (e Entry, raw []byte, info os.FileInfo, ok bool, err error) {
+	f, err := os.Open(p)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return Entry{}, nil, p, false, nil
+			return Entry{}, nil, nil, false, nil
 		}
-		return Entry{}, nil, p, false, err
+		return Entry{}, nil, nil, false, err
+	}
+	defer f.Close()
+	info, err = f.Stat()
+	if err != nil {
+		return Entry{}, nil, nil, false, err
+	}
+	raw, err = io.ReadAll(f)
+	if err != nil {
+		return Entry{}, nil, nil, false, err
 	}
 	if err := json.Unmarshal(raw, &e); err != nil {
-		return Entry{}, raw, p, false, nil
+		return Entry{}, raw, info, false, nil
 	}
-	return e, raw, p, true, nil
+	return e, raw, info, true, nil
 }
 
 // entryMatches reports whether e was written by this cache for key. A shared
@@ -177,11 +217,10 @@ func (c *Cache) ListManaged() ([]KeyInfo, error) {
 // temporary files left by an interrupted Set. Corrupt or foreign files are left
 // alone: without a parseable Entry there is no reliable way to prove ownership.
 // Cache.Get still removes a known key when it reads it.
+//
+// The scan runs without the write lock, so writers are never blocked for a
+// whole directory walk; each removal re-checks the file under the lock.
 func (c *Cache) GC() (int, error) {
-	// Serialise with writers so an expired entry cannot be removed after a
-	// concurrent Set has already renamed a fresh value into place.
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	entries, err := os.ReadDir(c.dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -219,7 +258,10 @@ func (c *Cache) GC() (int, error) {
 		if !ManagedKey(stem) {
 			continue
 		}
-		e, raw, p, ok, rerr := c.readStored(stem)
+		// Straight from disk: a sweep must not fill the memory layer with
+		// every file in the directory.
+		p := filepath.Join(c.dir, name)
+		e, raw, _, ok, rerr := readFile(p)
 		if rerr != nil || !ok || !managedEntry(e, stem) {
 			continue
 		}
@@ -227,7 +269,7 @@ func (c *Cache) GC() (int, error) {
 			// Another process may have replaced the expired file since we read
 			// it. Delete only the exact bytes we judged expired, otherwise a
 			// concurrent Set would lose its fresh entry.
-			if removeFileIfUnchanged(p, raw) {
+			if c.removeIfUnchanged(p, raw) {
 				removed++
 			}
 		}
@@ -273,10 +315,13 @@ func removeFileIfUnchanged(p string, raw []byte) bool {
 }
 
 // removeIfUnchanged is the in-process locked variant of removeFileIfUnchanged.
-func (c *Cache) removeIfUnchanged(p string, raw []byte) {
+func (c *Cache) removeIfUnchanged(p string, raw []byte) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_ = removeFileIfUnchanged(p, raw)
+	if c.mem != nil {
+		c.mem.drop(p)
+	}
+	return removeFileIfUnchanged(p, raw)
 }
 
 // Get decodes a fresh entry into out. The boolean reports a hit; expired and
@@ -368,9 +413,8 @@ func (c *Cache) Set(key string, v any, ttl time.Duration) error {
 		return fmt.Errorf("cache: encode entry %s: %w", key, err)
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	// CreateTemp picks a unique name, so writing and syncing need no lock;
+	// only the rename is ordered against GC and expiry deletions.
 	tmp, err := os.CreateTemp(filepath.Dir(p), filepath.Base(p)+".tmp*")
 	if err != nil {
 		return fmt.Errorf("cache: temp file: %w", err)
@@ -388,13 +432,30 @@ func (c *Cache) Set(key string, v any, ttl time.Duration) error {
 		cleanup()
 		return fmt.Errorf("cache: sync %s: %w", key, err)
 	}
+	// The temporary file's own stat is the identity the renamed file keeps
+	// (rename changes neither inode nor mtime). Statting the final path after
+	// the rename could pick up another process's file instead.
+	info, statErr := tmp.Stat()
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("cache: close %s: %w", key, err)
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if err := os.Rename(tmpName, p); err != nil {
 		_ = os.Remove(tmpName)
+		if c.mem != nil {
+			c.mem.drop(p)
+		}
 		return fmt.Errorf("cache: rename %s: %w", key, err)
+	}
+	if c.mem != nil {
+		if statErr == nil {
+			c.mem.put(p, info, buf, e)
+		} else {
+			c.mem.drop(p)
+		}
 	}
 	return nil
 }
@@ -405,6 +466,9 @@ func (c *Cache) Delete(key string) (bool, error) {
 	p, err := c.path(key)
 	if err != nil {
 		return false, err
+	}
+	if c.mem != nil {
+		c.mem.drop(p)
 	}
 	if err := os.Remove(p); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
