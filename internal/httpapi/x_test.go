@@ -38,8 +38,11 @@ func TestXJSONView(t *testing.T) {
 		t.Fatalf("/api/v1/x status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var doc struct {
-		Handle string `json:"handle"`
-		Items  []struct {
+		Provider string `json:"provider"`
+		Meta     struct {
+			Handle string `json:"handle"`
+		} `json:"meta"`
+		Items []struct {
 			ID      string   `json:"id"`
 			Title   string   `json:"title"`
 			Text    string   `json:"text"`
@@ -52,8 +55,8 @@ func TestXJSONView(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
 		t.Fatalf("decode: %v body=%s", err, rec.Body.String())
 	}
-	if doc.Handle != "elonmusk" {
-		t.Errorf("handle = %q", doc.Handle)
+	if doc.Provider != "x" || doc.Meta.Handle != "elonmusk" {
+		t.Errorf("provider/meta = %q %+v", doc.Provider, doc.Meta)
 	}
 	if len(doc.Items) != 1 {
 		t.Fatalf("limit=1 returned %d items", len(doc.Items))
@@ -75,16 +78,23 @@ func TestXJSONView(t *testing.T) {
 		t.Errorf("image was not upgraded to the original: %q", it.Images[0])
 	}
 
-	// The JSON view must publish the new fields even when enrichment is off.
+	// The JSON view must publish author and extra engagement counters even when
+	// enrichment is off.
 	var keys struct {
-		Items []map[string]any `json:"items"`
+		Items []struct {
+			Author string         `json:"author"`
+			Extra  map[string]any `json:"extra"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &keys); err != nil {
 		t.Fatalf("decode keys: %v", err)
 	}
-	for _, want := range []string{"likes", "replies", "author"} {
-		if _, ok := keys.Items[0][want]; !ok {
-			t.Errorf("item JSON is missing %q: %v", want, keys.Items[0])
+	if keys.Items[0].Author == "" {
+		t.Errorf("item JSON is missing author: %s", rec.Body.String())
+	}
+	for _, want := range []string{"likes", "replies"} {
+		if _, ok := keys.Items[0].Extra[want]; !ok {
+			t.Errorf("item extra JSON is missing %q: %v", want, keys.Items[0].Extra)
 		}
 	}
 }

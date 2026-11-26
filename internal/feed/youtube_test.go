@@ -201,8 +201,8 @@ func TestGetYouTubeMapsItems(t *testing.T) {
 	if it.URL != "https://www.youtube.com/watch?v=vid00000001" {
 		t.Fatalf("url = %q", it.URL)
 	}
-	if it.Views != 9862 {
-		t.Fatalf("views = %d", it.Views)
+	if vx, ok := it.Extra.(*feed.ViewsExtra); !ok || vx.Views != 9862 {
+		t.Fatalf("extra = %#v", it.Extra)
 	}
 	if len(it.Images) != 1 || !strings.Contains(it.Images[0], "hqdefault.jpg") {
 		t.Fatalf("images = %v", it.Images)
@@ -403,8 +403,8 @@ func TestGetYouTubeUsesBrowseWhenFeedFails(t *testing.T) {
 	if len(f.Items) != 1 || f.Items[0].Title != "Browse fallback upload" {
 		t.Fatalf("items = %+v", f.Items)
 	}
-	if f.Items[0].Views != 7500 {
-		t.Fatalf("views = %d, want 7500", f.Items[0].Views)
+	if vx, ok := f.Items[0].Extra.(*feed.ViewsExtra); !ok || vx.Views != 7500 {
+		t.Fatalf("extra = %#v, want views=7500", f.Items[0].Extra)
 	}
 	if !strings.Contains(f.Items[0].HTML, "7.5K views") {
 		t.Fatalf("html = %s, want a compact view counter", f.Items[0].HTML)

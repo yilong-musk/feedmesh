@@ -352,6 +352,12 @@ func (s *Service) hydrate(ctx context.Context, uid string, m *weibo.MBlog, refre
 	s.hydrate(ctx, uid, m.Retweeted, refresh, depth+1)
 }
 
+// WeiboExtra carries Weibo-specific item fields.
+type WeiboExtra struct {
+	BID     string `json:"bid,omitempty"`
+	PageURL string `json:"page_url,omitempty"`
+}
+
 func (s *Service) toItem(uid string, m *weibo.MBlog) Item {
 	created, ok := ParseCreatedAt(m.CreatedAt)
 	if !ok {
@@ -360,25 +366,28 @@ func (s *Service) toItem(uid string, m *weibo.MBlog) Item {
 	}
 	it := Item{
 		ID:        m.IDString(),
-		BID:       m.BID,
 		CreatedAt: created.UTC(),
 		Text:      HTMLToText(m.Text),
 		HTML:      BuildDescription(m),
 		URL:       safeURLString(ItemURL(uid, m)),
+		Images:    []string{},
 	}
 	for _, p := range m.Pics {
 		if u := safeURLString(p.BestURL()); u != "" {
 			it.Images = append(it.Images, u)
 		}
 	}
-	if it.Images == nil {
-		it.Images = []string{}
-	}
+	var pageURL string
 	if pi := m.PageInfo; pi != nil {
 		if pi.IsVideo() {
-			it.VideoURL = safeURLString(pi.BestVideoURL())
+			if u := safeURLString(pi.BestVideoURL()); u != "" {
+				it.Video = &Video{URL: u}
+			}
 		}
-		it.PageURL = safeURLString(pi.Link())
+		pageURL = safeURLString(pi.Link())
+	}
+	if m.BID != "" || pageURL != "" {
+		it.Extra = &WeiboExtra{BID: m.BID, PageURL: pageURL}
 	}
 	it.Title = ItemTitle(m.StatusTitle, it.Text)
 	return it

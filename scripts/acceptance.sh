@@ -39,12 +39,12 @@ hr "2a. stdout purity: fetch --json | jq (logs killed)"
 "$BIN" fetch 2803301701 --refresh --json 2>/dev/null > "$TMP/pure.json"
 echo "stdout lines: $(wc -l < "$TMP/pure.json")"
 jq -e . "$TMP/pure.json" > /dev/null && echo "jq parse: OK" || echo "jq parse: FAILED"
-jq -c '{ok,uid,screen_name,count}' "$TMP/pure.json"
+jq -c '{ok,provider,uid:.meta.uid,screen_name:.meta.screen_name,count}' "$TMP/pure.json"
 
 hr "2b. accounts, >=8 items each"
 for u in $ACCOUNTS; do
   "$BIN" fetch "$u" --refresh --json 2>/dev/null > "$TMP/f_$u.json"
-  jq -r --arg u "$u" '"\(.uid) | \(.screen_name) | items=\(.items|length) | first=\(.items[0].bid) | cached=\(.cached)"' "$TMP/f_$u.json"
+  jq -r --arg u "$u" '"\(.meta.uid) | \(.meta.screen_name) | items=\(.items|length) | first=\(.items[0].extra.bid) | cached=\(.cached)"' "$TMP/f_$u.json"
 done
 
 hr "3. doctor --json"
@@ -59,7 +59,7 @@ grep -i -E '^(HTTP|content-type)' "$TMP/rss.h" | tr -d '\r'
 echo "bytes=$(wc -c < "$TMP/rss.body") items=$(grep -c '<item>' "$TMP/rss.body")"
 head -c 200 "$TMP/rss.body" | head -3
 echo "-- /api/v1/feed?uid=2803301701&limit=3"
-curl_auth 'http://127.0.0.1:3000/api/v1/feed?uid=2803301701&limit=3' | jq -c '{uid,screen_name,cached,n:(.items|length),ids:[.items[].bid]}'
+curl_auth 'http://127.0.0.1:3000/api/v1/feed?uid=2803301701&limit=3' | jq -c '{provider,uid:.meta.uid,screen_name:.meta.screen_name,cached,n:(.items|length),ids:[.items[].extra.bid]}'
 
 hr "5. exit codes"
 "$BIN" fetch 9999999999999999 --json >"$TMP/e1.json" 2>/dev/null; echo "bad uid   -> exit=$?  $(cat "$TMP/e1.json")"

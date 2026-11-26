@@ -316,142 +316,94 @@ curl -s 'http://127.0.0.1:3000/rss/reddit/r/rust.xml'
 
 ## JSON endpoints
 
-Timestamps are always RFC 3339 (UTC); `images` is always an array (`[]` when there are no images, never `null`).
+Every `/api/v1/*` feed endpoint (except the two downloader-specific `/timeline` adapters below) returns the same envelope and item shape. Timestamps are RFC 3339 (UTC); `items` and `images` are always arrays (`[]` when empty, never `null`). Degraded responses carry both `"degraded": true` and the `X-Feedmesh-Degraded: 1` header; providers with multiple upstream paths also set `"source"` and `X-Feedmesh-Source`.
 
-### `GET /api/v1/feed?uid=<uid>&limit=N`
-
-```json
-{"uid":"2803301701","screen_name":"People's Daily","description":"…",
- "fetched_at":"2026-10-23T06:55:12Z","cached":true,
- "items":[{"id":"…","bid":"…","created_at":"2026-10-23T06:45:32Z",
-           "text":"…","html":"…","url":"https://weibo.com/2803301701/RnZRCA7Kf",
-           "images":[],"video_url":"…","page_url":"…"}]}
-```
-
-`video_url` / `page_url` appear only when they have a value (`omitempty`).
-
-### `GET /api/v1/hot?limit=N`
+### Unified envelope
 
 ```json
-{"title":"Weibo Hot Search","description":"Realtime Weibo hot search ranking","fetched_at":"2026-10-23T08:00:00Z",
- "cached":true,
- "items":[{"rank":1,"heat":1488601,"title":"1. Example topic","text":"Example topic",
-           "url":"https://s.weibo.com/weibo?q=…","html":"<p>Heat 1.5M</p>"}]}
+{
+  "provider": "x",
+  "title": "4KAestheticHQ / X",
+  "description": "@4KAestheticHQ latest posts (via Nitter instances)",
+  "fetched_at": "2026-11-04T06:50:00Z",
+  "cached": false,
+  "degraded": false,
+  "source": "atom",
+  "meta": {"handle": "4kaesthetichq"},
+  "items": [
+    {
+      "id": "2117824259859034220",
+      "title": "…",
+      "author": "4KAestheticHQ",
+      "text": "…",
+      "html": "…",
+      "url": "https://x.com/4KAestheticHQ/status/2117824259859034220",
+      "images": ["https://pbs.twimg.com/media/HWQF3-EWQAEkvBh.jpg?name=orig"],
+      "video": {
+        "url": "https://video.twimg.com/…/vid/avc1/720x1558/….mp4",
+        "thumbnail": "https://pbs.twimg.com/amplify_video_thumb/…jpg",
+        "duration_ms": 4308,
+        "views": 1234
+      },
+      "created_at": "2026-11-04T06:49:32Z",
+      "extra": {
+        "author_id": "1507222724757925889",
+        "card_image": "https://…",
+        "likes": 8,
+        "replies": 0,
+        "quoted": {
+          "id": "2117127236843184565",
+          "url": "https://x.com/…/status/2117127236843184565",
+          "author": "4KAestheticHQ",
+          "author_name": "4K Wallpapers | Aesthetic HQ",
+          "text": "…",
+          "images": ["https://pbs.twimg.com/media/…jpg?name=orig"]
+        }
+      }
+    }
+  ]
+}
 ```
 
-`heat` is the raw upstream counter as an integer, so clients never have to parse the display text in `html`.
+- `source` and `meta` are omitted when unused.
+- On items, `author`, `video` and `extra` are omitted when empty or absent.
+- `feedmesh fetch <uid> --json` uses the same shape plus `"ok": true` and `"count"`.
 
-### `GET /api/v1/sspai?limit=N&full=1`
+### Per-endpoint `provider`, `meta` and `extra`
 
-```json
-{"title":"sspai","description":"Latest sspai articles","fetched_at":"…","cached":true,
- "items":[{"id":"117169","title":"…","text":"Summary","url":"https://sspai.com/post/117169",
-           "html":"…","images":["https://rssfile.sspai.com/…png"],"created_at":"…"}]}
-```
+| Route | `provider` | `meta` | Item `video` / `extra` |
+|---|---|---|---|
+| `GET /api/v1/feed?uid=<uid>&limit=N` | `weibo` | `{"uid","screen_name"}` | `video.url`; `extra: {"bid","page_url"}` |
+| `GET /api/v1/hot?limit=N` | `hot` | — | `extra: {"rank","heat"}` |
+| `GET /api/v1/sspai?limit=N&full=1` | `sspai` | — | — |
+| `GET /api/v1/v2ex?section=latest\|hot&limit=N` | `v2ex` | `{"section"}` | — |
+| `GET /api/v1/smzdm?channel=deals\|post\|haitao&limit=N` | `smzdm` | `{"channel"}` | — (`author` carries the poster/writer when present) |
+| `GET /api/v1/smzdm?channel=fenlei&slug=<slug>&limit=N` | `smzdm` | `{"channel":"fenlei","slug"}` | `extra: {"price","slug","date_source"}` (`price` is a number or `null`; `date_source` is `fetched` or `card`) |
+| `GET /api/v1/x?handle=<handle>&limit=N` | `x` | `{"handle"}` | `video: {"url","thumbnail","duration_ms","views"}`; `extra: {"author_id","card_image","likes","replies","quoted"}` |
+| `GET /api/v1/youtube?ref=<channel>&limit=N` | `youtube` | `{"ref","channel_id"}` | `source`: `atom` \| `browse` \| `stale`; `extra: {"views"}` |
+| `GET /api/v1/douyin?user=<sec_uid>&limit=N` | `douyin` | `{"user"}` | — |
+| `GET /api/v1/tiktok?user=<handle>&limit=N` | `tiktok` | `{"user"}` | — |
+| `GET /api/v1/bilibili?user=<mid>&limit=N` | `bilibili` | `{"user"}` | `extra: {"views"}` |
+| `GET /api/v1/telegram?channel=<channel>&limit=N` | `telegram` | `{"channel"}` | `video.thumbnail` (on video posts); `extra: {"views"}` |
+| `GET /api/v1/pinterest?user=<user>&board=<board>&limit=N` | `pinterest` | `{"user","board"?}` | — |
+| `GET /api/v1/polymarket?feed=new\|hot\|event\|user` | `polymarket` | `{"feed","tag"?,"slug"?,"address"?}` | `extra: {"volume_24h","liquidity","ends_at"}` (omitted on wallet `user` activity) |
+| `GET /api/v1/linuxdo?feed=<kind>&limit=N` | `linuxdo` | `{"feed"}` | `extra: {"category","pinned","closed","archived"}` |
+| `GET /api/v1/reddit?sub=<sub>&sort=<sort>&window=<window>&limit=N` | `reddit` | `{"sub","sort","window"}` | `source`: `atom` \| `stale` |
 
-### `GET /api/v1/v2ex?section=latest|hot&limit=N`
+### Provider-specific notes
 
-```json
-{"title":"V2EX Hot","description":"Top V2EX topics, sorted by replies","fetched_at":"…","cached":true,
- "items":[{"id":"1251126","title":"…","text":"…","url":"https://www.v2ex.com/t/1251126",
-           "html":"…","images":[],"created_at":"…"}]}
-```
+- **SMZDM**: `channel` defaults to `deals`; `post` is community articles, `haitao` is overseas deals, `fenlei` requires `slug`. `limit` defaults to 20 (max 30). For `fenlei`, `created_at` is the page read time (shared across the cached hour) and `extra.date_source` reports `fetched` or `card`; one upstream read per slug per hour applies.
+- **X**: `handle` is required (`@` allowed); `limit` defaults to 20 (max 20). `images` holds only the post's own photos (`?name=orig`); video posters live in `video.thumbnail`, link-card banners in `extra.card_image`, and quoted-post media inside `extra.quoted`. Enrichment (`video.url`, `duration_ms`, `views`, `likes`, `replies`) costs one embed request per post (at most 4 concurrent, 6 s each, 15 s per page) and can be disabled with `--no-x-enrich` / `FEEDMESH_X_ENRICH=0`.
+- **YouTube**: `ref` accepts a channel id, `@handle`, or channel URL (`/channel/UC…`, `/@name`, `/c/…`, `/user/…`); `limit` defaults to 15 (max 15). `extra.views` is exact on `atom` and rounded on `browse`.
+- **Polymarket**: `feed` defaults to `new`; `tag=` filters `new`/`hot`, `slug=` selects an `event`, `address=` selects wallet `user` activity.
+- **LINUX DO**: `feed` defaults to `latest` (`order=created|activity`), `top` (`period=`), `hot`, `category` (`category=<slug>/<id>` or `<id>`), or `tag` (`tag=`); `limit` defaults to 30 (max 90). `meta.feed` echoes the canonical key (e.g. `latest:created`).
+- **Reddit**: `sub` accepts names with or without `r/`; `sort` defaults to `hot`, `window` to `day`, `limit` to 20 (max 25). `author` drops the `/u/` prefix; `text` is the outbound link for link posts and empty for self posts.
 
-### `GET /api/v1/smzdm?channel=deals|post|haitao&limit=N`
+### Downloader timeline endpoints (dedicated schema)
 
-`channel` defaults to `deals`; `post` is community articles and `haitao` is overseas deals. Any other value returns `BAD_REQUEST`.
+These two endpoints keep the fixed downloader schema (`aweme_id`, Unix `create_time`, `play_url`, `cover_url`) so an external download tool can consume them without touching a browser or solving a WAF challenge.
 
-```json
-{"channel":"deals","title":"SMZDM Deals","description":"Selected deals from SMZDM","fetched_at":"2026-10-25T14:12:08Z","cached":false,
- "items":[{"id":"184734707","title":"Brand model 620ml 28.84 CNY (buy 2, coupon)","author":"chromes","text":"",
-           "url":"https://www.smzdm.com/p/184734707/","html":"…",
-           "images":["https://y.zdmimg.com/…png_a200.jpg"],"created_at":"2026-10-25T13:39:37Z"}]}
-```
-
-- `limit` defaults to 20 with a maximum of 30; `refresh=1` behaves as on the RSS routes.
-- `author` is the poster's nickname on the deal channels and the writer on the article channel. It is always present; it is empty when the feed carries no nickname, or when the nickname cannot be separated from the blurb (the deal channels pack both into one `<description>`). Callers never have to parse `html` for `Posted by …`.
-- `text` is empty for the common deal case (nickname-only entries); the price and conditions live in `title`. Article entries carry the blurb in `text`.
-- `price` is `null` on these channels: the RSS slices carry no machine-readable amount.
-
-### `GET /api/v1/smzdm?channel=fenlei&slug=<slug>&limit=N`
-
-One SMZDM category page. `slug` is required for this channel (`BAD_REQUEST` without it); `limit` defaults to 20 with a maximum of 30.
-
-```json
-{"channel":"fenlei","slug":"tixuhuli","title":"SMZDM Deals: tixuhuli",
- "description":"Good-price cards from the SMZDM category tixuhuli",
- "fetched_at":"2026-10-28T06:51:57Z","cached":false,
- "items":[{"id":"184919040","title":"Gillette classic razor 1 handle 3 blades","author":"",
-           "text":"7.9 CNY (coupon)","url":"https://www.smzdm.com/p/184919040/","html":"…",
-           "images":["https://y.zdmimg.com/…jpg_a100.jpg"],"created_at":"2026-10-28T06:51:57Z",
-           "price":7.9,"slug":"tixuhuli","date_source":"fetched"}]}
-```
-
-- `price` is the leading amount of the card's display price as a number (`7.9`), or `null` when the card carries none. `text` keeps the full display string (`7.9 CNY (coupon)`), so the conditions survive.
-- `slug` repeats the category on every item and on the envelope, which makes a mixed feed of several categories self-describing.
-- `author` is always empty: category cards carry no poster.
-- `created_at` is the page read time (the page publishes no per-card timestamp for a good price), so every item of one read shares the same instant and `fetched_at` repeats it. A cached read keeps that instant — it does not advance to the request time — so a polling reader can tell one batch from the next. It is always UTC. `date_source` says which of the two it is: `fetched` (read time standing in for a missing timestamp) or `card` (the card published its own). The field is absent on the RSS channels.
-- One upstream read per slug per hour, `refresh=1` inside the window served from the cache, the six-hour slug cooldown on a challenge, and a failed read spending the rest of the hour: the same rules as the RSS route above.
-
-### `GET /api/v1/x?handle=<handle>&limit=N`
-
-```json
-{"handle":"4kaesthetichq","title":"4KAestheticHQ / X","description":"@4KAestheticHQ latest posts (via Nitter instances)",
- "fetched_at":"…","cached":false,
- "items":[{"id":"2117824259859034220","title":"…","text":"…",
-           "url":"https://x.com/4KAestheticHQ/status/2117824259859034220","html":"…",
-           "author":"4KAestheticHQ","author_id":"1507222724757925889",
-           "images":["https://pbs.twimg.com/media/HWQF3-EWQAEkvBh.jpg?name=orig"],
-           "video":{"url":"https://video.twimg.com/…/vid/avc1/720x1558/….mp4",
-                    "thumbnail":"https://pbs.twimg.com/amplify_video_thumb/…jpg",
-                    "duration_ms":4308,"views":1234},
-           "quoted":{"id":"2117127236843184565","url":"https://x.com/…/status/2117127236843184565",
-                     "author":"4KAestheticHQ","author_name":"4K Wallpapers | Aesthetic HQ",
-                     "text":"…","images":["https://pbs.twimg.com/media/…jpg?name=orig"]},
-           "likes":8,"replies":0,"created_at":"2026-11-04T06:49:32Z"}]}
-```
-
-- `handle` is required (`@` allowed); `limit` defaults to 20 with a maximum of 20.
-- `refresh=1` is supported and behaves the same as on the RSS routes.
-- `images` carries only the post's own photos, at the original resolution (`?name=orig`). Video posters and link-card banners are not photos: a video poster appears as `video.thumbnail`, a card banner as `card_image`.
-- `video` is filled from X's public embed endpoint, because Nitter's RSS only carries a poster. `url` is the highest-resolution MP4 variant, `duration_ms` and `views` are omitted when zero. A post with only a poster (embed read failed, or enrichment disabled) still carries `video.thumbnail`.
-- `quoted` is the post this one quotes. Its media and text stay inside `quoted` and never leak into `images` or `text`.
-- `likes` and `replies` also come from the embed endpoint; both are `0` when the per-post read failed. The post is still returned.
-- Enrichment costs one embed request per post (at most 4 concurrent, 6 s each, 15 s per page). Disable it with `--no-x-enrich` or `FEEDMESH_X_ENRICH=0`: items keep `images` and `video.thumbnail`, but lose `video.url`, `duration_ms`, `views`, `likes` and `replies`.
-
-### `GET /api/v1/youtube?ref=<channel>&limit=N`
-
-```json
-{"ref":"@GoogleDevelopers","channel_id":"UC_x5XG1OV2P6uZZ5FSM9Ttw","title":"Google for Developers",
- "description":"Latest videos from Google for Developers","fetched_at":"…","cached":false,"degraded":false,
- "source":"atom",
- "items":[{"id":"vid00000001","title":"…","text":"…","url":"https://www.youtube.com/watch?v=vid00000001",
-           "html":"…","images":["https://i4.ytimg.com/vi/vid00000001/hqdefault.jpg"],
-           "views":9862,"created_at":"2026-10-21T23:00:08Z"}]}
-```
-
-- `ref` is required and accepts a channel id, an `@handle`, or a channel URL — `/@name`, `/channel/UC…`, and the legacy `/c/…` and `/user/…` forms (YouTube serves them directly or redirects to the canonical channel page); `limit` defaults to 15 with a maximum of 15.
-- `refresh=1` is supported and behaves the same as on the RSS routes.
-- `source` is `atom`, `browse` or `stale`, the same value as the RSS route's `X-Feedmesh-Source` header.
-- `views` is the play counter as an integer: exact on the Atom path, rounded on the fallback (`32K views` becomes `32000`).
-- `degraded: true` means the list came from the last good cache entry because the upstream read failed; `cached` tells whether the TTL was still valid.
-- `created_at` is exact on the Atom path; fallback items carry a day-granular approximation, so several uploads can share one timestamp and their order follows the upstream list.
-
-### `GET /api/v1/douyin?user=<sec_uid>&limit=N`
-
-```json
-{"user":"MS4w…","title":"Creator on Douyin","description":"Douyin videos from Creator",
- "fetched_at":"…","cached":false,"degraded":false,
- "items":[{"id":"7706127120845719717","title":"…","text":"…","url":"https://www.douyin.com/video/7706127120845719717",
-           "html":"…","images":["https://p3-pic.douyinpic.com/…"],"created_at":"2026-11-09T11:08:58Z"}]}
-```
-
-- `user` is required (the profile's `sec_uid`, the `MS4w…` segment of `douyin.com/user/…`); `limit` defaults to 20 with a maximum of 44, `refresh=1` is supported.
-- `title` is `<author> on Douyin`; each item's `title` is the full caption, the same text as `text` — Douyin has no separate title field, so neither is shortened. `degraded: true` means the last good list was served because the upstream read failed.
-
-### `GET /api/v1/douyin/timeline?user=<sec_uid>&limit=N`
-
-The same list in the downloader's schema, so a separate download tool can consume it without touching a browser:
+#### `GET /api/v1/douyin/timeline?user=<sec_uid>&limit=N`
 
 ```json
 {"author":"Creator","sec_uid":"MS4w…","fetched_at":"…","source":"douyin",
@@ -462,23 +414,7 @@ The same list in the downloader's schema, so a separate download tool can consum
 
 - `play_url` is a time-limited, watermark-free MP4 address; download it promptly instead of storing it for later.
 
-### `GET /api/v1/tiktok?user=<handle>&limit=N`
-
-```json
-{"user":"nasa","title":"NASA on TikTok","description":"TikTok videos from NASA",
- "fetched_at":"…","cached":false,"degraded":false,
- "items":[{"id":"7708867568920038669","title":"…","text":"…",
-           "url":"https://www.tiktok.com/@nasa/video/7708867568920038669",
-           "html":"…","images":["https://p16-common-sign.tiktokcdn.com/…"],
-           "author":"nasa","created_at":"2026-11-16T20:23:31Z"}]}
-```
-
-- `user` is required (the handle without `@`, or a `secUid`); `limit` defaults to 20 with a maximum of 45, `refresh=1` is supported.
-- `title` is `<display name> on TikTok`; each item's `title` is the full caption, the same text as `text` — TikTok has no separate title field, so neither is shortened. `degraded: true` means the last good list was served because the upstream read failed.
-
-### `GET /api/v1/tiktok/timeline?user=<handle>&limit=N`
-
-The same list in the downloader's schema:
+#### `GET /api/v1/tiktok/timeline?user=<handle>&limit=N`
 
 ```json
 {"author":"NASA","user":"nasa","fetched_at":"…","source":"tiktok",
@@ -487,101 +423,7 @@ The same list in the downloader's schema:
            "is_top":0,"play_url":"https://v16-webapp-prime.tiktok.com/…","cover_url":"https://p16-common-sign.tiktokcdn.com/…"}]}
 ```
 
-- `play_url` is a time-limited, watermark-free MP4 address (the highest-bitrate rendition); download it promptly instead of storing it for later.
-- `is_top` is `1` for a pinned video. Photo posts have a `cover_url` but an empty `play_url`.
-
-### `GET /api/v1/bilibili?user=<mid>&limit=N`
-
-```json
-{"user":"946974","title":"Creator on Bilibili","description":"Bilibili videos from Creator",
- "fetched_at":"…","cached":false,"degraded":false,
- "items":[{"id":"BV1kZWX62ENY","title":"…","text":"…",
-           "url":"https://www.bilibili.com/video/BV1kZWX62ENY","html":"…",
-           "images":["https://i2.hdslb.com/bfs/archive/…"],
-           "author":"creator","views":6613943,"created_at":"2026-11-12T09:00:00Z"}]}
-```
-
-- `user` is required (the numeric mid); `limit` defaults to 20 with a maximum of 50, `refresh=1` is supported.
-- `title` is `<author> on Bilibili`; `views` is the play counter. `degraded: true` means the last good list was served because the upstream read failed.
-
-### `GET /api/v1/telegram?channel=<channel>&limit=N`
-
-```json
-{"channel":"sspai","title":"sspai Channel on Telegram","description":"sspai official channel",
- "fetched_at":"2026-11-17T08:01:00Z","cached":false,"degraded":false,
- "items":[{"id":"14873","title":"…","text":"…","url":"https://t.me/sspai/14873",
-           "html":"…","images":["https://cdn4.telesco.pe/file/…"],
-           "author":"Author Sig","views":3050,"created_at":"2026-11-09T04:20:38Z"}]}
-```
-
-- `channel` is required and accepts every spelling the RSS route accepts; `limit` defaults to 20 with a maximum of 20, `refresh=1` is supported.
-- `title` is `<channel display name> on Telegram`; `author` is the per-post signature when the channel uses one, otherwise the channel display name; `views` is the preview's view counter.
-- `images` is always an array (empty for text-only posts); a video post carries no image URL there and exposes only its still frame inside `html`.
-
-### `GET /api/v1/pinterest?user=<user>&board=<board>&limit=N`
-
-```json
-{"user":"nasa","board":"earth","title":"Earth on Pinterest","description":"Pinterest board nasa/earth",
- "fetched_at":"2026-11-25T07:40:00Z","cached":false,"degraded":false,
- "items":[{"id":"e1_Afq…","title":"Polar bears","text":"Polar bears are scrambling.",
-           "url":"https://www.pinterest.com/pin/e1_Afq…/",
-           "html":"<p><img …></p>…","images":["https://i.pinimg.com/736x/17/66/48/….jpg"],
-           "created_at":"2022-06-16T18:20:42Z"}]}
-```
-
-- `user` is required; `board` is optional and selects one board feed. `limit` defaults to 20 with a maximum of 25, `refresh=1` is supported.
-- `user` and `board` are echoed separately (a profile request has no `board` field); `title` is `<display name> on Pinterest` (for a board feed the display name is the board name).
-- `images` is always an array (one 736px thumbnail per pin); `created_at` is the pin's `pubDate` in UTC, and a pin without one uses the read time.
-
-### `GET /api/v1/polymarket?feed=<new|hot|event|user>`
-
-```json
-{"feed":"event","slug":"event-one","title":"Event One on Polymarket","description":"First event.",
- "fetched_at":"2026-11-25T10:00:00Z","cached":false,"degraded":false,
- "items":[{"id":"m2","title":"B","text":"Yes 90.0% · No 10.0% · 24h volume $90 · liquidity $50",
-           "url":"https://polymarket.com/event/event-one/will-b-win",
-           "html":"…","images":["https://img.example/one.jpg"],
-           "created_at":"2026-11-20T00:00:00Z","volume_24h":90,"liquidity":50,
-           "ends_at":"2026-12-01T00:00:00Z"}]}
-```
-
-- `feed` is `new` (default), `hot`, `event` or `user`; `tag=` filters the event lists, `slug=` selects an event, `address=` selects a wallet. `limit` follows the same bounds as the RSS routes, and `refresh=1` is supported.
-- `volume_24h`, `liquidity` and `ends_at` are Polymarket-only fields; they are omitted when zero or unset.
-
-### `GET /api/v1/linuxdo?feed=<kind>&limit=N`
-
-```json
-{"feed":"latest:created","title":"LINUX DO · Latest topics","description":"LINUX DO topics via the official RSS feed.",
- "fetched_at":"2026-11-17T08:51:06Z","cached":false,"degraded":false,
- "items":[{"id":"3191343","title":"…","text":"…","url":"https://linux.do/t/topic/3191343",
-           "html":"…","images":["https://cdn3.ldstatic.com/…"],
-           "author":"alice","category":"Development","pinned":false,"closed":false,
-           "archived":false,"created_at":"2026-11-17T08:49:44Z"}]}
-```
-
-- `feed` is `latest` (default), `top`, `hot`, `category` or `tag`. `latest` accepts `order=created|activity`; `top` accepts `period=`; `category` requires `category=<slug>/<id>` or `category=<id>`; `tag` requires `tag=`.
-- `limit` defaults to 30 with a maximum of 90, `refresh=1` is supported.
-- `feed` in the response is the cache key (`latest:created`, `top:daily`, `category:develop:4`, `tag:chatgpt`); `images` is always an array.
-- `category`, `pinned`, `closed` and `archived` describe the forum topic and are unique to this view.
-
-### `GET /api/v1/reddit?sub=<sub>&sort=<sort>&window=<window>&limit=N`
-
-```json
-{"sub":"programming","sort":"hot","window":"day","title":"r/programming hot",
- "description":"Computer Programming","fetched_at":"2026-10-30T08:22:02Z",
- "cached":false,"degraded":false,"source":"atom",
- "items":[{"id":"t3_1xiq8we","title":"…","author":"CircumspectCapybara",
-           "text":"https://thehackernews.com/2026/10/linux-kernel-tcp-flaw-with-98-cvss.html",
-           "url":"https://www.reddit.com/r/programming/comments/1xiq8we/…/","html":"…","images":[],
-           "created_at":"2026-10-29T17:22:17Z"}]}
-```
-
-- `sub` is required and accepts the name with or without the `r/` prefix, in any case; the JSON route carries the whole name in a query parameter, so every spelling the RSS path accepts works here too.
-- `sort`, `window` and `limit` behave exactly as on the RSS route (defaults `hot`, `day`, 20; maximum 25), and `refresh=1` is supported.
-- `author` is the submitter without the `/u/` prefix the document uses.
-- `source` is `atom` or `stale`, the same value as the RSS route's `X-Feedmesh-Source` header; `degraded` repeats the `X-Feedmesh-Degraded` header.
-- `images` is always `[]`: the Atom document carries no thumbnail.
-- `text` is the outbound link of a link submission and empty for a self post; `html` carries that link, the submitter and the comment-page link.
+- `play_url` is a time-limited, watermark-free MP4 address (highest-bitrate rendition); `is_top` is `1` for a pinned video. Photo posts carry `cover_url` with an empty `play_url`.
 
 ---
 

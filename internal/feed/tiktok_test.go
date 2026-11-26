@@ -107,10 +107,10 @@ func TestGetTikTokBuildsFeed(t *testing.T) {
 	if len(first.Images) != 1 || first.Images[0] != "https://p16-common-sign.tiktokcdn.com/c.jpeg" {
 		t.Fatalf("images = %v", first.Images)
 	}
-	if first.PlayURL == "" || first.DurationMS != 79000 || first.Width != 1080 {
-		t.Fatalf("timeline fields lost: %+v", first)
+	if first.Download == nil || first.Download.PlayURL == "" || first.Download.DurationMS != 79000 || first.Download.Width != 1080 {
+		t.Fatalf("timeline fields lost: %+v", first.Download)
 	}
-	if !f.Items[1].IsTop {
+	if f.Items[1].Download == nil || !f.Items[1].Download.IsTop {
 		t.Fatal("pinned marker lost")
 	}
 	// A javascript: cover must never reach the feed.

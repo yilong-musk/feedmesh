@@ -83,18 +83,21 @@ func douyinFeed(secUID string, c cachedList[douyin.Item], limit int, cached, deg
 	items := make([]Item, 0, n)
 	for _, v := range c.Items[:n] {
 		it := Item{
-			ID:         v.ID,
-			CreatedAt:  v.CreatedAt,
-			Text:       v.Desc,
-			HTML:       douyinHTML(v),
-			URL:        "https://www.douyin.com/video/" + v.ID,
-			Title:      douyinTitle(v.Desc),
-			Author:     v.Author,
-			PlayURL:    v.PlayURL,
-			DurationMS: v.DurationMS,
-			Width:      v.Width,
-			Height:     v.Height,
-			IsTop:      v.IsTop,
+			ID:        v.ID,
+			CreatedAt: v.CreatedAt,
+			Text:      v.Desc,
+			HTML:      douyinHTML(v),
+			URL:       "https://www.douyin.com/video/" + v.ID,
+			Title:     douyinTitle(v.Desc),
+			Author:    v.Author,
+			Images:    []string{},
+			Download: &DownloadMedia{
+				PlayURL:    v.PlayURL,
+				DurationMS: v.DurationMS,
+				Width:      v.Width,
+				Height:     v.Height,
+				IsTop:      v.IsTop,
+			},
 		}
 		if v.CoverURL != "" {
 			it.Images = []string{v.CoverURL}

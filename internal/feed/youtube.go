@@ -284,7 +284,7 @@ func (s *Service) youtubeFeed(e cachedYouTube, limit int, cached, degraded bool)
 			URL:       link,
 			CreatedAt: v.Published,
 			Images:    images,
-			Views:     v.Views,
+			Extra:     &ViewsExtra{Views: v.Views},
 		})
 	}
 	return f

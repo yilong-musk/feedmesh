@@ -100,8 +100,8 @@ func TestGetPolymarketNew(t *testing.T) {
 	if !strings.Contains(it.HTML, "<strong>B</strong>: Yes 90.0% · No 10.0%") {
 		t.Fatalf("html missing second market:\n%s", it.HTML)
 	}
-	if it.Volume24H != 25000 || it.Liquidity != 9000 {
-		t.Fatalf("numbers = %v/%v", it.Volume24H, it.Liquidity)
+	if ex, ok := it.Extra.(*PolymarketExtra); !ok || ex.Volume24H != 25000 || ex.Liquidity != 9000 {
+		t.Fatalf("extra = %#v", it.Extra)
 	}
 	// A blank event title still needs a readable item title.
 	if f.Items[1].Title != "(no content)" {

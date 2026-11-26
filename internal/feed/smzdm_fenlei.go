@@ -170,19 +170,24 @@ func (s *Service) fenleiFeed(slug, key string, cards []smzdm.Category, limit int
 		}
 		price := c.Price
 		f.Items = append(f.Items, Item{
-			ID:         c.ID,
-			Title:      c.Title,
-			Text:       c.PriceText,
-			HTML:       smzdmFenleiHTML(c, link),
-			URL:        link,
-			CreatedAt:  created,
-			Images:     images,
-			Price:      price,
-			Slug:       slug,
-			DateSource: source,
+			ID:        c.ID,
+			Title:     c.Title,
+			Text:      c.PriceText,
+			HTML:      smzdmFenleiHTML(c, link),
+			URL:       link,
+			CreatedAt: created,
+			Images:    images,
+			Extra:     &SmzdmExtra{Price: price, Slug: slug, DateSource: source},
 		})
 	}
 	return f
+}
+
+// SmzdmExtra carries category-page pricing and timestamp metadata.
+type SmzdmExtra struct {
+	Price      *float64 `json:"price"`
+	Slug       string   `json:"slug,omitempty"`
+	DateSource string   `json:"date_source,omitempty"`
 }
 
 // fenleiReadTime is when the page behind a list was read. A cache hit must

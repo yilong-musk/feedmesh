@@ -119,26 +119,34 @@ func TestPolymarketAPIRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		Feed   string `json:"feed"`
-		Slug   string `json:"slug"`
-		Title  string `json:"title"`
-		Cached bool   `json:"cached"`
-		Items  []struct {
+		Provider string `json:"provider"`
+		Title    string `json:"title"`
+		Cached   bool   `json:"cached"`
+		Meta     struct {
+			Feed string `json:"feed"`
+			Slug string `json:"slug"`
+		} `json:"meta"`
+		Items []struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
-			Volume24H float64   `json:"volume_24h"`
-			EndsAt    time.Time `json:"ends_at"`
 			CreatedAt time.Time `json:"created_at"`
+			Extra     struct {
+				Volume24H float64   `json:"volume_24h"`
+				EndsAt    time.Time `json:"ends_at"`
+			} `json:"extra"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v\n%s", err, rec.Body.String())
 	}
-	if out.Feed != "event" || out.Slug != "event-one" || out.Title != "Event One on Polymarket" {
+	if out.Provider != "polymarket" || out.Meta.Feed != "event" || out.Meta.Slug != "event-one" || out.Title != "Event One on Polymarket" {
 		t.Fatalf("channel = %+v", out)
 	}
 	if len(out.Items) != 1 || out.Items[0].Title != "B" {
 		t.Fatalf("items = %+v", out.Items)
+	}
+	if out.Items[0].Extra.EndsAt.IsZero() {
+		t.Fatalf("extra.ends_at missing: %+v", out.Items[0].Extra)
 	}
 	if got := out.Items[0].CreatedAt.Format(time.RFC3339); got != "2026-11-20T00:00:00Z" {
 		t.Fatalf("created_at = %s", got)

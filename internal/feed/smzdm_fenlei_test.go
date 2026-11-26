@@ -128,11 +128,12 @@ func TestGetSmzdmFenleiReturnsCards(t *testing.T) {
 		if it.ID == "" || it.Title == "" || it.URL == "" {
 			t.Fatalf("items[%d] is missing an identity: %+v", i, it)
 		}
-		if it.Price == nil {
-			t.Fatalf("items[%d] has no price: %+v", i, it)
+		ex, ok := it.Extra.(*SmzdmExtra)
+		if !ok || ex.Price == nil {
+			t.Fatalf("items[%d] has no price extra: %#v", i, it.Extra)
 		}
-		if it.Slug != "tixuhuli" {
-			t.Fatalf("items[%d].Slug = %q", i, it.Slug)
+		if ex.Slug != "tixuhuli" {
+			t.Fatalf("items[%d].Extra.Slug = %q", i, ex.Slug)
 		}
 		if it.CreatedAt.IsZero() || it.CreatedAt.Location() != time.UTC {
 			t.Fatalf("items[%d].CreatedAt = %v, want a UTC timestamp", i, it.CreatedAt)
@@ -283,8 +284,8 @@ func TestGetSmzdmFenleiCacheHitKeepsTheReadTime(t *testing.T) {
 		if !it.CreatedAt.Equal(readAt) {
 			t.Fatalf("cold items[%d].created_at = %v, want %v", i, it.CreatedAt, readAt)
 		}
-		if it.DateSource != "fetched" {
-			t.Fatalf("cold items[%d].date_source = %q, want \"fetched\"", i, it.DateSource)
+		if ex, ok := it.Extra.(*SmzdmExtra); !ok || ex.DateSource != "fetched" {
+			t.Fatalf("cold items[%d].extra = %#v, want date_source \"fetched\"", i, it.Extra)
 		}
 	}
 

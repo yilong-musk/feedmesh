@@ -91,7 +91,8 @@ func telegramFeed(name string, c cachedList[telegram.Post], limit int, cached, d
 			URL:       "https://t.me/" + name + "/" + fmt.Sprintf("%d", p.ID),
 			Title:     telegramTitle(plain, p.Media),
 			Author:    strings.TrimSpace(firstNonEmpty(p.Signature, p.Author)),
-			Views:     p.Views,
+			Images:    []string{},
+			Extra:     &ViewsExtra{Views: p.Views},
 		}
 		for _, img := range p.Images {
 			if u := safeURLString(img); u != "" {
@@ -99,7 +100,7 @@ func telegramFeed(name string, c cachedList[telegram.Post], limit int, cached, d
 			}
 		}
 		if u := safeURLString(p.PosterURL); u != "" {
-			item.PosterURL = u
+			item.Video = &Video{Thumbnail: u}
 		}
 		items = append(items, item)
 	}

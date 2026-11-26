@@ -107,16 +107,19 @@ func TestSmzdmAPIRoute(t *testing.T) {
 	if got := out.Items[2].Author; got != "" {
 		t.Fatalf("author = %q, want empty for the entry with no description", got)
 	}
-	// The key must stay present even when it is empty, so a JSON client can
-	// rely on a stable schema; decoding into a map catches a later `omitempty`.
+	// In the unified schema, author is omitted when empty and extra is omitted
+	// on RSS channels that carry no category pricing metadata.
 	var raw struct {
 		Items []map[string]json.RawMessage `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode raw clamped call: %v", err)
 	}
-	if got, ok := raw.Items[2]["author"]; !ok || string(got) != `""` {
-		t.Fatalf("author key = %s (present %v), want an explicit empty string", got, ok)
+	if got, ok := raw.Items[2]["author"]; ok {
+		t.Fatalf("author key = %s, want omitted when empty", got)
+	}
+	if got, ok := raw.Items[0]["extra"]; ok {
+		t.Fatalf("extra key = %s, want omitted on deal RSS channels", got)
 	}
 }
 
@@ -146,9 +149,12 @@ func TestSmzdmPostRoutes(t *testing.T) {
 		t.Fatalf("api status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		Channel string `json:"channel"`
-		Title   string `json:"title"`
-		Items   []struct {
+		Provider string `json:"provider"`
+		Title    string `json:"title"`
+		Meta     struct {
+			Channel string `json:"channel"`
+		} `json:"meta"`
+		Items []struct {
 			ID     string `json:"id"`
 			Author string `json:"author"`
 			Text   string `json:"text"`
@@ -160,7 +166,7 @@ func TestSmzdmPostRoutes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v\n%s", err, rec.Body.String())
 	}
-	if out.Channel != "post" || out.Title != "SMZDM Community" {
+	if out.Provider != "smzdm" || out.Meta.Channel != "post" || out.Title != "SMZDM Community" {
 		t.Fatalf("channel view = %+v", out)
 	}
 	if len(out.Items) != 1 || out.Items[0].ID != "a3mxz8nr" {

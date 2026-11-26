@@ -93,18 +93,21 @@ func tiktokFeed(user string, c cachedList[tiktok.Item], limit int, cached, degra
 	items := make([]Item, 0, n)
 	for _, v := range c.Items[:n] {
 		it := Item{
-			ID:         v.ID,
-			CreatedAt:  v.CreatedAt,
-			Text:       v.Desc,
-			HTML:       tiktokHTML(v, display),
-			URL:        "https://www.tiktok.com/@" + author + "/video/" + v.ID,
-			Title:      tiktokTitle(v.Desc),
-			Author:     author,
-			PlayURL:    v.PlayURL,
-			DurationMS: v.DurationMS,
-			Width:      v.Width,
-			Height:     v.Height,
-			IsTop:      v.IsTop,
+			ID:        v.ID,
+			CreatedAt: v.CreatedAt,
+			Text:      v.Desc,
+			HTML:      tiktokHTML(v, display),
+			URL:       "https://www.tiktok.com/@" + author + "/video/" + v.ID,
+			Title:     tiktokTitle(v.Desc),
+			Author:    author,
+			Images:    []string{},
+			Download: &DownloadMedia{
+				PlayURL:    v.PlayURL,
+				DurationMS: v.DurationMS,
+				Width:      v.Width,
+				Height:     v.Height,
+				IsTop:      v.IsTop,
+			},
 		}
 		if cover := safeURLString(v.CoverURL); cover != "" {
 			it.Images = []string{cover}

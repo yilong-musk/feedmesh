@@ -184,14 +184,17 @@ func TestRedditJSONRoute(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		Sub      string `json:"sub"`
-		Sort     string `json:"sort"`
-		Window   string `json:"window"`
+		Provider string `json:"provider"`
 		Title    string `json:"title"`
 		Cached   bool   `json:"cached"`
 		Degraded bool   `json:"degraded"`
 		Source   string `json:"source"`
-		Items    []struct {
+		Meta     struct {
+			Sub    string `json:"sub"`
+			Sort   string `json:"sort"`
+			Window string `json:"window"`
+		} `json:"meta"`
+		Items []struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
 			Author    string    `json:"author"`
@@ -205,8 +208,8 @@ func TestRedditJSONRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v (body = %s)", err, rec.Body.String())
 	}
-	if got.Sub != "programming" || got.Sort != "top" || got.Window != "week" {
-		t.Fatalf("listing = %q/%q/%q", got.Sub, got.Sort, got.Window)
+	if got.Provider != "reddit" || got.Meta.Sub != "programming" || got.Meta.Sort != "top" || got.Meta.Window != "week" {
+		t.Fatalf("provider/meta = %q %+v", got.Provider, got.Meta)
 	}
 	if got.Title != "r/programming top (week)" {
 		t.Errorf("title = %q", got.Title)

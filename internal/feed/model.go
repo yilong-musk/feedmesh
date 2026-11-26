@@ -1,128 +1,79 @@
-// Package feed turns weibo posts into a stable feed model and renders it as
-// RSS 2.0. Everything here is pure: no network, no disk.
+// Package feed turns provider responses into a unified feed model and renders
+// it as RSS 2.0. Everything in this file is pure: no network, no disk.
 package feed
 
 import (
 	"time"
 )
 
-// Item is one post, normalised for downstream consumers.
+// Video describes a video attached to an item or a quoted post.
+type Video struct {
+	URL        string `json:"url,omitempty"`
+	Thumbnail  string `json:"thumbnail,omitempty"`
+	DurationMS int    `json:"duration_ms,omitempty"`
+	Views      int64  `json:"views,omitempty"`
+}
+
+// DownloadMedia holds short-lived video rendition details consumed by the
+// dedicated downloader endpoints (/api/v1/douyin/timeline, /api/v1/tiktok/timeline).
+// PlayURL is signed and expires within hours, so it stays out of generic feed
+// JSON and RSS.
+type DownloadMedia struct {
+	PlayURL    string
+	DurationMS int
+	Width      int
+	Height     int
+	IsTop      bool
+}
+
+// ViewsExtra carries an upstream play or view counter for providers that expose
+// one (YouTube, Bilibili, Telegram).
+type ViewsExtra struct {
+	Views int64 `json:"views"`
+}
+
+// Item is one entry normalised for RSS and JSON consumers. Provider-specific
+// fields live in Extra (a typed struct defined by the provider) so Item stays
+// stable as new platforms are added.
 type Item struct {
 	ID        string    `json:"id"`
-	BID       string    `json:"bid"`
-	CreatedAt time.Time `json:"created_at"`
+	Title     string    `json:"title"`
+	Author    string    `json:"author,omitempty"`
 	Text      string    `json:"text"`
 	HTML      string    `json:"html"`
 	URL       string    `json:"url"`
 	Images    []string  `json:"images"`
-	VideoURL  string    `json:"video_url,omitempty"`
-	PageURL   string    `json:"page_url,omitempty"`
-	Title     string    `json:"-"`
-	// Author is the upstream poster name for providers that expose one. The
-	// SMZDM JSON view publishes it; other providers leave it empty and keep
-	// their existing output.
-	Author string `json:"-"`
-	// Rank is the upstream display rank (hot search only); it is deliberately
-	// kept out of the generic item JSON.
-	Rank int `json:"-"`
-	// Heat is the upstream heat counter (hot search only). The hot JSON view
-	// exposes it as a number so clients never have to parse display text.
-	Heat int64 `json:"-"`
-	// Views is the upstream play counter (YouTube only); the YouTube JSON
-	// view publishes it.
-	Views int64 `json:"-"`
-	// Category, Pinned, Closed and Archived describe a forum topic (LINUX DO
-	// only). The LINUX DO JSON view publishes them; other views leave them
-	// empty.
-	Category string `json:"-"`
-	Pinned   bool   `json:"-"`
-	Closed   bool   `json:"-"`
-	Archived bool   `json:"-"`
-	// Price is the upstream listed price of a good-price card (SMZDM category
-	// pages only). Nil means the card carried no price. The SMZDM JSON view
-	// publishes it as a number or null.
-	Price *float64 `json:"-"`
-	// Slug is the category slug a card was read from (SMZDM category pages
-	// only); the JSON view publishes it.
-	Slug string `json:"-"`
-
-	// Volume24H and Liquidity describe a Polymarket event or market. The JSON
-	// view publishes them as numbers; other providers leave them zero.
-	Volume24H float64 `json:"-"`
-	Liquidity float64 `json:"-"`
-	// EndsAt is the Polymarket market or event close time.
-	EndsAt time.Time `json:"-"`
-
-	// Douyin-only fields. The play address expires within hours, so the
-	// generic item JSON leaves it out and the dedicated timeline view
-	// publishes it for the downloader.
-	PlayURL    string `json:"-"`
-	DurationMS int    `json:"-"`
-	Width      int    `json:"-"`
-	Height     int    `json:"-"`
-	IsTop      bool   `json:"-"`
-	// DateSource says where CreatedAt came from when a provider can derive it
-	// more than one way: "card" for a timestamp the upstream published,
-	// "fetched" for the page read time used as a fallback. Empty elsewhere.
-	DateSource string `json:"-"`
-	// PosterURL is the still image of a video post (X only). RSS renders it as
-	// the media thumbnail when the post has no photos of its own.
-	PosterURL string `json:"-"`
-	// VideoDurationMS and VideoViews describe the video behind VideoURL.
-	VideoDurationMS int   `json:"-"`
-	VideoViews      int64 `json:"-"`
-	// CardImage is a link-card banner. It is not a photo, so it is kept out of
-	// Images and published separately.
-	CardImage string `json:"-"`
-	// AuthorID is the upstream numeric account id (X only).
-	AuthorID string `json:"-"`
-	// Likes and Replies are engagement counters (X only).
-	Likes   int `json:"-"`
-	Replies int `json:"-"`
-	// Quoted is the post this item quotes (X only).
-	Quoted *QuotedItem `json:"-"`
+	Video     *Video    `json:"video,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	// Extra carries provider-specific item metadata and is omitted when nil.
+	Extra any `json:"extra,omitempty"`
+	// Download carries short-lived rendition details for downloader endpoints.
+	Download *DownloadMedia `json:"-"`
 }
 
-// QuotedItem is a quoted post carried inside another one.
-type QuotedItem struct {
-	ID          string
-	URL         string
-	Author      string
-	AuthorName  string
-	Text        string
-	Images      []string
-	VideoURL    string
-	DurationMS  int
-	Views       int64
-	VideoPoster string
-}
-
-// Feed is a rendered timeline for one account.
+// Feed is a rendered feed from one provider.
 type Feed struct {
-	UID         string    `json:"uid"`
-	ScreenName  string    `json:"screen_name"`
-	Description string    `json:"description"`
-	FetchedAt   time.Time `json:"fetched_at"`
-	Cached      bool      `json:"cached"`
-	// Degraded marks a list served from the cache because the upstream read
-	// failed. Providers that can answer from a stale entry set it; the JSON
-	// views that publish it declare the field themselves.
-	Degraded bool `json:"-"`
+	UID         string
+	ScreenName  string
+	Description string
+	FetchedAt   time.Time
+	Cached      bool
+	// Degraded marks a feed served from the last good cache entry because the
+	// upstream read failed.
+	Degraded bool
 	// Source names where the list came from when a provider has more than one
-	// upstream (YouTube: atom, browse, stale). The RSS route publishes it as a
-	// header, the JSON views that declare the field as a string.
-	Source string `json:"-"`
-	Items  []Item `json:"items"`
-	// TitleText/LinkText override the account-derived channel title and link;
-	// the hot search feed uses them because it has no account behind it.
-	TitleText string `json:"-"`
-	LinkText  string `json:"-"`
+	// upstream (YouTube: atom, browse, stale; Reddit: atom, stale).
+	Source string
+	Items  []Item
+	// TitleText/LinkText override the account-derived channel title and link.
+	TitleText string
+	LinkText  string
 	// TTL overrides the channel <ttl> in minutes; zero means the default 15.
-	TTL int `json:"-"`
+	TTL int
 	// Language is the BCP 47 tag of the upstream content, published as the
 	// channel <language>. Providers whose content language is not known up
 	// front leave it empty and the element is omitted.
-	Language string `json:"-"`
+	Language string
 }
 
 // langZhCN tags providers whose upstream content is Simplified Chinese. It

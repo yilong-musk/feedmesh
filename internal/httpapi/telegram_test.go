@@ -93,11 +93,14 @@ func TestTelegramAPIRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Channel     string `json:"channel"`
+		Provider    string `json:"provider"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Cached      bool   `json:"cached"`
-		Items       []struct {
+		Meta        struct {
+			Channel string `json:"channel"`
+		} `json:"meta"`
+		Items []struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
 			Text      string    `json:"text"`
@@ -105,14 +108,19 @@ func TestTelegramAPIRoute(t *testing.T) {
 			HTML      string    `json:"html"`
 			Images    []string  `json:"images"`
 			Author    string    `json:"author"`
-			Views     int64     `json:"views"`
 			CreatedAt time.Time `json:"created_at"`
+			Video     *struct {
+				Thumbnail string `json:"thumbnail"`
+			} `json:"video"`
+			Extra struct {
+				Views int64 `json:"views"`
+			} `json:"extra"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Channel != "sspai" || resp.Title != "sspai Channel on Telegram" {
+	if resp.Provider != "telegram" || resp.Meta.Channel != "sspai" || resp.Title != "sspai Channel on Telegram" {
 		t.Fatalf("envelope = %+v", resp)
 	}
 	if resp.Description != "sspai official channel" {
@@ -125,8 +133,8 @@ func TestTelegramAPIRoute(t *testing.T) {
 	if item.ID != "14874" || item.URL != "https://t.me/sspai/14874" {
 		t.Fatalf("item = %+v", item)
 	}
-	if item.Views != 3060 {
-		t.Fatalf("views = %d", item.Views)
+	if item.Extra.Views != 3060 {
+		t.Fatalf("views = %d", item.Extra.Views)
 	}
 	if !item.CreatedAt.Equal(time.Date(2026, 11, 9, 8, 20, 38, 0, time.UTC)) {
 		t.Fatalf("created_at = %v", item.CreatedAt)
@@ -142,6 +150,9 @@ func TestTelegramAPIRoute(t *testing.T) {
 	}
 	if resp.Items[2].Title != "Video post" {
 		t.Fatalf("media-only title = %q", resp.Items[2].Title)
+	}
+	if resp.Items[2].Video == nil || resp.Items[2].Video.Thumbnail != "https://cdn4.telesco.pe/file/video.jpg" {
+		t.Fatalf("video thumbnail = %+v", resp.Items[2].Video)
 	}
 }
 

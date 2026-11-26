@@ -83,24 +83,29 @@ func TestYouTubeAPIRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		Ref       string `json:"ref"`
-		ChannelID string `json:"channel_id"`
-		Title     string `json:"title"`
-		Cached    bool   `json:"cached"`
-		Degraded  bool   `json:"degraded"`
-		Source    string `json:"source"`
-		Items     []struct {
+		Provider string `json:"provider"`
+		Title    string `json:"title"`
+		Cached   bool   `json:"cached"`
+		Degraded bool   `json:"degraded"`
+		Source   string `json:"source"`
+		Meta     struct {
+			Ref       string `json:"ref"`
+			ChannelID string `json:"channel_id"`
+		} `json:"meta"`
+		Items []struct {
 			ID     string   `json:"id"`
 			Title  string   `json:"title"`
 			URL    string   `json:"url"`
-			Views  int64    `json:"views"`
 			Images []string `json:"images"`
+			Extra  struct {
+				Views int64 `json:"views"`
+			} `json:"extra"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v\n%s", err, rec.Body.String())
 	}
-	if out.Ref != "@testchannel" || out.ChannelID != ytChannelID || out.Title != "Test Channel" {
+	if out.Provider != "youtube" || out.Meta.Ref != "@testchannel" || out.Meta.ChannelID != ytChannelID || out.Title != "Test Channel" {
 		t.Fatalf("meta = %+v", out)
 	}
 	if out.Degraded {
@@ -112,7 +117,7 @@ func TestYouTubeAPIRoute(t *testing.T) {
 	if len(out.Items) != 1 {
 		t.Fatalf("items = %d, want 1", len(out.Items))
 	}
-	if out.Items[0].Views != 9862 || out.Items[0].URL == "" {
+	if out.Items[0].Extra.Views != 9862 || out.Items[0].URL == "" {
 		t.Fatalf("item = %+v", out.Items[0])
 	}
 

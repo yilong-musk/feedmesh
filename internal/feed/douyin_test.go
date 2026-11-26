@@ -93,7 +93,7 @@ func TestGetDouyinBuildsFeed(t *testing.T) {
 	if len(first.Images) != 1 || first.Images[0] != "https://p3.douyinpic.com/c.jpeg" {
 		t.Fatalf("images = %v", first.Images)
 	}
-	if f.Items[1].IsTop != true {
+	if f.Items[1].Download == nil || !f.Items[1].Download.IsTop {
 		t.Fatal("pinned marker lost")
 	}
 }

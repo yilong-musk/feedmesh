@@ -73,6 +73,14 @@ func (s *Service) GetLinuxDo(ctx context.Context, raw linuxdo.Ref, limit int, re
 	return linuxdoFeed(ref, entry, limit, cached, degraded), nil
 }
 
+// LinuxDoExtra carries Discourse forum topic metadata.
+type LinuxDoExtra struct {
+	Category string `json:"category,omitempty"`
+	Pinned   bool   `json:"pinned"`
+	Closed   bool   `json:"closed"`
+	Archived bool   `json:"archived"`
+}
+
 func linuxdoFeed(ref linuxdo.Ref, c cachedList[linuxdo.Topic], limit int, cached, degraded bool) *Feed {
 	display, link := linuxdoHeader(ref, c.Items)
 	n := len(c.Items)
@@ -89,10 +97,13 @@ func linuxdoFeed(ref linuxdo.Ref, c cachedList[linuxdo.Topic], limit int, cached
 			URL:       t.URL,
 			Title:     t.Title,
 			Author:    t.Author,
-			Category:  t.Category,
-			Pinned:    t.Pinned,
-			Closed:    t.Closed,
-			Archived:  t.Archived,
+			Images:    []string{},
+			Extra: &LinuxDoExtra{
+				Category: t.Category,
+				Pinned:   t.Pinned,
+				Closed:   t.Closed,
+				Archived: t.Archived,
+			},
 		}
 		for _, img := range t.Images {
 			if u := safeURLString(img); u != "" {

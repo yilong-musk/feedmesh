@@ -15,9 +15,9 @@ feed.Service (cache, single-flight, error classification)
    ↓
 provider packages (weibo / sspai / v2ex / smzdm / xnitter / youtube / reddit, HTTP and parsing only)
    ↓
-feed.Item (renderer-agnostic unified model)
+feed.Item (renderer-agnostic unified model with typed Extra)
    ↓
-RSS 2.0 + Media RSS / JSON
+RSS 2.0 + Media RSS / unified JSON envelope
 ```
 
 Each provider knows only its own upstream; `feed` knows nothing about URLs, request headers, or field names.

@@ -19,6 +19,12 @@ const (
 	hotTTL          = 5 * time.Minute
 )
 
+// HotExtra carries ranking metadata for a Weibo hot-search entry.
+type HotExtra struct {
+	Rank int   `json:"rank"`
+	Heat int64 `json:"heat"`
+}
+
 // GetHot builds the realtime hot search feed. Items share one pubDate; their
 // guid is the search URL, so a topic keeps the same identity while its rank
 // moves, and readers do not re-alert on every refresh.
@@ -57,18 +63,21 @@ func (s *Service) GetHot(ctx context.Context, limit int, refresh bool) (*Feed, e
 		TTL:         5,
 		Items:       make([]Item, 0, len(items)),
 	}
-	for _, h := range items {
+	for i, h := range items {
+		rank := h.Rank
+		if rank == 0 {
+			rank = i + 1
+		}
 		link := HotSearchLink(h)
 		f.Items = append(f.Items, Item{
-			ID:        fmt.Sprintf("hot-%d", h.Rank),
-			Title:     fmt.Sprintf("%d. %s", h.Rank, h.Word),
+			ID:        fmt.Sprintf("hot-%d", rank),
+			Title:     fmt.Sprintf("%d. %s", rank, h.Word),
 			Text:      h.Word,
 			HTML:      hotHTML(h, link),
 			URL:       link,
 			CreatedAt: now,
 			Images:    []string{},
-			Rank:      h.Rank,
-			Heat:      h.Heat,
+			Extra:     &HotExtra{Rank: rank, Heat: h.Heat},
 		})
 	}
 	return f, nil

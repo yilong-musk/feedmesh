@@ -42,22 +42,27 @@ func TestBilibiliAPIRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		User   string `json:"user"`
-		Title  string `json:"title"`
-		Cached bool   `json:"cached"`
-		Items  []struct {
+		Provider string `json:"provider"`
+		Title    string `json:"title"`
+		Cached   bool   `json:"cached"`
+		Meta     struct {
+			User string `json:"user"`
+		} `json:"meta"`
+		Items []struct {
 			ID        string    `json:"id"`
 			Title     string    `json:"title"`
 			URL       string    `json:"url"`
 			Author    string    `json:"author"`
-			Views     int64     `json:"views"`
 			CreatedAt time.Time `json:"created_at"`
+			Extra     struct {
+				Views int64 `json:"views"`
+			} `json:"extra"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.User != "946974" || resp.Title != "影视飓风 on Bilibili" {
+	if resp.Provider != "bilibili" || resp.Meta.User != "946974" || resp.Title != "影视飓风 on Bilibili" {
 		t.Fatalf("envelope = %+v", resp)
 	}
 	if len(resp.Items) != 1 {
@@ -67,8 +72,8 @@ func TestBilibiliAPIRoute(t *testing.T) {
 	if item.ID != "BV1kZWX62ENY" || item.URL != "https://www.bilibili.com/video/BV1kZWX62ENY" {
 		t.Fatalf("item = %+v", item)
 	}
-	if item.Views != 6608624 {
-		t.Fatalf("views = %d", item.Views)
+	if item.Extra.Views != 6608624 {
+		t.Fatalf("views = %d", item.Extra.Views)
 	}
 	if !item.CreatedAt.Equal(time.Unix(1800000000, 0).UTC()) {
 		t.Fatalf("created_at = %v", item.CreatedAt)

@@ -92,8 +92,8 @@ func TestGetBilibiliBuildsFeed(t *testing.T) {
 			t.Fatalf("metadata %q missing: %s", want, first.HTML)
 		}
 	}
-	if first.Views != 6608624 {
-		t.Fatalf("views = %d", first.Views)
+	if vx, ok := first.Extra.(*ViewsExtra); !ok || vx.Views != 6608624 {
+		t.Fatalf("extra = %#v, want views=6608624", first.Extra)
 	}
 	if len(f.Items[1].Images) != 0 {
 		t.Fatalf("unsafe cover survived: %v", f.Items[1].Images)

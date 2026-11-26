@@ -99,39 +99,44 @@ func TestSmzdmFenleiAPIRoute(t *testing.T) {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		Channel   string    `json:"channel"`
-		Slug      string    `json:"slug"`
+		Provider  string    `json:"provider"`
 		Title     string    `json:"title"`
 		Cached    bool      `json:"cached"`
 		FetchedAt time.Time `json:"fetched_at"`
-		Items     []struct {
-			ID         string    `json:"id"`
-			Title      string    `json:"title"`
-			Text       string    `json:"text"`
-			URL        string    `json:"url"`
-			HTML       string    `json:"html"`
-			Images     []string  `json:"images"`
-			Price      *float64  `json:"price"`
-			Slug       string    `json:"slug"`
-			DateSource string    `json:"date_source"`
-			CreatedAt  time.Time `json:"created_at"`
+		Meta      struct {
+			Channel string `json:"channel"`
+			Slug    string `json:"slug"`
+		} `json:"meta"`
+		Items []struct {
+			ID        string    `json:"id"`
+			Title     string    `json:"title"`
+			Text      string    `json:"text"`
+			URL       string    `json:"url"`
+			HTML      string    `json:"html"`
+			Images    []string  `json:"images"`
+			CreatedAt time.Time `json:"created_at"`
+			Extra     struct {
+				Price      *float64 `json:"price"`
+				Slug       string   `json:"slug"`
+				DateSource string   `json:"date_source"`
+			} `json:"extra"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v\n%s", err, rec.Body.String())
 	}
-	if out.Channel != "fenlei" || out.Slug != "tixuhuli" {
-		t.Fatalf("channel/slug = %q/%q", out.Channel, out.Slug)
+	if out.Provider != "smzdm" || out.Meta.Channel != "fenlei" || out.Meta.Slug != "tixuhuli" {
+		t.Fatalf("provider/meta = %q %+v", out.Provider, out.Meta)
 	}
 	if len(out.Items) != 2 {
 		t.Fatalf("items = %d, want 2 (the article card is dropped): %s", len(out.Items), rec.Body.String())
 	}
 	first := out.Items[0]
-	if first.ID != "184919040" || first.Price == nil || *first.Price != 7.9 {
+	if first.ID != "184919040" || first.Extra.Price == nil || *first.Extra.Price != 7.9 {
 		t.Fatalf("items[0] = %+v, want id 184919040 with price 7.9", first)
 	}
-	if first.Slug != "tixuhuli" {
-		t.Fatalf("items[0].slug = %q", first.Slug)
+	if first.Extra.Slug != "tixuhuli" {
+		t.Fatalf("items[0].extra.slug = %q", first.Extra.Slug)
 	}
 	if first.Text != "7.9 CNY (coupon)" {
 		t.Fatalf("items[0].text = %q, want the display price", first.Text)
@@ -145,8 +150,8 @@ func TestSmzdmFenleiAPIRoute(t *testing.T) {
 	if len(first.Images) != 1 || !strings.HasPrefix(first.Images[0], "https://") {
 		t.Fatalf("items[0].images = %v", first.Images)
 	}
-	if first.DateSource != "fetched" {
-		t.Fatalf("items[0].date_source = %q, want the value that says the time is the read time", first.DateSource)
+	if first.Extra.DateSource != "fetched" {
+		t.Fatalf("items[0].extra.date_source = %q, want the value that says the time is the read time", first.Extra.DateSource)
 	}
 
 	// The page is read once an hour: the second read is a cache hit, and it
