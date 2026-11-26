@@ -148,10 +148,14 @@ func TestPeekStoredReadsExpiredEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A controlled clock: a real 1 ms TTL plus a sleep raced the scheduler
+	// under -race and failed intermittently.
+	now := time.Now()
+	c.now = func() time.Time { return now }
 	if err := c.Set("timeline:1", "old", time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(10 * time.Millisecond)
+	now = now.Add(time.Second)
 
 	var fresh string
 	if hit, err := c.Peek("timeline:1", &fresh); err != nil || hit {
