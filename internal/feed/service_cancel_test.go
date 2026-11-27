@@ -81,14 +81,22 @@ func TestFetchCachedWaiterGivesUpOnItsOwnDeadline(t *testing.T) {
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	defer close(release)
+	// The shared read writes its cache file after release. TempDir is removed
+	// as soon as this function returns, so wait for that write to finish or
+	// the cleanup races and fails with "directory not empty".
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_, _, _, _ = fetchCached(context.Background(), svc, key, time.Hour, false,
 			func(context.Context) (string, error) {
 				close(started)
 				<-release
 				return "value", nil
 			})
+	}()
+	defer func() {
+		close(release)
+		<-done
 	}()
 	<-started
 
@@ -114,14 +122,21 @@ func TestFetchCachedListQueuedReaderGivesUpOnItsOwnDeadline(t *testing.T) {
 
 	started := make(chan struct{})
 	release := make(chan struct{})
-	defer close(release)
+	// Same cleanup race as TestFetchCachedWaiterGivesUpOnItsOwnDeadline: the
+	// shared read stores its result after release.
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_, _, _, _ = fetchCachedList(context.Background(), svc, key, time.Hour, false, 5,
 			func(context.Context, int) ([]string, error) {
 				close(started)
 				<-release
 				return []string{"a"}, nil
 			})
+	}()
+	defer func() {
+		close(release)
+		<-done
 	}()
 	<-started
 
