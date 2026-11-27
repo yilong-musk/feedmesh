@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-English | [Chinese (Simplified)](README.zh-CN.md) | [Chinese (Traditional)](README.zh-TW.md) | [Japanese](README.ja.md) | [Korean](README.ko.md) | [Spanish](README.es.md) | [French](README.fr.md) | [German](README.de.md) | [Portuguese](README.pt.md) | [Russian](README.ru.md)
+[German](README.de.md) | English | [Spanish](README.es.md) | [French](README.fr.md) | [Japanese](README.ja.md) | [Korean](README.ko.md) | [Portuguese](README.pt.md) | [Russian](README.ru.md) | [Chinese (Simplified)](README.zh-CN.md) | [Chinese (Traditional)](README.zh-TW.md)
 
 Bridges content from multiple platforms into RSS — self-hosted, one static binary, no third-party dependencies (there is not a single `require` in `go.mod`), listening only on `127.0.0.1` by default. Supported platforms are listed below and detailed in [docs/PLATFORMS.md](docs/PLATFORMS.md); new platforms arrive as providers.
 
@@ -135,7 +135,7 @@ Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--t
 - **[API](docs/API.md)**: endpoints, parameters, JSON shapes, error codes, RSS output details, cache TTLs
 - **[Platforms](docs/PLATFORMS.md)**: rules and limits per source, plus the steps for adding a provider
 - **[Architecture and operations](docs/ARCHITECTURE.md)**: cache implementation, upstream policy, security and privacy, layout, troubleshooting, development commands
-- **Translations** (`README.zh-CN.md`, `README.zh-TW.md`, `README.ja.md`, `README.ko.md`, `README.es.md`, `README.fr.md`, `README.de.md`, `README.pt.md`, `README.ru.md`): localized copies of this page; the English pages stay the source of truth
+- **Translations** (`README.de.md`, `README.es.md`, `README.fr.md`, `README.ja.md`, `README.ko.md`, `README.pt.md`, `README.ru.md`, `README.zh-CN.md`, `README.zh-TW.md`): localized copies of this page; the English pages stay the source of truth
 
 ## License
 

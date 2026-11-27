@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | 한국어 | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Português](README.pt.md) | [Русский](README.ru.md)
+[Deutsch](README.de.md) | [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [日本語](README.ja.md) | 한국어 | [Português](README.pt.md) | [Русский](README.ru.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
 
 여러 플랫폼의 콘텐츠를 RSS로 모읍니다. 자체 호스팅, 정적 바이너리 하나, 서드파티 의존성 없음(`go.mod`에 `require`가 하나도 없습니다). 기본값은 `127.0.0.1`만 수신합니다. 지원 플랫폼은 아래 표와 [docs/PLATFORMS.md](docs/PLATFORMS.md)에 있으며, 새 플랫폼은 provider로 추가됩니다.
 
