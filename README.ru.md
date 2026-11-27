@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Português](README.pt.md) | Русский
+[Deutsch](README.de.md) | [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | Русский | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
 
 Собирает материалы нескольких площадок в RSS — свой хост, один статический бинарник, без сторонних зависимостей (в `go.mod` нет ни одного `require`), по умолчанию слушает только `127.0.0.1`. Поддерживаемые площадки перечислены ниже и подробно описаны в [docs/PLATFORMS.md](docs/PLATFORMS.md); новые появляются как provider.
 

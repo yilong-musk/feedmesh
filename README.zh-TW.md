@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README.md) | [简体中文](README.zh-CN.md) | 繁體中文 | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Português](README.pt.md) | [Русский](README.ru.md)
+[Deutsch](README.de.md) | [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [简体中文](README.zh-CN.md) | 繁體中文
 
 把多個平台的內容匯聚成 RSS —— 自託管、單個靜態二進位、零第三方依賴（`go.mod` 裡沒有任何 `require`），預設只監聽 `127.0.0.1`。已接入的平台見下表，細節見 [docs/PLATFORMS.md](docs/PLATFORMS.md)；新平台以 provider 的形式持續增加。
 

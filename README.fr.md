@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | Français | [Deutsch](README.de.md) | [Português](README.pt.md) | [Русский](README.ru.md)
+[Deutsch](README.de.md) | [English](README.md) | [Español](README.es.md) | Français | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
 
 Rassemble le contenu de plusieurs plateformes en RSS : auto-hébergé, un seul binaire statique, aucune dépendance tierce (il n'y a pas un seul `require` dans `go.mod`), à l'écoute de `127.0.0.1` seulement par défaut. Les plateformes prises en charge sont listées ci-dessous et détaillées dans [docs/PLATFORMS.md](docs/PLATFORMS.md) ; les nouvelles arrivent sous forme de providers.
 
