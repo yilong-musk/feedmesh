@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-English | [Chinese (Simplified)](README.zh-CN.md)
+English | [Chinese (Simplified)](README.zh-CN.md) | [Chinese (Traditional)](README.zh-TW.md) | [Japanese](README.ja.md) | [Korean](README.ko.md) | [Spanish](README.es.md) | [French](README.fr.md) | [German](README.de.md) | [Portuguese](README.pt.md) | [Russian](README.ru.md)
 
 Bridges content from multiple platforms into RSS — self-hosted, one static binary, no third-party dependencies (there is not a single `require` in `go.mod`), listening only on `127.0.0.1` by default. Supported platforms are listed below and detailed in [docs/PLATFORMS.md](docs/PLATFORMS.md); new platforms arrive as providers.
 
@@ -128,14 +128,14 @@ The unit uses systemd's `%h` / `%C` expansion for the home and cache directories
 | `cache purge --handle <handle>` | Remove one X handle's timeline entries |
 | `--dry-run` | Report only, delete nothing |
 
-Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX/SMZDM/Reddit, 20s for X/YouTube, 30s for TikTok, 40s for Bilibili, 45s for Douyin (a cold browser takes about half a minute), 15s for Telegram and 20s for LINUX DO; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
+Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20s for X/YouTube, 30s for TikTok, 40s for Bilibili, 45s for Douyin (a cold browser takes about half a minute), 15s for Telegram and 20s for LINUX DO; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
 
 ## Documentation
 
 - **[API](docs/API.md)**: endpoints, parameters, JSON shapes, error codes, RSS output details, cache TTLs
 - **[Platforms](docs/PLATFORMS.md)**: rules and limits per source, plus the steps for adding a provider
 - **[Architecture and operations](docs/ARCHITECTURE.md)**: cache implementation, upstream policy, security and privacy, layout, troubleshooting, development commands
-- **[Chinese (Simplified)](README.zh-CN.md)**: this README in Simplified Chinese; the English pages stay the source of truth
+- **Translations** (`README.zh-CN.md`, `README.zh-TW.md`, `README.ja.md`, `README.ko.md`, `README.es.md`, `README.fr.md`, `README.de.md`, `README.pt.md`, `README.ru.md`): localized copies of this page; the English pages stay the source of truth
 
 ## License
 
