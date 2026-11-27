@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README.md) | 简体中文
+[English](README.md) | 简体中文 | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Português](README.pt.md) | [Русский](README.ru.md)
 
 把多个平台的内容汇聚成 RSS —— 自托管、单个静态二进制、零第三方依赖（`go.mod` 里没有任何 `require`），默认只监听 `127.0.0.1`。已接入的平台见下表，细节见 [docs/PLATFORMS.md](docs/PLATFORMS.md)；新平台以 provider 的形式持续增加。
 
@@ -98,6 +98,10 @@ feedmesh serve --listen 127.0.0.1:3000
 ```bash
 curl -s 'http://127.0.0.1:3000/rss/hot?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
 
@@ -127,7 +131,7 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 | `cache purge --handle <handle>` | 清除某个 X handle 的时间线缓存 |
 | `--dry-run` | 只报告，不删除 |
 
-全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit/Pinterest/Polymarket 15 秒、X/YouTube 20 秒、抖音 45 秒（冷启动浏览器约 30 秒）、Telegram 15 秒、LINUX DO 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
+全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit/Pinterest/Polymarket 15 秒、X/YouTube 20 秒、TikTok 30 秒、哔哩哔哩 40 秒、抖音 45 秒（冷启动浏览器约半分钟）、Telegram 15 秒、LINUX DO 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
 
 ## 文档
 
