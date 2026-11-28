@@ -1,6 +1,6 @@
 # Supported platforms
 
-**14 platforms and 20 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**15 platforms and 21 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -24,6 +24,7 @@
 | <img src="assets/apple.png" width="20" height="20" align="absmiddle" alt="Apple Podcasts"> **Apple Podcasts** | Show episodes | `/rss/apple/{id}` | `/api/v1/apple?id=` |
 | <img src="assets/apple.png" width="20" height="20" align="absmiddle" alt="Apple Podcasts"> **Apple Podcasts** | Top shows | `/rss/apple/top` | `/api/v1/apple?chart=top&country=` |
 | <img src="assets/xiaoyuzhou.png" width="20" height="20" align="absmiddle" alt="Xiaoyuzhou"> **Xiaoyuzhou** | Show episodes | `/rss/xiaoyuzhou/{id}` | `/api/v1/xiaoyuzhou?id=` |
+| <img src="assets/trumpstruth.png" width="20" height="20" align="absmiddle" alt="Trump's Truth"> **Trump's Truth** | Latest posts | `/rss/trumpstruth` | `/api/v1/trumpstruth` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
@@ -421,6 +422,25 @@ Official site <https://www.xiaoyuzhoufm.com> · Data source: the public show pag
 - Parameters: `limit` 1–15, `refresh=1`.
 - Cache: fresh for 30 minutes; the last good list is kept for six hours.
 - A missing show returns `USER_NOT_FOUND` (404). A malformed id returns `BAD_REQUEST` (400). There is no top-shows chart: the public home page does not list one.
+
+---
+
+## <img src="assets/trumpstruth.png" width="28" height="28" align="absmiddle" alt="Trump's Truth"> Trump's Truth
+
+Official archive <https://www.trumpstruth.org> · Data source: the archive's public RSS (`/feed`). No account and no API key. `truthsocial.com` itself is not requested: it sits behind Cloudflare and has no anonymous read API.
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Latest posts | `/rss/trumpstruth`, `/rss/trumpstruth.xml` | `/api/v1/trumpstruth` | 20 | 100 | 10 minutes |
+
+- One fixed timeline: Donald Trump's posts, as kept by the archive. This is not a reader for arbitrary Truth Social accounts.
+- The archive serves the newest posts (its own feed window is about a week at 100 items). Older history stays on the archive site; this route does not page it.
+- `link` / `guid` is the archive status page (`trumpstruth.org/statuses/<id>`), which is readable without an account. The original `truthsocial.com` URL is only in `extra.original_url`.
+- Image posts often have a generated title (`Image post from …`) and a picture. The picture is the archive's copy, not the Truth Social CDN. Transcripts that exist only on the status page are not fetched.
+- `extra.post_type` is the archive's label (`original`, `quote`, …). `extra.removed` is true when the archive still lists a post the author deleted.
+- Parameters: `limit` 1–100, `refresh=1`.
+- Cache: fresh for 10 minutes; the last good list is kept for six hours.
+- A challenge page, a non-200 answer, or a document that is not RSS returns `UPSTREAM_UNAVAILABLE` (504). `429` returns `RATE_LIMITED`.
 
 ---
 

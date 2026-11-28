@@ -122,6 +122,7 @@ type Clients struct {
 	Polymarket *polymarket.Client
 	Apple      AppleCatalog
 	Xiaoyuzhou XiaoyuzhouCatalog
+	TrumpTruth TrumpTruthFeed
 }
 
 type Service struct {

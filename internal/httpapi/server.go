@@ -103,6 +103,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/apple/top.xml", s.getOnly(s.handleAppleChart))
 	mux.HandleFunc("/rss/apple/{id}", s.getOnly(s.handleApple))
 	mux.HandleFunc("/rss/xiaoyuzhou/{id}", s.getOnly(s.handleXiaoyuzhou))
+	mux.HandleFunc("/rss/trumpstruth", s.getOnly(s.handleTrumpTruth))
+	mux.HandleFunc("/rss/trumpstruth.xml", s.getOnly(s.handleTrumpTruth))
 	mux.HandleFunc("/rss/pinterest/{user}", s.getOnly(s.handlePinterest))
 	mux.HandleFunc("/rss/pinterest/{user}/{board}", s.getOnly(s.handlePinterest))
 	mux.HandleFunc("/rss/polymarket/new", s.getOnly(s.handlePolymarketNew))
@@ -137,6 +139,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/telegram", s.getOnly(s.handleAPITelegram))
 	mux.HandleFunc("/api/v1/apple", s.getOnly(s.handleAPIApple))
 	mux.HandleFunc("/api/v1/xiaoyuzhou", s.getOnly(s.handleAPIXiaoyuzhou))
+	mux.HandleFunc("/api/v1/trumpstruth", s.getOnly(s.handleAPITrumpTruth))
 	mux.HandleFunc("/api/v1/pinterest", s.getOnly(s.handleAPIPinterest))
 	mux.HandleFunc("/api/v1/polymarket", s.getOnly(s.handleAPIPolymarket))
 	mux.HandleFunc("/api/v1/linuxdo", s.getOnly(s.handleAPILinuxDo))
@@ -842,6 +845,24 @@ func (s *Server) handleAPIXiaoyuzhou(w http.ResponseWriter, r *http.Request) {
 		meta = map[string]any{"id": f.UID}
 	}
 	s.serveJSON(w, "xiaoyuzhou", f, err, meta)
+}
+
+// ---------------------------------------------------------------- Trump's Truth
+
+// handleTrumpTruth renders the archive of Donald Trump's Truth Social posts.
+func (s *Server) handleTrumpTruth(w http.ResponseWriter, r *http.Request) {
+	limit := limitParam(r, feed.DefaultTrumpTruthLimit, feed.MaxTrumpTruthLimit)
+	refresh := refreshParam(r)
+	f, err := s.cfg.Service.GetTrumpTruth(r.Context(), limit, refresh)
+	s.serveFeed(w, r, f, err, int(feed.TrumpTruthTTL().Seconds()))
+}
+
+// handleAPITrumpTruth returns the same archive feed in the unified JSON envelope.
+func (s *Server) handleAPITrumpTruth(w http.ResponseWriter, r *http.Request) {
+	limit := limitParam(r, feed.DefaultTrumpTruthLimit, feed.MaxTrumpTruthLimit)
+	refresh := refreshParam(r)
+	f, err := s.cfg.Service.GetTrumpTruth(r.Context(), limit, refresh)
+	s.serveJSON(w, "trumpstruth", f, err, nil)
 }
 
 // ------------------------------------------------------------------- Pinterest

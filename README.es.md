@@ -30,6 +30,7 @@ Reúne el contenido de varias plataformas en RSS: autoalojado, un solo binario e
 | <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Episodios de un programa | `/rss/apple/{id}` | `/api/v1/apple?id=` |
 | <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Los más escuchados | `/rss/apple/top` | `/api/v1/apple?chart=top&country=` |
 | <img src="docs/assets/xiaoyuzhou.png" width="18" height="18" align="absmiddle" alt="Xiaoyuzhou">&nbsp;Xiaoyuzhou | Episodios de un programa | `/rss/xiaoyuzhou/{id}` | `/api/v1/xiaoyuzhou?id=` |
+| <img src="docs/assets/trumpstruth.png" width="18" height="18" align="absmiddle" alt="Trump's Truth">&nbsp;Trump's Truth | Publicaciones recientes | `/rss/trumpstruth` | `/api/v1/trumpstruth` |
 | <img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest | Pines de un perfil o tablero | `/rss/pinterest/{user}`, `/rss/pinterest/{user}/{board}` | `/api/v1/pinterest?user=&board=` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Eventos nuevos o en tendencia | `/rss/polymarket/new`, `/rss/polymarket/hot` | `/api/v1/polymarket?feed=new\|hot` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Cuotas de un evento | `/rss/polymarket/event/{slug}` | `/api/v1/polymarket?feed=event&slug=` |
@@ -99,6 +100,7 @@ curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/apple/1200361736?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/xiaoyuzhou/6021f949a789fca4eff4492c?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/trumpstruth?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
@@ -129,7 +131,7 @@ La unidad usa la expansión `%h` / `%C` de systemd para el directorio personal y
 | `cache purge --handle <handle>` | Borra las entradas de cronología de un handle de X |
 | `--dry-run` | Solo informa; no borra nada |
 
-Indicadores globales: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` vale por defecto 9 s para Weibo, 15 s para sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20 s para X/YouTube, 30 s para TikTok, 40 s para Bilibili, 45 s para Douyin (un navegador en frío tarda alrededor de medio minuto), 15 s para Telegram y Xiaoyuzhou, 20 s para LINUX DO y 20 s para Apple Podcasts; un valor explícito sustituye a todos los providers, pero un intento de X nunca supera los 25 s. stdout solo lleva datos; stderr solo lleva líneas de registro JSON.
+Indicadores globales: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` vale por defecto 9 s para Weibo, 15 s para sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20 s para X/YouTube, 30 s para TikTok, 40 s para Bilibili, 45 s para Douyin (un navegador en frío tarda alrededor de medio minuto), 15 s para Telegram, Xiaoyuzhou y Trump's Truth, 20 s para LINUX DO y 20 s para Apple Podcasts; un valor explícito sustituye a todos los providers, pero un intento de X nunca supera los 25 s. stdout solo lleva datos; stderr solo lleva líneas de registro JSON.
 
 ## Documentación
 

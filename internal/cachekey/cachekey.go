@@ -43,6 +43,7 @@ var (
 	Polymarket = register("polymarket")
 	Apple      = register("apple")
 	Xiaoyuzhou = register("xiaoyuzhou")
+	TrumpTruth = register("trumpstruth")
 )
 
 // All returns every registered namespace.

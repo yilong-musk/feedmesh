@@ -40,6 +40,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/sspai"
 	"github.com/yilong-musk/feedmesh/internal/telegram"
 	"github.com/yilong-musk/feedmesh/internal/tiktok"
+	"github.com/yilong-musk/feedmesh/internal/trumpstruth"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
 	"github.com/yilong-musk/feedmesh/internal/xiaoyuzhou"
@@ -66,6 +67,7 @@ const (
 	defaultPolymarketTimeout = 15 * time.Second
 	defaultAppleTimeout      = 20 * time.Second
 	defaultXiaoyuzhouTimeout = 15 * time.Second
+	defaultTrumpTruthTimeout = 15 * time.Second
 	breakerCooloff           = 10 * time.Minute
 )
 
@@ -419,7 +421,8 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 	pm := polymarket.New(polymarket.Config{Timeout: to.Polymarket})
 	ap := apple.New(apple.Config{Timeout: to.Apple})
 	xy := xiaoyuzhou.New(xiaoyuzhou.Config{Timeout: to.Xiaoyuzhou})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk, Bilibili: bl, Telegram: tg, LinuxDo: ld, Pinterest: pt, Polymarket: pm, Apple: ap, Xiaoyuzhou: xy}, c, logger, feed.DefaultTTLs())
+	tt := trumpstruth.New(trumpstruth.Config{Timeout: to.TrumpTruth})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk, Bilibili: bl, Telegram: tg, LinuxDo: ld, Pinterest: pt, Polymarket: pm, Apple: ap, Xiaoyuzhou: xy, TrumpTruth: tt}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 
@@ -468,12 +471,13 @@ func providerTimeouts(o *options) providerTimeoutSet {
 		Polymarket: pick(defaultPolymarketTimeout, 0, 0),
 		Apple:      pick(defaultAppleTimeout, 0, 0),
 		Xiaoyuzhou: pick(defaultXiaoyuzhouTimeout, 0, 0),
+		TrumpTruth: pick(defaultTrumpTruthTimeout, 0, 0),
 	}
 }
 
 // providerTimeoutSet is the resolved request timeout of every provider.
 type providerTimeoutSet struct {
-	Sspai, V2ex, X, Smzdm, YouTube, Reddit, Douyin, TikTok, Bilibili, Telegram, LinuxDo, Pinterest, Polymarket, Apple, Xiaoyuzhou time.Duration
+	Sspai, V2ex, X, Smzdm, YouTube, Reddit, Douyin, TikTok, Bilibili, Telegram, LinuxDo, Pinterest, Polymarket, Apple, Xiaoyuzhou, TrumpTruth time.Duration
 }
 
 func exitCodeFor(code string) int {
