@@ -33,6 +33,7 @@
     <tr><td><img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts</td><td>节目单集</td><td><code>/rss/apple/{id}</code></td><td><code>/api/v1/apple?id=</code></td></tr>
     <tr><td><img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts</td><td>热门排行</td><td><code>/rss/apple/top</code></td><td><code>/api/v1/apple?chart=top&country=</code></td></tr>
     <tr><td><img src="docs/assets/xiaoyuzhou.png" width="18" height="18" align="absmiddle" alt="小宇宙">&nbsp;小宇宙</td><td>节目单集</td><td><code>/rss/xiaoyuzhou/{id}</code></td><td><code>/api/v1/xiaoyuzhou?id=</code></td></tr>
+    <tr><td><img src="docs/assets/trumpstruth.png" width="18" height="18" align="absmiddle" alt="Trump's Truth">&nbsp;Trump's Truth</td><td>最新帖子</td><td><code>/rss/trumpstruth</code></td><td><code>/api/v1/trumpstruth</code></td></tr>
     <tr><td><img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest</td><td>个人主页 / 板子 pin</td><td><code>/rss/pinterest/{user}</code>, <code>/rss/pinterest/{user}/{board}</code></td><td><code>/api/v1/pinterest?user=&amp;board=</code></td></tr>
     <tr><td><img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket</td><td>新市场 / 热门事件</td><td><code>/rss/polymarket/new</code>, <code>/rss/polymarket/hot</code></td><td><code>/api/v1/polymarket?feed=new|hot</code></td></tr>
     <tr><td><img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket</td><td>单事件赔率</td><td><code>/rss/polymarket/event/{slug}</code></td><td><code>/api/v1/polymarket?feed=event&amp;slug=</code></td></tr>
@@ -106,6 +107,7 @@ curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/apple/1200361736?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/xiaoyuzhou/6021f949a789fca4eff4492c?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/trumpstruth?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
@@ -136,7 +138,7 @@ loginctl enable-linger "$USER"     # 未登录也常驻
 | `cache purge --handle <handle>` | 清除某个 X handle 的时间线缓存 |
 | `--dry-run` | 只报告，不删除 |
 
-全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit/Pinterest/Polymarket 15 秒、X/YouTube 20 秒、TikTok 30 秒、哔哩哔哩 40 秒、抖音 45 秒（冷启动浏览器约半分钟）、Telegram 15 秒、小宇宙 15 秒、LINUX DO 20 秒、Apple Podcasts 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
+全局 flag：`--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` 默认微博 9 秒、少数派/V2EX/什么值得买/Reddit/Pinterest/Polymarket 15 秒、X/YouTube 20 秒、TikTok 30 秒、哔哩哔哩 40 秒、抖音 45 秒（冷启动浏览器约半分钟）、Telegram 15 秒、小宇宙 15 秒、Trump's Truth 15 秒、LINUX DO 20 秒、Apple Podcasts 20 秒；显式设置后覆盖所有 provider，但 X 单次尝试最多 25 秒。stdout 只放数据，stderr 只放 JSON 行日志。
 
 ## 文档
 

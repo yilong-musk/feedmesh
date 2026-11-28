@@ -47,16 +47,17 @@ func TestProviderTimeoutsClampX(t *testing.T) {
 		wantPolymarket time.Duration
 		wantApple      time.Duration
 		wantXiaoyuzhou time.Duration
+		wantTrumpTruth time.Duration
 	}{
-		{"defaults", &options{}, 15 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 45 * time.Second, 30 * time.Second, 40 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second},
-		{"explicit", &options{timeout: 2 * time.Second, timeoutSet: true}, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 20 * time.Second, 10 * time.Second, 20 * time.Second, 2 * time.Second, 20 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second},
-		{"x capped", &options{timeout: 60 * time.Second, timeoutSet: true}, 60 * time.Second, 60 * time.Second, 25 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second},
+		{"defaults", &options{}, 15 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 45 * time.Second, 30 * time.Second, 40 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 15 * time.Second, 20 * time.Second, 15 * time.Second, 15 * time.Second},
+		{"explicit", &options{timeout: 2 * time.Second, timeoutSet: true}, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 20 * time.Second, 10 * time.Second, 20 * time.Second, 2 * time.Second, 20 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second},
+		{"x capped", &options{timeout: 60 * time.Second, timeoutSet: true}, 60 * time.Second, 60 * time.Second, 25 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := providerTimeouts(tc.opts)
 			want := providerTimeoutSet{tc.wantSspai, tc.wantV2ex, tc.wantX, tc.wantSmzdm, tc.wantYouTube, tc.wantReddit,
-				tc.wantDouyin, tc.wantTikTok, tc.wantBilibili, tc.wantTelegram, tc.wantLinuxDo, tc.wantPinterest, tc.wantPolymarket, tc.wantApple, tc.wantXiaoyuzhou}
+				tc.wantDouyin, tc.wantTikTok, tc.wantBilibili, tc.wantTelegram, tc.wantLinuxDo, tc.wantPinterest, tc.wantPolymarket, tc.wantApple, tc.wantXiaoyuzhou, tc.wantTrumpTruth}
 			if got != want {
 				t.Fatalf("timeouts = %+v, want %+v", got, want)
 			}

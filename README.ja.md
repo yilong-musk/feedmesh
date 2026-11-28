@@ -33,6 +33,7 @@
     <tr><td><img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts</td><td>番組のエピソード</td><td><code>/rss/apple/{id}</code></td><td><code>/api/v1/apple?id=</code></td></tr>
     <tr><td><img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts</td><td>トップ番組</td><td><code>/rss/apple/top</code></td><td><code>/api/v1/apple?chart=top&country=</code></td></tr>
     <tr><td><img src="docs/assets/xiaoyuzhou.png" width="18" height="18" align="absmiddle" alt="Xiaoyuzhou">&nbsp;Xiaoyuzhou</td><td>番組のエピソード</td><td><code>/rss/xiaoyuzhou/{id}</code></td><td><code>/api/v1/xiaoyuzhou?id=</code></td></tr>
+    <tr><td><img src="docs/assets/trumpstruth.png" width="18" height="18" align="absmiddle" alt="Trump's Truth">&nbsp;Trump's Truth</td><td>最新の投稿</td><td><code>/rss/trumpstruth</code></td><td><code>/api/v1/trumpstruth</code></td></tr>
     <tr><td><img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest</td><td>プロフィール / ボードの pin</td><td><code>/rss/pinterest/{user}</code>, <code>/rss/pinterest/{user}/{board}</code></td><td><code>/api/v1/pinterest?user=&amp;board=</code></td></tr>
     <tr><td><img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket</td><td>新着 / トレンドのイベント</td><td><code>/rss/polymarket/new</code>, <code>/rss/polymarket/hot</code></td><td><code>/api/v1/polymarket?feed=new|hot</code></td></tr>
     <tr><td><img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket</td><td>イベントのオッズ</td><td><code>/rss/polymarket/event/{slug}</code></td><td><code>/api/v1/polymarket?feed=event&amp;slug=</code></td></tr>
@@ -103,6 +104,7 @@ curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/apple/1200361736?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/xiaoyuzhou/6021f949a789fca4eff4492c?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/trumpstruth?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
@@ -133,7 +135,7 @@ loginctl enable-linger "$USER"     # ログインしていなくても動かし�
 | `cache purge --handle <handle>` | 1 つの X ハンドルのタイムライン項目を削除する |
 | `--dry-run` | 報告のみ。何も削除しない |
 
-グローバルフラグ: `--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` の既定は Weibo が 9 秒、sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket が 15 秒、X/YouTube が 20 秒、TikTok が 30 秒、Bilibili が 40 秒、Douyin が 45 秒（冷えたブラウザはおよそ 30 秒）、Telegram が 15 秒、Xiaoyuzhou が 15 秒、LINUX DO が 20 秒、Apple Podcasts が 20 秒です。明示した値はすべての provider を上書きしますが、X の 1 回の試行は 25 秒を超えません。stdout にはデータだけ、stderr には JSON のログ行だけが出ます。
+グローバルフラグ: `--json`、`--quiet`、`--timeout`、`--cache-dir`、`--refresh`。`--timeout` の既定は Weibo が 9 秒、sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket が 15 秒、X/YouTube が 20 秒、TikTok が 30 秒、Bilibili が 40 秒、Douyin が 45 秒（冷えたブラウザはおよそ 30 秒）、Telegram が 15 秒、Xiaoyuzhou が 15 秒、Trump's Truth が 15 秒、LINUX DO が 20 秒、Apple Podcasts が 20 秒です。明示した値はすべての provider を上書きしますが、X の 1 回の試行は 25 秒を超えません。stdout にはデータだけ、stderr には JSON のログ行だけが出ます。
 
 ## ドキュメント
 
