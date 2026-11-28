@@ -29,6 +29,7 @@ Bridges content from multiple platforms into RSS — self-hosted, one static bin
 | <img src="docs/assets/telegram.png" width="18" height="18" align="absmiddle" alt="Telegram">&nbsp;Telegram | Public channel posts | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` |
 | <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Show episodes | `/rss/apple/{id}` | `/api/v1/apple?id=` |
 | <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Top shows | `/rss/apple/top` | `/api/v1/apple?chart=top&country=` |
+| <img src="docs/assets/xiaoyuzhou.png" width="18" height="18" align="absmiddle" alt="Xiaoyuzhou">&nbsp;Xiaoyuzhou | Show episodes | `/rss/xiaoyuzhou/{id}` | `/api/v1/xiaoyuzhou?id=` |
 | <img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest | Profile / board pins | `/rss/pinterest/{user}`, `/rss/pinterest/{user}/{board}` | `/api/v1/pinterest?user=&board=` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | New / trending events | `/rss/polymarket/new`, `/rss/polymarket/hot` | `/api/v1/polymarket?feed=new\|hot` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Event odds | `/rss/polymarket/event/{slug}` | `/api/v1/polymarket?feed=event&slug=` |
@@ -101,6 +102,7 @@ curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/apple/1200361736?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/xiaoyuzhou/6021f949a789fca4eff4492c?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
@@ -131,7 +133,7 @@ The unit uses systemd's `%h` / `%C` expansion for the home and cache directories
 | `cache purge --handle <handle>` | Remove one X handle's timeline entries |
 | `--dry-run` | Report only, delete nothing |
 
-Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20s for X/YouTube, 30s for TikTok, 40s for Bilibili, 45s for Douyin (a cold browser takes about half a minute), 15s for Telegram, 20s for LINUX DO and 20s for Apple Podcasts; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
+Global flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` defaults to 9s for Weibo, 15s for sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20s for X/YouTube, 30s for TikTok, 40s for Bilibili, 45s for Douyin (a cold browser takes about half a minute), 15s for Telegram and Xiaoyuzhou, 20s for LINUX DO and 20s for Apple Podcasts; an explicit value overrides every provider, but a single X attempt never exceeds 25s. stdout carries data only; stderr carries JSON log lines.
 
 ## Documentation
 

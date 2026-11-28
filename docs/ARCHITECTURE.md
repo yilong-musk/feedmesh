@@ -95,6 +95,7 @@ internal/polymarket/ Polymarket Gamma API events/odds + Data API v2 wallet activ
 internal/linuxdo/    LINUX DO forum RSS: Discourse feeds behind Cloudflare
 internal/reddit/    Reddit subreddit Atom listing + global rate-limited read slot
 internal/apple/     Apple Podcasts: iTunes Lookup, publisher RSS, top-shows chart
+internal/xiaoyuzhou/ Xiaoyuzhou show page: newest episodes from the public HTML document
 internal/feed/      unified model, RSS rendering, cache orchestration
 internal/cache/     key-per-file cache, TTL, atomic writes
 internal/httpapi/   HTTP routing and error envelope

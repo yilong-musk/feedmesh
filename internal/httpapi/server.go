@@ -102,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/apple/top", s.getOnly(s.handleAppleChart))
 	mux.HandleFunc("/rss/apple/top.xml", s.getOnly(s.handleAppleChart))
 	mux.HandleFunc("/rss/apple/{id}", s.getOnly(s.handleApple))
+	mux.HandleFunc("/rss/xiaoyuzhou/{id}", s.getOnly(s.handleXiaoyuzhou))
 	mux.HandleFunc("/rss/pinterest/{user}", s.getOnly(s.handlePinterest))
 	mux.HandleFunc("/rss/pinterest/{user}/{board}", s.getOnly(s.handlePinterest))
 	mux.HandleFunc("/rss/polymarket/new", s.getOnly(s.handlePolymarketNew))
@@ -135,6 +136,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/bilibili", s.getOnly(s.handleAPIBilibili))
 	mux.HandleFunc("/api/v1/telegram", s.getOnly(s.handleAPITelegram))
 	mux.HandleFunc("/api/v1/apple", s.getOnly(s.handleAPIApple))
+	mux.HandleFunc("/api/v1/xiaoyuzhou", s.getOnly(s.handleAPIXiaoyuzhou))
 	mux.HandleFunc("/api/v1/pinterest", s.getOnly(s.handleAPIPinterest))
 	mux.HandleFunc("/api/v1/polymarket", s.getOnly(s.handleAPIPolymarket))
 	mux.HandleFunc("/api/v1/linuxdo", s.getOnly(s.handleAPILinuxDo))
@@ -814,6 +816,32 @@ func (s *Server) handleAPIApple(w http.ResponseWriter, r *http.Request) {
 		meta = map[string]any{"id": f.UID}
 	}
 	s.serveJSON(w, "apple", f, err, meta)
+}
+
+// ----------------------------------------------------------------- Xiaoyuzhou
+
+// handleXiaoyuzhou renders one Xiaoyuzhou show as RSS.
+func (s *Server) handleXiaoyuzhou(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(r.PathValue("id"), ".xml")
+	limit := limitParam(r, feed.DefaultXiaoyuzhouLimit, feed.MaxXiaoyuzhouLimit)
+	refresh := refreshParam(r)
+
+	f, err := s.cfg.Service.GetXiaoyuzhou(r.Context(), id, limit, refresh)
+	s.serveFeed(w, r, f, err, int(feed.XiaoyuzhouTTL().Seconds()))
+}
+
+// handleAPIXiaoyuzhou returns the same show in the unified JSON envelope.
+func (s *Server) handleAPIXiaoyuzhou(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	limit := limitParam(r, feed.DefaultXiaoyuzhouLimit, feed.MaxXiaoyuzhouLimit)
+	refresh := refreshParam(r)
+
+	f, err := s.cfg.Service.GetXiaoyuzhou(r.Context(), id, limit, refresh)
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"id": f.UID}
+	}
+	s.serveJSON(w, "xiaoyuzhou", f, err, meta)
 }
 
 // ------------------------------------------------------------------- Pinterest

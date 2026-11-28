@@ -1,6 +1,6 @@
 # Supported platforms
 
-**13 platforms and 19 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**14 platforms and 20 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -23,6 +23,7 @@
 | <img src="assets/linuxdo.png" width="20" height="20" align="absmiddle" alt="LINUX DO"> **LINUX DO** | Forum topics | `/rss/linuxdo`<br>`/rss/linuxdo/top`<br>`/rss/linuxdo/hot`<br>`/rss/linuxdo/c/{slug}/{id}`<br>`/rss/linuxdo/tag/{tag}` | `/api/v1/linuxdo?feed=` |
 | <img src="assets/apple.png" width="20" height="20" align="absmiddle" alt="Apple Podcasts"> **Apple Podcasts** | Show episodes | `/rss/apple/{id}` | `/api/v1/apple?id=` |
 | <img src="assets/apple.png" width="20" height="20" align="absmiddle" alt="Apple Podcasts"> **Apple Podcasts** | Top shows | `/rss/apple/top` | `/api/v1/apple?chart=top&country=` |
+| <img src="assets/xiaoyuzhou.png" width="20" height="20" align="absmiddle" alt="Xiaoyuzhou"> **Xiaoyuzhou** | Show episodes | `/rss/xiaoyuzhou/{id}` | `/api/v1/xiaoyuzhou?id=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
@@ -402,6 +403,24 @@ Official site <https://podcasts.apple.com> · Data sources: iTunes Lookup (no ke
 
 - `country` is a two-letter storefront (`us` by default, also `cn`, `jp`, …). The chart has no episode audio: each item is a show, and its `guid` is the Apple show URL, so a rank change does not make readers push the same show again.
 - The upstream chart page is 50 rows. `limit` only trims the answer.
+
+---
+
+## <img src="assets/xiaoyuzhou.png" width="28" height="28" align="absmiddle" alt="Xiaoyuzhou"> Xiaoyuzhou
+
+Official site <https://www.xiaoyuzhoufm.com> · Data source: the public show page (`__NEXT_DATA__`). No account and no API key. The JSON API at `api.xiaoyuzhoufm.com` answers 401 without a login, so it is not used.
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Show episodes | `/rss/xiaoyuzhou/{id}` | `/api/v1/xiaoyuzhou?id=` | 15 | 15 | 30 minutes |
+
+- `{id}` is the 24-character show id from `xiaoyuzhoufm.com/podcast/{id}`. A full podcast URL is accepted. An episode URL is not: episode ids look the same and are not resolved.
+- One show page lists the newest 15 episodes and does not page. Older episodes are not available anonymously.
+- The audio address is on the episode (`media.xyzcdn.net` for shows hosted by Xiaoyuzhou, or the original host when the show is synced from an RSS feed). The page does not say the MIME type; `.m4a` is published as `audio/mp4`, anything else as `audio/mpeg`. `extra.duration` is seconds and `extra.views` is the play counter from the page.
+- The list carries a short description. Full show notes are not in that document, and this provider does not fetch each episode page.
+- Parameters: `limit` 1–15, `refresh=1`.
+- Cache: fresh for 30 minutes; the last good list is kept for six hours.
+- A missing show returns `USER_NOT_FOUND` (404). A malformed id returns `BAD_REQUEST` (400). There is no top-shows chart: the public home page does not list one.
 
 ---
 

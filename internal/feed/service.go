@@ -27,6 +27,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/tiktok"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/xiaoyuzhou"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
 	"github.com/yilong-musk/feedmesh/internal/youtube"
 )
@@ -96,6 +97,12 @@ type AppleCatalog interface {
 	Chart(ctx context.Context, country string, limit int) (*apple.Chart, error)
 }
 
+// XiaoyuzhouCatalog is the provider the Xiaoyuzhou feed needs; tests substitute
+// their own implementation.
+type XiaoyuzhouCatalog interface {
+	Episodes(ctx context.Context, id string, limit int) (*xiaoyuzhou.Show, error)
+}
+
 // Service coordinates the upstream client and the on-disk cache.
 // Clients bundles the upstream providers a Service can serve.
 type Clients struct {
@@ -114,6 +121,7 @@ type Clients struct {
 	Pinterest  *pinterest.Client
 	Polymarket *polymarket.Client
 	Apple      AppleCatalog
+	Xiaoyuzhou XiaoyuzhouCatalog
 }
 
 type Service struct {
