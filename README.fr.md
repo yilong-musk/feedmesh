@@ -27,6 +27,8 @@ Rassemble le contenu de plusieurs plateformes en RSS : auto-hébergé, un seul b
 | <img src="docs/assets/tiktok.png" width="18" height="18" align="absmiddle" alt="TikTok">&nbsp;TikTok | Vidéos d'un créateur | `/rss/tiktok/{handle}` | `/api/v1/tiktok?user=` |
 | <img src="docs/assets/bilibili.png" width="18" height="18" align="absmiddle" alt="Bilibili">&nbsp;Bilibili | Vidéos d'un créateur | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` |
 | <img src="docs/assets/telegram.png" width="18" height="18" align="absmiddle" alt="Telegram">&nbsp;Telegram | Messages d'un canal public | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` |
+| <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Épisodes d'une émission | `/rss/apple/{id}` | `/api/v1/apple?id=` |
+| <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Classement | `/rss/apple/top` | `/api/v1/apple?chart=top&country=` |
 | <img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest | Épingles d'un profil ou d'un tableau | `/rss/pinterest/{user}`, `/rss/pinterest/{user}/{board}` | `/api/v1/pinterest?user=&board=` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Événements nouveaux ou tendance | `/rss/polymarket/new`, `/rss/polymarket/hot` | `/api/v1/polymarket?feed=new\|hot` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Cotes d'un événement | `/rss/polymarket/event/{slug}` | `/api/v1/polymarket?feed=event&slug=` |
@@ -94,6 +96,7 @@ curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/apple/1200361736?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
@@ -124,7 +127,7 @@ L'unité utilise l'expansion `%h` / `%C` de systemd pour les répertoires person
 | `cache purge --handle <handle>` | Supprime les entrées de fil d'un handle X |
 | `--dry-run` | Rapport seulement, ne supprime rien |
 
-Indicateurs globaux : `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` vaut par défaut 9 s pour Weibo, 15 s pour sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20 s pour X/YouTube, 30 s pour TikTok, 40 s pour Bilibili, 45 s pour Douyin (un navigateur à froid prend environ une demi-minute), 15 s pour Telegram et 20 s pour LINUX DO ; une valeur explicite remplace chaque provider, mais une tentative X ne dépasse jamais 25 s. stdout ne porte que les données ; stderr ne porte que des lignes de journal JSON.
+Indicateurs globaux : `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` vaut par défaut 9 s pour Weibo, 15 s pour sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20 s pour X/YouTube, 30 s pour TikTok, 40 s pour Bilibili, 45 s pour Douyin (un navigateur à froid prend environ une demi-minute), 15 s pour Telegram, 20 s pour LINUX DO et 20 s pour Apple Podcasts ; une valeur explicite remplace chaque provider, mais une tentative X ne dépasse jamais 25 s. stdout ne porte que les données ; stderr ne porte que des lignes de journal JSON.
 
 ## Documentation
 

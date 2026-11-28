@@ -27,6 +27,8 @@ Führt Inhalte mehrerer Plattformen zu RSS zusammen — selbst gehostet, ein sta
 | <img src="docs/assets/tiktok.png" width="18" height="18" align="absmiddle" alt="TikTok">&nbsp;TikTok | Videos eines Creators | `/rss/tiktok/{handle}` | `/api/v1/tiktok?user=` |
 | <img src="docs/assets/bilibili.png" width="18" height="18" align="absmiddle" alt="Bilibili">&nbsp;Bilibili | Videos eines Creators | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` |
 | <img src="docs/assets/telegram.png" width="18" height="18" align="absmiddle" alt="Telegram">&nbsp;Telegram | Beiträge eines öffentlichen Kanals | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` |
+| <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Folgen einer Sendung | `/rss/apple/{id}` | `/api/v1/apple?id=` |
+| <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Top-Sendungen | `/rss/apple/top` | `/api/v1/apple?chart=top&country=` |
 | <img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest | Pins eines Profils oder Boards | `/rss/pinterest/{user}`, `/rss/pinterest/{user}/{board}` | `/api/v1/pinterest?user=&board=` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Neue oder trendende Ereignisse | `/rss/polymarket/new`, `/rss/polymarket/hot` | `/api/v1/polymarket?feed=new\|hot` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Quoten eines Ereignisses | `/rss/polymarket/event/{slug}` | `/api/v1/polymarket?feed=event&slug=` |
@@ -93,6 +95,7 @@ curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/apple/1200361736?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
@@ -123,7 +126,7 @@ Die Unit nutzt systemds `%h`- / `%C`-Ersetzung für Home- und Cache-Verzeichnis,
 | `cache purge --handle <handle>` | Entfernt die Timeline-Einträge eines X-Handles |
 | `--dry-run` | Nur melden, nichts löschen |
 
-Globale Flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` ist standardmäßig 9 s für Weibo, 15 s für sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20 s für X/YouTube, 30 s für TikTok, 40 s für Bilibili, 45 s für Douyin (ein kalter Browser braucht etwa eine halbe Minute), 15 s für Telegram und 20 s für LINUX DO; ein gesetzter Wert überschreibt jeden Provider, ein einzelner X-Versuch dauert aber nie länger als 25 s. stdout trägt nur Daten, stderr nur JSON-Logzeilen.
+Globale Flags: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` ist standardmäßig 9 s für Weibo, 15 s für sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20 s für X/YouTube, 30 s für TikTok, 40 s für Bilibili, 45 s für Douyin (ein kalter Browser braucht etwa eine halbe Minute), 15 s für Telegram, 20 s für LINUX DO und 20 s für Apple Podcasts; ein gesetzter Wert überschreibt jeden Provider, ein einzelner X-Versuch dauert aber nie länger als 25 s. stdout trägt nur Daten, stderr nur JSON-Logzeilen.
 
 ## Dokumentation
 

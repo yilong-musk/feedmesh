@@ -99,6 +99,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/rss/tiktok/{user}", s.getOnly(s.handleTikTok))
 	mux.HandleFunc("/rss/bilibili/{mid}", s.getOnly(s.handleBilibili))
 	mux.HandleFunc("/rss/telegram/{channel}", s.getOnly(s.handleTelegram))
+	mux.HandleFunc("/rss/apple/top", s.getOnly(s.handleAppleChart))
+	mux.HandleFunc("/rss/apple/top.xml", s.getOnly(s.handleAppleChart))
+	mux.HandleFunc("/rss/apple/{id}", s.getOnly(s.handleApple))
 	mux.HandleFunc("/rss/pinterest/{user}", s.getOnly(s.handlePinterest))
 	mux.HandleFunc("/rss/pinterest/{user}/{board}", s.getOnly(s.handlePinterest))
 	mux.HandleFunc("/rss/polymarket/new", s.getOnly(s.handlePolymarketNew))
@@ -131,6 +134,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/tiktok/timeline", s.getOnly(s.handleAPITikTokTimeline))
 	mux.HandleFunc("/api/v1/bilibili", s.getOnly(s.handleAPIBilibili))
 	mux.HandleFunc("/api/v1/telegram", s.getOnly(s.handleAPITelegram))
+	mux.HandleFunc("/api/v1/apple", s.getOnly(s.handleAPIApple))
 	mux.HandleFunc("/api/v1/pinterest", s.getOnly(s.handleAPIPinterest))
 	mux.HandleFunc("/api/v1/polymarket", s.getOnly(s.handleAPIPolymarket))
 	mux.HandleFunc("/api/v1/linuxdo", s.getOnly(s.handleAPILinuxDo))
@@ -765,6 +769,51 @@ func (s *Server) handleAPITelegram(w http.ResponseWriter, r *http.Request) {
 		meta = map[string]any{"channel": f.UID}
 	}
 	s.serveJSON(w, "telegram", f, err, meta)
+}
+
+// --------------------------------------------------------------------- Apple
+
+// handleApple renders one Apple Podcasts show as RSS.
+func (s *Server) handleApple(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(r.PathValue("id"), ".xml")
+	limit := limitParam(r, feed.DefaultAppleLimit, feed.MaxAppleLimit)
+	refresh := refreshParam(r)
+
+	f, err := s.cfg.Service.GetApple(r.Context(), id, limit, refresh)
+	s.serveFeed(w, r, f, err, int(feed.AppleTTL().Seconds()))
+}
+
+// handleAppleChart renders one storefront's top shows as RSS.
+func (s *Server) handleAppleChart(w http.ResponseWriter, r *http.Request) {
+	country := r.URL.Query().Get("country")
+	limit := limitParam(r, feed.DefaultAppleLimit, feed.MaxAppleLimit)
+	refresh := refreshParam(r)
+
+	f, err := s.cfg.Service.GetAppleChart(r.Context(), country, limit, refresh)
+	s.serveFeed(w, r, f, err, int(feed.AppleTTL().Seconds()))
+}
+
+// handleAPIApple returns a show or, with chart=top, a top-shows list.
+func (s *Server) handleAPIApple(w http.ResponseWriter, r *http.Request) {
+	limit := limitParam(r, feed.DefaultAppleLimit, feed.MaxAppleLimit)
+	refresh := refreshParam(r)
+	if strings.TrimSpace(r.URL.Query().Get("chart")) == "top" {
+		country := r.URL.Query().Get("country")
+		f, err := s.cfg.Service.GetAppleChart(r.Context(), country, limit, refresh)
+		var meta map[string]any
+		if f != nil {
+			meta = map[string]any{"chart": "top", "country": f.UID}
+		}
+		s.serveJSON(w, "apple", f, err, meta)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	f, err := s.cfg.Service.GetApple(r.Context(), id, limit, refresh)
+	var meta map[string]any
+	if f != nil {
+		meta = map[string]any{"id": f.UID}
+	}
+	s.serveJSON(w, "apple", f, err, meta)
 }
 
 // ------------------------------------------------------------------- Pinterest

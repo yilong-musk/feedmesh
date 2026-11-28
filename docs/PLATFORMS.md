@@ -1,6 +1,6 @@
 # Supported platforms
 
-**12 platforms and 17 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
+**13 platforms and 19 content types** are currently wired up. Each platform below lists the content it supports and the matching endpoints; adding a platform only takes one provider — see the end of this page.
 
 | Platform | Content | RSS | JSON |
 |---|---|---|---|
@@ -21,6 +21,8 @@
 | <img src="assets/bilibili.png" width="20" height="20" align="absmiddle" alt="Bilibili"> **Bilibili** | Creator videos | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` |
 | <img src="assets/telegram.png" width="20" height="20" align="absmiddle" alt="Telegram"> **Telegram** | Public channel posts | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` |
 | <img src="assets/linuxdo.png" width="20" height="20" align="absmiddle" alt="LINUX DO"> **LINUX DO** | Forum topics | `/rss/linuxdo`<br>`/rss/linuxdo/top`<br>`/rss/linuxdo/hot`<br>`/rss/linuxdo/c/{slug}/{id}`<br>`/rss/linuxdo/tag/{tag}` | `/api/v1/linuxdo?feed=` |
+| <img src="assets/apple.png" width="20" height="20" align="absmiddle" alt="Apple Podcasts"> **Apple Podcasts** | Show episodes | `/rss/apple/{id}` | `/api/v1/apple?id=` |
+| <img src="assets/apple.png" width="20" height="20" align="absmiddle" alt="Apple Podcasts"> **Apple Podcasts** | Top shows | `/rss/apple/top` | `/api/v1/apple?chart=top&country=` |
 
 Common parameters: `limit`, `refresh=1` (skip the stale cache and force an upstream fetch, keeping the cache width); the `.xml` suffix on an RSS path is equivalent to no suffix. Full contract: [API.md](API.md).
 
@@ -374,6 +376,32 @@ Official site <https://polymarket.com> · Data source: the public Gamma API (`ga
 - Cache: lists 10 minutes, single event and wallet 5 minutes; last good entry kept for six hours. `refresh=1` forces a read.
 - Errors: unknown event slug → `USER_NOT_FOUND` (404); malformed tag/slug/address → `BAD_REQUEST` (400); upstream rejection → `BAD_REQUEST` or `UPSTREAM_UNAVAILABLE`; `429` → `RATE_LIMITED`.
 - There is no official RSS; the APIs are documented public reads with no key. Rate limits are tiered by Builder status and not published as a fixed number for anonymous reads, so the ten-minute cache is the main protection.
+
+---
+
+## <img src="assets/apple.png" width="28" height="28" align="absmiddle" alt="Apple Podcasts"> Apple Podcasts
+
+Official site <https://podcasts.apple.com> · Data sources: iTunes Lookup (no key) and the publisher's own RSS feed; the chart is Apple's public marketing-tools JSON
+
+| Content | RSS | JSON | Default | Max | Cache |
+|---|---|---|---|---|---|
+| Show episodes | `/rss/apple/{id}` | `/api/v1/apple?id=` | 20 | 50 | 30 minutes |
+| Top shows | `/rss/apple/top` | `/api/v1/apple?chart=top&country=` | 20 | 50 | 30 minutes |
+
+### Show episodes
+
+- `{id}` is the numeric Apple show id (`1200361736`) or a `podcasts.apple.com` URL that contains `/id1200361736`. The JSON route takes it in `id=`.
+- Apple does not host the audio. Lookup returns the publisher `feedUrl`; the provider fetches that RSS and keeps the newest 50 episodes. Show notes stay as the publisher wrote them.
+- The audio file is an `enclosure` (`audio/mpeg`, `audio/mp4`, …) with the publisher's byte length when the feed has one. `extra.duration` is the episode length in seconds.
+- A publisher URL that is not public https (loopback, a private address, or a name that resolves to one) is refused and never fetched.
+- Parameters: `limit` 1–50, `refresh=1`.
+- Cache: fresh for 30 minutes; the last good list is kept for six hours and served with `X-Feedmesh-Degraded: 1` when a read fails.
+- A missing show, or a show with no `feedUrl`, returns `USER_NOT_FOUND` (404). A malformed id returns `BAD_REQUEST` (400). Lookup is documented at about 20 calls a minute; the cache is what keeps a reader poll inside that.
+
+### Top shows
+
+- `country` is a two-letter storefront (`us` by default, also `cn`, `jp`, …). The chart has no episode audio: each item is a show, and its `guid` is the Apple show URL, so a rank change does not make readers push the same show again.
+- The upstream chart page is 50 rows. `limit` only trims the answer.
 
 ---
 
