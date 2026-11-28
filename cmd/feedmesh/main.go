@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/apple"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/cachekey"
@@ -62,6 +63,7 @@ const (
 	defaultLinuxDoTimeout    = 20 * time.Second
 	defaultPinterestTimeout  = 15 * time.Second
 	defaultPolymarketTimeout = 15 * time.Second
+	defaultAppleTimeout      = 20 * time.Second
 	breakerCooloff           = 10 * time.Minute
 )
 
@@ -413,7 +415,8 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 	ld := linuxdo.New(linuxdo.Config{Timeout: to.LinuxDo, Log: logger})
 	pt := pinterest.New(pinterest.Config{Timeout: to.Pinterest})
 	pm := polymarket.New(polymarket.Config{Timeout: to.Polymarket})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk, Bilibili: bl, Telegram: tg, LinuxDo: ld, Pinterest: pt, Polymarket: pm}, c, logger, feed.DefaultTTLs())
+	ap := apple.New(apple.Config{Timeout: to.Apple})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk, Bilibili: bl, Telegram: tg, LinuxDo: ld, Pinterest: pt, Polymarket: pm, Apple: ap}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 
@@ -460,12 +463,13 @@ func providerTimeouts(o *options) providerTimeoutSet {
 		LinuxDo:    pick(defaultLinuxDoTimeout, 20*time.Second, 0),
 		Pinterest:  pick(defaultPinterestTimeout, 0, 0),
 		Polymarket: pick(defaultPolymarketTimeout, 0, 0),
+		Apple:      pick(defaultAppleTimeout, 0, 0),
 	}
 }
 
 // providerTimeoutSet is the resolved request timeout of every provider.
 type providerTimeoutSet struct {
-	Sspai, V2ex, X, Smzdm, YouTube, Reddit, Douyin, TikTok, Bilibili, Telegram, LinuxDo, Pinterest, Polymarket time.Duration
+	Sspai, V2ex, X, Smzdm, YouTube, Reddit, Douyin, TikTok, Bilibili, Telegram, LinuxDo, Pinterest, Polymarket, Apple time.Duration
 }
 
 func exitCodeFor(code string) int {

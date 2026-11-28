@@ -344,13 +344,33 @@ func RenderRSS(f *Feed) []byte {
 			}
 		}
 		if it.Video != nil && it.Video.URL != "" {
+			mime := it.Video.MIME
+			if mime == "" {
+				mime = "video/mp4"
+			}
+			medium := "video"
+			if strings.HasPrefix(mime, "audio/") {
+				medium = "audio"
+			}
+			length := "0"
+			if it.Video.Bytes > 0 {
+				length = strconv.FormatInt(it.Video.Bytes, 10)
+			}
 			video := EscapeXML(it.Video.URL)
 			b.WriteString(`      <enclosure url="`)
 			b.WriteString(video)
-			b.WriteString(`" type="video/mp4" length="0" />` + "\n")
+			b.WriteString(`" type="`)
+			b.WriteString(EscapeXML(mime))
+			b.WriteString(`" length="`)
+			b.WriteString(length)
+			b.WriteString("\" />\n")
 			b.WriteString(`      <media:content url="`)
 			b.WriteString(video)
-			b.WriteString(`" medium="video" type="video/mp4"`)
+			b.WriteString(`" medium="`)
+			b.WriteString(medium)
+			b.WriteString(`" type="`)
+			b.WriteString(EscapeXML(mime))
+			b.WriteString(`"`)
 			if it.Video.DurationMS > 0 {
 				b.WriteString(` duration="`)
 				b.WriteString(strconv.Itoa(it.Video.DurationMS / 1000))

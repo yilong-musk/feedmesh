@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yilong-musk/feedmesh/internal/apperr"
+	"github.com/yilong-musk/feedmesh/internal/apple"
 	"github.com/yilong-musk/feedmesh/internal/bilibili"
 	"github.com/yilong-musk/feedmesh/internal/cache"
 	"github.com/yilong-musk/feedmesh/internal/cachekey"
@@ -88,6 +89,13 @@ type LinuxDoFeed interface {
 	Budget() time.Duration
 }
 
+// AppleCatalog is the provider the Apple Podcasts feeds need; tests substitute
+// their own implementation.
+type AppleCatalog interface {
+	Episodes(ctx context.Context, id string, limit int) (*apple.Show, error)
+	Chart(ctx context.Context, country string, limit int) (*apple.Chart, error)
+}
+
 // Service coordinates the upstream client and the on-disk cache.
 // Clients bundles the upstream providers a Service can serve.
 type Clients struct {
@@ -105,6 +113,7 @@ type Clients struct {
 	LinuxDo    LinuxDoFeed
 	Pinterest  *pinterest.Client
 	Polymarket *polymarket.Client
+	Apple      AppleCatalog
 }
 
 type Service struct {

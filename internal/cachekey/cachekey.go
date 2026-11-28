@@ -41,6 +41,7 @@ var (
 	Bilibili   = register("bilibili")
 	Pinterest  = register("pinterest")
 	Polymarket = register("polymarket")
+	Apple      = register("apple")
 )
 
 // All returns every registered namespace.

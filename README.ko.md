@@ -30,6 +30,8 @@
     <tr><td><img src="docs/assets/tiktok.png" width="18" height="18" align="absmiddle" alt="TikTok">&nbsp;TikTok</td><td>크리에이터 동영상</td><td><code>/rss/tiktok/{handle}</code></td><td><code>/api/v1/tiktok?user=</code></td></tr>
     <tr><td><img src="docs/assets/bilibili.png" width="18" height="18" align="absmiddle" alt="Bilibili">&nbsp;Bilibili</td><td>업로더 동영상</td><td><code>/rss/bilibili/{mid}</code></td><td><code>/api/v1/bilibili?user=</code></td></tr>
     <tr><td><img src="docs/assets/telegram.png" width="18" height="18" align="absmiddle" alt="Telegram">&nbsp;Telegram</td><td>공개 채널 글</td><td><code>/rss/telegram/{channel}</code></td><td><code>/api/v1/telegram?channel=</code></td></tr>
+    <tr><td><img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts</td><td>프로그램 에피소드</td><td><code>/rss/apple/{id}</code></td><td><code>/api/v1/apple?id=</code></td></tr>
+    <tr><td><img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts</td><td>인기 차트</td><td><code>/rss/apple/top</code></td><td><code>/api/v1/apple?chart=top&country=</code></td></tr>
     <tr><td><img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest</td><td>프로필 / 보드 pin</td><td><code>/rss/pinterest/{user}</code>, <code>/rss/pinterest/{user}/{board}</code></td><td><code>/api/v1/pinterest?user=&amp;board=</code></td></tr>
     <tr><td><img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket</td><td>신규 / 인기 이벤트</td><td><code>/rss/polymarket/new</code>, <code>/rss/polymarket/hot</code></td><td><code>/api/v1/polymarket?feed=new|hot</code></td></tr>
     <tr><td><img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket</td><td>이벤트 배당</td><td><code>/rss/polymarket/event/{slug}</code></td><td><code>/api/v1/polymarket?feed=event&amp;slug=</code></td></tr>
@@ -98,6 +100,7 @@ curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/apple/1200361736?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
@@ -128,7 +131,7 @@ loginctl enable-linger "$USER"     # 로그인 세션 없이도 유지
 | `cache purge --handle <handle>` | X 핸들 하나의 타임라인 항목을 지웁니다 |
 | `--dry-run` | 보고만 하고 지우지 않습니다 |
 
-전역 플래그: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` 기본값은 Weibo 9초, sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket 15초, X/YouTube 20초, TikTok 30초, Bilibili 40초, Douyin 45초(차가운 브라우저는 약 30초), Telegram 15초, LINUX DO 20초입니다. 값을 직접 주면 모든 provider를 덮어쓰지만, X의 한 시도는 25초를 넘지 않습니다. stdout에는 데이터만, stderr에는 JSON 로그 줄만 나갑니다.
+전역 플래그: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` 기본값은 Weibo 9초, sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket 15초, X/YouTube 20초, TikTok 30초, Bilibili 40초, Douyin 45초(차가운 브라우저는 약 30초), Telegram 15초, LINUX DO 20초, Apple Podcasts 20초입니다. 값을 직접 주면 모든 provider를 덮어쓰지만, X의 한 시도는 25초를 넘지 않습니다. stdout에는 데이터만, stderr에는 JSON 로그 줄만 나갑니다.
 
 ## 문서
 

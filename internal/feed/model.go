@@ -11,6 +11,8 @@ type Video struct {
 	URL        string `json:"url,omitempty"`
 	Thumbnail  string `json:"thumbnail,omitempty"`
 	DurationMS int    `json:"duration_ms,omitempty"`
+	MIME       string `json:"mime,omitempty"`
+	Bytes      int64  `json:"bytes,omitempty"`
 	Views      int64  `json:"views,omitempty"`
 }
 

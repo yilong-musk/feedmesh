@@ -27,6 +27,8 @@
 | <img src="docs/assets/tiktok.png" width="18" height="18" align="absmiddle" alt="TikTok">&nbsp;TikTok | Видео автора | `/rss/tiktok/{handle}` | `/api/v1/tiktok?user=` |
 | <img src="docs/assets/bilibili.png" width="18" height="18" align="absmiddle" alt="Bilibili">&nbsp;Bilibili | Видео автора | `/rss/bilibili/{mid}` | `/api/v1/bilibili?user=` |
 | <img src="docs/assets/telegram.png" width="18" height="18" align="absmiddle" alt="Telegram">&nbsp;Telegram | Посты публичного канала | `/rss/telegram/{channel}` | `/api/v1/telegram?channel=` |
+| <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Выпуски передачи | `/rss/apple/{id}` | `/api/v1/apple?id=` |
+| <img src="docs/assets/apple.png" width="18" height="18" align="absmiddle" alt="Apple Podcasts">&nbsp;Apple Podcasts | Чарт | `/rss/apple/top` | `/api/v1/apple?chart=top&country=` |
 | <img src="docs/assets/pinterest.png" width="18" height="18" align="absmiddle" alt="Pinterest">&nbsp;Pinterest | Пины профиля или доски | `/rss/pinterest/{user}`, `/rss/pinterest/{user}/{board}` | `/api/v1/pinterest?user=&board=` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Новые или трендовые события | `/rss/polymarket/new`, `/rss/polymarket/hot` | `/api/v1/polymarket?feed=new\|hot` |
 | <img src="docs/assets/polymarket.png" width="18" height="18" align="absmiddle" alt="Polymarket">&nbsp;Polymarket | Коэффициенты события | `/rss/polymarket/event/{slug}` | `/api/v1/polymarket?feed=event&slug=` |
@@ -93,6 +95,7 @@ curl -s 'http://127.0.0.1:3000/rss/v2ex/hot?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/tiktok/nasa?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/bilibili/946974?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/telegram/sspai?limit=5'
+curl -s 'http://127.0.0.1:3000/rss/apple/1200361736?limit=5'
 curl -s 'http://127.0.0.1:3000/rss/linuxdo?limit=5'
 curl -s 'http://127.0.0.1:3000/healthz' | jq
 ```
@@ -123,7 +126,7 @@ loginctl enable-linger "$USER"     # работает без активного 
 | `cache purge --handle <handle>` | Удаляет записи ленты одного handle X |
 | `--dry-run` | Только отчёт, ничего не удаляет |
 
-Глобальные флаги: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` по умолчанию 9 с для Weibo, 15 с для sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20 с для X/YouTube, 30 с для TikTok, 40 с для Bilibili, 45 с для Douyin (холодный браузер занимает около полуминуты), 15 с для Telegram и 20 с для LINUX DO; явное значение перекрывает каждый provider, но одна попытка X не длится дольше 25 с. stdout несёт только данные, stderr — только строки JSON-журнала.
+Глобальные флаги: `--json`, `--quiet`, `--timeout`, `--cache-dir`, `--refresh`. `--timeout` по умолчанию 9 с для Weibo, 15 с для sspai/V2EX/SMZDM/Reddit/Pinterest/Polymarket, 20 с для X/YouTube, 30 с для TikTok, 40 с для Bilibili, 45 с для Douyin (холодный браузер занимает около полуминуты), 15 с для Telegram, 20 с для LINUX DO и 20 с для Apple Podcasts; явное значение перекрывает каждый provider, но одна попытка X не длится дольше 25 с. stdout несёт только данные, stderr — только строки JSON-журнала.
 
 ## Документация
 
