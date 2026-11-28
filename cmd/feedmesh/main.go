@@ -42,6 +42,7 @@ import (
 	"github.com/yilong-musk/feedmesh/internal/tiktok"
 	"github.com/yilong-musk/feedmesh/internal/v2ex"
 	"github.com/yilong-musk/feedmesh/internal/weibo"
+	"github.com/yilong-musk/feedmesh/internal/xiaoyuzhou"
 	"github.com/yilong-musk/feedmesh/internal/xnitter"
 	"github.com/yilong-musk/feedmesh/internal/youtube"
 )
@@ -64,6 +65,7 @@ const (
 	defaultPinterestTimeout  = 15 * time.Second
 	defaultPolymarketTimeout = 15 * time.Second
 	defaultAppleTimeout      = 20 * time.Second
+	defaultXiaoyuzhouTimeout = 15 * time.Second
 	breakerCooloff           = 10 * time.Minute
 )
 
@@ -416,7 +418,8 @@ func newService(o *options, logger *logx.Logger) (*feed.Service, *cache.Cache, *
 	pt := pinterest.New(pinterest.Config{Timeout: to.Pinterest})
 	pm := polymarket.New(polymarket.Config{Timeout: to.Polymarket})
 	ap := apple.New(apple.Config{Timeout: to.Apple})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk, Bilibili: bl, Telegram: tg, LinuxDo: ld, Pinterest: pt, Polymarket: pm, Apple: ap}, c, logger, feed.DefaultTTLs())
+	xy := xiaoyuzhou.New(xiaoyuzhou.Config{Timeout: to.Xiaoyuzhou})
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: sz, Youtube: yt, Reddit: rd, Douyin: dy, TikTok: tk, Bilibili: bl, Telegram: tg, LinuxDo: ld, Pinterest: pt, Polymarket: pm, Apple: ap, Xiaoyuzhou: xy}, c, logger, feed.DefaultTTLs())
 	return svc, c, client, breaker, nil
 }
 
@@ -464,12 +467,13 @@ func providerTimeouts(o *options) providerTimeoutSet {
 		Pinterest:  pick(defaultPinterestTimeout, 0, 0),
 		Polymarket: pick(defaultPolymarketTimeout, 0, 0),
 		Apple:      pick(defaultAppleTimeout, 0, 0),
+		Xiaoyuzhou: pick(defaultXiaoyuzhouTimeout, 0, 0),
 	}
 }
 
 // providerTimeoutSet is the resolved request timeout of every provider.
 type providerTimeoutSet struct {
-	Sspai, V2ex, X, Smzdm, YouTube, Reddit, Douyin, TikTok, Bilibili, Telegram, LinuxDo, Pinterest, Polymarket, Apple time.Duration
+	Sspai, V2ex, X, Smzdm, YouTube, Reddit, Douyin, TikTok, Bilibili, Telegram, LinuxDo, Pinterest, Polymarket, Apple, Xiaoyuzhou time.Duration
 }
 
 func exitCodeFor(code string) int {

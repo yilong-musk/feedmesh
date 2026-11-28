@@ -246,6 +246,20 @@ curl -s 'http://127.0.0.1:3000/rss/apple/top?country=us&limit=10'
 - A chart item's `guid` is the Apple show URL, so a rank change does not republish the show. The chart has no audio.
 - A publisher feed URL that is not public https is refused. A missing show returns `USER_NOT_FOUND` (404); a malformed id or country returns `BAD_REQUEST` (400); `429` from Apple returns `RATE_LIMITED`.
 
+### `GET /rss/xiaoyuzhou/{id}`
+
+One Xiaoyuzhou show, read from the public show page. No account or API key. The authenticated JSON API is not used.
+
+```bash
+curl -s 'http://127.0.0.1:3000/rss/xiaoyuzhou/6021f949a789fca4eff4492c?limit=10'
+```
+
+- `{id}` is the 24-character id in `xiaoyuzhoufm.com/podcast/{id}`, or that URL. Episode URLs are rejected.
+- 15 items by default and at most 15: the page does not list older episodes.
+- Cached for 30 minutes, `Cache-Control: max-age=1800`; the last good list is kept for six hours.
+- `link`/`guid` is `https://www.xiaoyuzhoufm.com/episode/<eid>`. The audio is an `enclosure`. `extra.duration` is seconds; `extra.views` is the play count on the page.
+- A missing show returns `USER_NOT_FOUND` (404); a malformed id returns `BAD_REQUEST` (400).
+
 ### `GET /rss/pinterest/{user}`, `/rss/pinterest/{user}/{board}`
 
 Pinterest profile or board pins, read from Pinterest's public RSS feeds. No account, cookie, token or browser is involved: both the profile feed (`/<user>/feed.rss`) and a board feed (`/<user>/<board>.rss`) are served anonymously.
@@ -402,6 +416,7 @@ Every `/api/v1/*` feed endpoint (except the two downloader-specific `/timeline` 
 | `GET /api/v1/telegram?channel=<channel>&limit=N` | `telegram` | `{"channel"}` | `video.thumbnail` (on video posts); `extra: {"views"}` |
 | `GET /api/v1/apple?id=<id>&limit=N` | `apple` | `{"id"}` | `video: {"url","mime","bytes","duration_ms"}`; `extra: {"duration"}` (seconds) |
 | `GET /api/v1/apple?chart=top&country=<cc>&limit=N` | `apple` | `{"chart","country"}` | — |
+| `GET /api/v1/xiaoyuzhou?id=<id>&limit=N` | `xiaoyuzhou` | `{"id"}` | `video: {"url","mime","duration_ms"}`; `extra: {"duration","views"}` |
 | `GET /api/v1/pinterest?user=<user>&board=<board>&limit=N` | `pinterest` | `{"user","board"?}` | — |
 | `GET /api/v1/polymarket?feed=new\|hot\|event\|user` | `polymarket` | `{"feed","tag"?,"slug"?,"address"?}` | `extra: {"volume_24h","liquidity","ends_at"}` (omitted on wallet `user` activity) |
 | `GET /api/v1/linuxdo?feed=<kind>&limit=N` | `linuxdo` | `{"feed"}` | `extra: {"category","pinned","closed","archived"}` |
@@ -509,13 +524,14 @@ A single envelope, the matching HTTP status code, and the `X-Feedmesh-Code` head
 | Telegram channel | `telegram:channel:<name>` | 10 minutes (last good kept for 6 hours) |
 | Apple Podcasts show | `apple:show:<id>` | 30 minutes (last good kept for 6 hours) |
 | Apple Podcasts chart | `apple:chart:<country>` | 30 minutes (last good kept for 6 hours) |
+| Xiaoyuzhou show | `xiaoyuzhou:show:<id>` | 30 minutes (last good kept for 6 hours) |
 | LINUX DO feed | `linuxdo:feed:<kind>:<params>` | 15 minutes (last good kept for 24 hours) |
 | Pinterest profile / board | `pinterest:user:<user>` / `pinterest:board:<user>/<board>` | 10 minutes (last good kept for 6 hours) |
 | Polymarket event list | `polymarket:events:<order>:<tag>` | 10 minutes (last good kept for 6 hours) |
 | Polymarket single event | `polymarket:event:<slug>` | 5 minutes (last good kept for 6 hours) |
 | Polymarket wallet activity | `polymarket:activity:<address>` | 5 minutes (last good kept for 6 hours) |
 
-- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili, Telegram, Pinterest, Polymarket, LINUX DO, Reddit and Apple Podcasts.
+- **Last good copy**: every entry is stored for at least 6 hours (a provider whose freshness TTL is longer keeps it longer; the hot-search ranking keeps its copy for one hour); the TTL above only decides when the entry stops counting as *fresh*. When an upstream read fails, the last stored value inside that window is served with a normal 200, `X-Feedmesh-Degraded: 1` and `Cache-Control: max-age=60`, so a reader keeps polling instead of marking the feed broken; the next successful read replaces it, and a key that just failed is not retried for 60 seconds (the last good copy is served straight away instead). Every JSON response carries a `degraded` field that is true when that copy is served. A list served this way may be narrower than the requested `limit` (it has whatever width the last good entry had). With nothing cached the route still returns `UPSTREAM_UNAVAILABLE` (504). This covers the Weibo timeline, profile, hot search, sspai, V2EX, SMZDM (including category pages), X, YouTube, Douyin, TikTok, Bilibili, Telegram, Pinterest, Polymarket, LINUX DO, Reddit, Apple Podcasts and Xiaoyuzhou.
 - `refresh=1` skips reading the stale value and overwrites the cache on write-back; to keep the cache width it reads the width of the old entry. Both the RSS and the JSON endpoints support it.
 - Cache entries record their width from the `limit` of the request, and neither a normal request nor `refresh=1` truncates a wider cache with a smaller `limit` (the entry is widened by fetching upstream as needed).
 - Cache directory: `--cache-dir` / `FEEDMESH_CACHE`, default `~/.cache/feedmesh`; one JSON file per key, written atomically. The directory mode is 0700 and the file mode 0600; expired entries are cleaned at startup. `cache purge --all` deletes only entries it can verify were written by feedmesh (it checks the `key` inside the entry against the file name) and leaves other `.json` files in the same directory alone.

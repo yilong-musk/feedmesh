@@ -42,6 +42,7 @@ var (
 	Pinterest  = register("pinterest")
 	Polymarket = register("polymarket")
 	Apple      = register("apple")
+	Xiaoyuzhou = register("xiaoyuzhou")
 )
 
 // All returns every registered namespace.

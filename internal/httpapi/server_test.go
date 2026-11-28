@@ -245,7 +245,7 @@ func newTestServer(t *testing.T) http.Handler {
 		// Tests never reach the real embed endpoint.
 		DisableEnrichment: true,
 	})
-	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond}), Douyin: fakeDouyin{}, TikTok: fakeTikTok{}, Bilibili: fakeBilibili{}, Telegram: fakeTelegram{}, LinuxDo: fakeLinuxDo{}, Pinterest: pinterest.New(pinterest.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Polymarket: polymarket.New(polymarket.Config{BaseURL: upstream.URL, DataURL: upstream.URL + "/v2", Timeout: 2 * time.Second}), Apple: fakeApple{}}, c, logx.Discard(), feed.DefaultTTLs())
+	svc := feed.NewService(feed.Clients{Weibo: client, Sspai: sp, V2ex: vx, X: xn, Smzdm: smzdm.New(smzdm.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Youtube: youtube.New(youtube.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second, RetryDelay: time.Millisecond}), Douyin: fakeDouyin{}, TikTok: fakeTikTok{}, Bilibili: fakeBilibili{}, Telegram: fakeTelegram{}, LinuxDo: fakeLinuxDo{}, Pinterest: pinterest.New(pinterest.Config{BaseURL: upstream.URL, Timeout: 2 * time.Second}), Polymarket: polymarket.New(polymarket.Config{BaseURL: upstream.URL, DataURL: upstream.URL + "/v2", Timeout: 2 * time.Second}), Apple: fakeApple{}, Xiaoyuzhou: fakeXiaoyuzhou{}}, c, logx.Discard(), feed.DefaultTTLs())
 	api := httpapi.New(httpapi.Config{
 		Version: "test",
 		Service: svc,
